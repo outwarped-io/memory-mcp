@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+scrape_configs:
+  - job_name: memory-mcp-server
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['server:8080']    # docker-compose service name; /metrics binds 8080 inside the container

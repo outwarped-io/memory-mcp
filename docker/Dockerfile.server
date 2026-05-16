@@ -1,0 +1,34 @@
+# memory-mcp server image
+# Multi-stage: 'base' has the deps, 'dev' adds editable install + dev tools, 'final' is a clean runtime.
+
+FROM python:3.12-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml README.md alembic.ini /app/
+COPY src /app/src
+COPY migrations /app/migrations
+COPY schemas /app/schemas
+
+RUN pip install --upgrade pip && pip install ./schemas && pip install .
+
+# --- dev stage: editable install + dev tools, hot-reload friendly ---------
+FROM base AS dev
+RUN pip install -e ".[dev,test]"
+EXPOSE 8080
+CMD ["sh", "-c", "alembic upgrade head && uvicorn memory_mcp.server:app --host 0.0.0.0 --port 8080 --reload"]
+
+# --- final stage: minimal runtime -----------------------------------------
+FROM base AS final
+EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
+    CMD curl -fsS http://localhost:8080/healthz || exit 1
+CMD ["sh", "-c", "alembic upgrade head && memory-mcp-server"]

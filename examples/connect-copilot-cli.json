@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/copilot-mcp",
+  "_comment": "v1 (local-only): no auth. Drop this snippet into your Copilot CLI mcp.json under 'mcpServers' / 'servers'. Replace the URL if you've moved the server off localhost. Pass an X-Agent-Id header (any UUIDv4) so writes are attributable across sessions.",
+  "mcpServers": {
+    "memory": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp",
+      "headers": {
+        "X-Agent-Id": "${env:MEMORY_MCP_AGENT_ID}",
+        "X-Agent-Name": "${env:MEMORY_MCP_AGENT_NAME}"
+      }
+    }
+  }
+}

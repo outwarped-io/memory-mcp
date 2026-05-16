@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memory-mcp-schemas"
+version = "0.13.0"
+description = "Pydantic request/response models and enums shared by the memory-mcp server and Python client SDK."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "outwarped-io contributors" }]
+dependencies = [
+  "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.5",
+  "mypy>=1.10",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memory_mcp_schemas"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

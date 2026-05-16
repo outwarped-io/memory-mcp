@@ -1,0 +1,21 @@
+name: memory-mcp
+
+services:
+  server:
+    build:
+      target: dev
+    volumes:
+      - ./src:/app/src
+      - ./migrations:/app/migrations
+      - ./pyproject.toml:/app/pyproject.toml
+    command: ["sh", "-c", "alembic upgrade head && memory-mcp-server"]
+
+  projection-worker:
+    volumes:
+      - ./src:/app/src
+    command: ["python", "-m", "projection_worker.runner"]
+
+  dream-worker:
+    volumes:
+      - ./src:/app/src
+    command: ["python", "-m", "dream_worker.runner"]

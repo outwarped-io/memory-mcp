@@ -1,0 +1,93 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memory-mcp"
+version = "0.13.0"
+description = "Shared cross-session memory MCP server backed by Postgres + Qdrant + Neo4j"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "outwarped-io contributors" }]
+dependencies = [
+  "mcp>=1.2.0",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.4",
+  "asyncpg>=0.29",
+  "sqlalchemy[asyncio]>=2.0",
+  "alembic>=1.13",
+  # alembic uses sqlalchemy's *sync* engine; the app itself uses asyncpg.
+  # Required at runtime when the server entrypoint runs ``alembic upgrade head``.
+  "psycopg2-binary>=2.9",
+  "qdrant-client>=1.10",
+  "neo4j>=5.20",
+  "sentence-transformers>=3.0",
+  "apscheduler>=3.10",
+  "structlog>=24.1",
+  "prometheus-client>=0.20",
+  "opentelemetry-api>=1.25",
+  "opentelemetry-sdk>=1.25",
+  "opentelemetry-exporter-otlp>=1.25",
+  "tenacity>=8.4",
+  "argon2-cffi>=23.1",
+  "spacy>=3.7",
+  "httpx>=0.27",
+  "typer>=0.12",
+  "memory-mcp-schemas",
+]
+
+[tool.uv.sources]
+memory-mcp-schemas = { path = "schemas", editable = true }
+
+[project.optional-dependencies]
+azure = [
+  "openai>=1.30",
+  "azure-identity>=1.17",
+]
+dev = [
+  "ruff>=0.5",
+  "mypy>=1.10",
+]
+test = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+  "testcontainers[postgres]>=4.7",
+  "httpx>=0.27",
+]
+
+[project.scripts]
+memory-mcp-server = "memory_mcp.server:main"
+memory-mcp-projection-worker = "projection_worker.runner:main"
+memory-mcp-dream-worker = "dream_worker.runner:main"
+memory-mcp-admin = "memory_mcp.cli.admin:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/memory_mcp", "src/projection_worker", "src/dream_worker"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+# ORM column definitions are mechanical and easier to read on a single line
+# than wrapped. Cap is still effectively ~140 in practice.
+"src/memory_mcp/db/models.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src", "schemas/src"]
+markers = [
+  "integration: tests that require external services such as Docker/Postgres",
+]

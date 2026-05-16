@@ -1,0 +1,15 @@
+{
+  "_comment": "v1 (local-only): no auth. Drop into your Claude Desktop config under 'mcpServers'. The X-Agent-Id is any stable UUIDv4 — used for write attribution across sessions.",
+  "mcpServers": {
+    "memory": {
+      "transport": {
+        "type": "http",
+        "url": "http://localhost:8080/mcp",
+        "headers": {
+          "X-Agent-Id": "00000000-0000-4000-8000-000000000001",
+          "X-Agent-Name": "claude-desktop"
+        }
+      }
+    }
+  }
+}

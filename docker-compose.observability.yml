@@ -1,0 +1,41 @@
+# Note: project name inherits from docker-compose.yml (memory-mcp).
+# Do NOT set `name:` here — it would override the parent compose's project
+# name and would conflict with dev-host stacks that started before this
+# override existed (those stacks carry `com.docker.compose.project=memory-mcp`
+# labels). When attaching observability to an existing stack, always pass
+# `-p <project>` explicitly via the compose CLI.
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/usr/share/prometheus/console_libraries
+      - --web.console.templates=/usr/share/prometheus/consoles
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:10.4.8
+    profiles: ["observability"]
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+
+volumes:
+  prometheus-data:
+  grafana-data:

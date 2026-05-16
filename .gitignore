@@ -1,0 +1,45 @@
+# Generic Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+.envrc
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Editors / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Alembic local cache
+*.sqlite
+*.db
+
+# Docker / runtime artifacts
+.docker/
+docker-compose.override.yml
+
+# Local dev-only smoke scripts and experimental dumps (referenced via
+# README "Operator runbook"; kept out of the published tree because they
+# depend on the dev compose project / network names).
+.tmp/
+.tmp_*
+
+# Secrets
+secrets/
+*.token

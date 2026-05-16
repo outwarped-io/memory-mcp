@@ -1,0 +1,177 @@
+name: memory-mcp
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-memory}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-memory}
+      POSTGRES_DB: ${POSTGRES_DB:-memory}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-memory} -d ${POSTGRES_DB:-memory}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.11.3
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5.22-community
+    environment:
+      NEO4J_AUTH: ${NEO4J_AUTH:-neo4j/memorymemory}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_PORT:-7687}:7687"
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  # Optional Ollama sidecar for LLM-driven dream summarization.
+  # Bring up with: ``docker compose --profile llm up``.
+  # Without the profile, the dream-worker defaults to LLM_BACKEND=null and
+  # DREAM_SUMMARIZER=template — fully functional, no LLM dependency.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["llm"]
+    volumes:
+      - ollama-data:/root/.ollama
+    # Internal-only by default — reviewers debugging Ollama directly can
+    # uncomment the ports section below. v1 has no auth on Ollama either.
+    # ports:
+    #   - "127.0.0.1:11434:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  server:
+    image: memory-mcp/server:${MEMORY_MCP_IMAGE_TAG:-dev}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    environment:
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://memory:memory@postgres:5432/memory}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      NEO4J_URL: ${NEO4J_URL:-bolt://neo4j:7687}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-memorymemory}
+      EMBEDDER: ${EMBEDDER:-local}
+      EMBEDDING_MODEL_ID: ${EMBEDDING_MODEL_ID:-all-MiniLM-L6-v2}
+      VECTOR_BACKEND: ${VECTOR_BACKEND:-qdrant}
+      GRAPH_BACKEND: ${GRAPH_BACKEND:-neo4j}
+      # LLM (Phase 2.2): defaults to disabled. With ``--profile llm`` the
+      # dream-worker can be pointed at the sibling ``ollama`` service by
+      # setting LLM_BACKEND=ollama and LLM_BASE_URL=http://ollama:11434.
+      LLM_BACKEND: ${LLM_BACKEND:-null}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL_ID: ${LLM_MODEL_ID:-llama3.2:3b}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+      DREAM_SUMMARIZER: ${DREAM_SUMMARIZER:-llm}
+      # Container always binds 8080 internally — host-side port is the knob.
+      MCP_HTTP_PORT: "8080"
+      # Inside the container the server must listen on 0.0.0.0 so port
+      # publishing works; loopback-only safety is enforced on the *host*
+      # side by the loopback bind in ``ports`` below.
+      MCP_HTTP_HOST: ${MCP_HTTP_HOST:-0.0.0.0}
+      # v1 default-agent state — persists on a named volume so restarts
+      # don't orphan memories under a freshly generated default agent id.
+      LOCAL_DEFAULT_AGENT_FILE: /var/lib/memory-mcp/default-agent.json
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - memory-mcp-state:/var/lib/memory-mcp
+    ports:
+      # v1 = local-only: bind to host loopback only. To expose remotely set
+      # ``MCP_HTTP_BIND=0.0.0.0`` AFTER understanding that v1 has no auth.
+      # ``MEMORY_MCP_HOST_PORT`` is the host-side port — defaults to 8080;
+      # change it when running two memory-mcp stacks on the same host.
+      - "${MCP_HTTP_BIND:-127.0.0.1}:${MEMORY_MCP_HOST_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/healthz', timeout=3).status == 200 else 1)\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  projection-worker:
+    image: memory-mcp/projection-worker:${MEMORY_MCP_IMAGE_TAG:-dev}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.projection-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    environment:
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://memory:memory@postgres:5432/memory}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      NEO4J_URL: ${NEO4J_URL:-bolt://neo4j:7687}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-memorymemory}
+      VECTOR_BACKEND: ${VECTOR_BACKEND:-qdrant}
+      GRAPH_BACKEND: ${GRAPH_BACKEND:-neo4j}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+  dream-worker:
+    image: memory-mcp/dream-worker:${MEMORY_MCP_IMAGE_TAG:-dev}
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dream-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    environment:
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://memory:memory@postgres:5432/memory}
+      EMBEDDER: ${EMBEDDER:-local}
+      EMBEDDING_MODEL_ID: ${EMBEDDING_MODEL_ID:-all-MiniLM-L6-v2}
+      LLM_BACKEND: ${LLM_BACKEND:-null}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL_ID: ${LLM_MODEL_ID:-llama3.2:3b}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+      DREAM_SUMMARIZER: ${DREAM_SUMMARIZER:-llm}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+volumes:
+  postgres-data:
+  qdrant-data:
+  neo4j-data:
+  memory-mcp-state:
+  ollama-data:

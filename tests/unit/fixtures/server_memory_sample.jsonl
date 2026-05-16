@@ -1,0 +1,7 @@
+{"type":"entity","name":"John_Smith","entityType":"person","observations":["Speaks fluent Spanish","Graduated in 2019"]}
+
+// {"type":"entity","name":"Ignored","entityType":"person","observations":["Ignored"]}
+{"type":"entity","name":"Anthropic","entityType":"organization","observations":["Builds AI assistants","Has a long observation that should be truncated by the importer title heuristic because it exceeds sixty characters."]}
+{"type":"relation","from":"John_Smith","to":"Anthropic","relationType":"works_at"}
+{"type":"entity","name":"MCP_Summit_2026","entityType":"event","observations":["Hosted a memory interoperability session"]}
+{"type":"relation","from":"John_Smith","to":"MCP_Summit_2026","relationType":"attended"}

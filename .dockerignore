@@ -1,0 +1,53 @@
+# Keep build context small. Mirrors .gitignore intent for build-time artefacts.
+
+# Version control
+.git
+.gitignore
+
+# Python build / cache
+__pycache__
+*.py[cod]
+*$py.class
+*.egg-info
+.eggs
+build
+dist
+.venv
+venv
+
+# Test / lint / type caches
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov
+.tox
+.mypy_cache
+.ruff_cache
+
+# Editors / IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Local env / secrets
+.env
+.envrc
+secrets
+*.token
+*.pem
+
+# Docker / runtime artefacts that don't belong in image
+.docker
+docker-compose.override.yml
+
+# Local databases
+*.sqlite
+*.db
+
+# Logs
+*.log
+
+# Documentation builds and operator-only metadata that bloat the image
+docs/_build
+node_modules
