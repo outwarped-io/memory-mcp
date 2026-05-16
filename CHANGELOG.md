@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+## [0.13.1] — 2026-05-16 — Plugin manifest switched to Streamable HTTP
+
+### Changed
+- **`.claude-plugin/plugin.json`** — `mcpServers.memory-mcp` switched from `stdio`-via-`docker compose exec` to **`streamable-http`** pointing at `http://127.0.0.1:8080/mcp`. The new entry shape:
+  ```jsonc
+  "memory-mcp": { "type": "streamable-http", "url": "http://127.0.0.1:8080/mcp" }
+  ```
+  Eliminates the per-call `docker exec` round-trip plus the per-call `python -m memory_mcp.server` cold-start (torch + sentence-transformers reload). Reduces per-call dispatch from ~2-3 s to sub-millisecond. Unifies the plugin install path with the README's manual-install HTTP snippet — both shapes are now the same connection target.
+- **Failure mode when the stack is not running** changed from cryptic `service "server" is not running` (compose-exec error) to actionable `connection refused at 127.0.0.1:8080` (HTTP).
+- **README "Install (Copilot CLI plugin)" section** rewritten to describe the HTTP transport and note that non-default `MEMORY_MCP_HOST_PORT` setups require editing the installed manifest at `~/.copilot/installed-plugins/_direct/outwarped-io--memory-mcp/.claude-plugin/plugin.json` to match.
+
+### Notes
+- **The stack still needs `docker compose up -d` after `/plugin install`** — HTTP doesn't fix the bootstrap gap, just the failure UX. The remaining auto-start gap is tracked as `memory-mcp-v014-plugin-stack-bootstrap` in the workspace's `.github/TODO.md`.
+- **No database migration.** Alembic head stays at `0016_cascade_root` (from v0.13.0).
+- **No server-side code changes.** memory-mcp has served Streamable HTTP at `/mcp` since v0.1; this release flips a single line in the plugin manifest.
+- **Per-session identity headers** (`X-Agent-Id` / `X-Agent-Name`) are **not** included in the plugin manifest. Plugin-manifest `url` values are not env-templated by Copilot CLI, so the headers would be fixed strings — useless for per-session identity. Users who want per-session identity should keep using `~/.copilot/settings.json` with `${env:...}` header values. The broader per-session-identity gap remains open as `arc-per-session-identity-gap` in the workspace's `.github/TODO.md`.
+
 ## [0.13.0] — 2026-05-15 — Hard-delete cascade + search/graph relax + env-name wave 2
 
 ### Added

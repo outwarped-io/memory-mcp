@@ -20,17 +20,25 @@ Then start the backing services (Postgres + Qdrant + Neo4j + server +
 projection-worker):
 
 ```bash
-cd ~/.copilot/installed-plugins/memory-mcp     # exact path may differ — check ${CLAUDE_PLUGIN_ROOT}
+cd ~/.copilot/installed-plugins/_direct/outwarped-io--memory-mcp
 cp .env.example .env                            # edit secrets if needed
 docker compose up -d
 ```
 
-That's it. The plugin manifest registers a stdio MCP server that runs
-`docker compose exec server env MCP_TRANSPORT=stdio python -m memory_mcp.server`
-against the running stack; Copilot CLI spawns it on demand.
+That's it. The plugin manifest registers a **Streamable HTTP** MCP server
+at `http://127.0.0.1:8080/mcp`; Copilot CLI connects on demand once the
+stack is up.
 
 To uninstall: `/plugin disable memory-mcp` → `docker compose down -v` →
 `/plugin uninstall memory-mcp`.
+
+### Non-default port
+
+The plugin manifest's `url` is fixed at `http://127.0.0.1:8080/mcp`. If you
+override `MEMORY_MCP_HOST_PORT` in `.env` (for example, to run two
+memory-mcp stacks on the same host), edit the installed manifest at
+`~/.copilot/installed-plugins/_direct/outwarped-io--memory-mcp/.claude-plugin/plugin.json`
+to match. Copilot CLI does not env-expand the `url` field.
 
 ### Install without the Copilot CLI plugin command
 
@@ -43,32 +51,19 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Then drop the appropriate snippet into your MCP client config:
+Then drop this snippet into your MCP client config (`~/.copilot/settings.json`
+for Copilot CLI, or the equivalent for your client):
 
-- **Copilot CLI** (stdio against the running container):
-  ```json
-  {
-    "mcpServers": {
-      "memory-mcp": {
-        "command": "docker",
-        "args": ["exec", "-i", "memory-mcp-server-1",
-                 "env", "MCP_TRANSPORT=stdio",
-                 "python", "-m", "memory_mcp.server"]
-      }
-    }
+```json
+{
+  "mcpServers": {
+    "memory-mcp": { "type": "http", "url": "http://127.0.0.1:8080/mcp" }
   }
-  ```
-- **Any HTTP-capable MCP client** (Streamable HTTP):
-  ```json
-  {
-    "mcpServers": {
-      "memory-mcp": { "type": "http", "url": "http://127.0.0.1:8080/mcp" }
-    }
-  }
-  ```
+}
+```
 
-The container name `memory-mcp-server-1` comes from the compose project name
-`memory-mcp` in `docker-compose.yml`.
+This is the same connection target the plugin manifest registers — the
+`/plugin install` path and the manual path are now equivalent.
 
 ---
 
