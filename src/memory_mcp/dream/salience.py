@@ -24,6 +24,7 @@ Formula
         + w_recency    · exp(-Δt_access / τ_recency)
         + w_confidence · confidence
         - w_negative   · log1p(negative_feedback_count)
+        + w_references · references_term(N_rl, N_ln, N_tk, N_pb)
         + pinned_bonus      if pinned    else 0
         + verified_bonus    · exp(-Δt_verified / τ_verified)   if verified_at else 0
     )
@@ -32,14 +33,38 @@ Where ``Δt_access`` is the seconds between ``now`` and ``last_accessed_at``
 (``+inf`` if never accessed; the recency term then collapses to 0), and
 ``Δt_verified`` is similarly the time since manual verification.
 
+References term — per-kind independent normalization
+----------------------------------------------------
+
+::
+
+    per_kind[k] = clamp01(log1p(N_k) / log1p(window_k))
+    combined    = Σ(w_k · per_kind[k]) / Σ(w_k)            # weighted average in [0, 1]
+    references_term = combined                              # multiplied by w_references upstream
+
+This shape is **bounded in [0, 1] by construction**, regardless of how
+hot or cold any single citation kind happens to be. A v1 design that
+summed ``w_k · log1p(N_k) / log1p(window_k)`` directly was rejected — it
+saturated too fast (5 playbook embeds consumed 91 % of the ``w_references``
+envelope) and made the dominance invariant (below) impossible to preserve.
+
 Dominance property
 ------------------
 
 The default weights are tuned so the negative-feedback term can dominate
-the formula. With confidence = 0.0 and access_count = 100 (full saturation
-of the access term), 5 negative-feedback events drive salience to 0 even
-with maximum recency. This is the "low confidence + rising negatives must
-stale even if accessed often" invariant from the design plan.
+the formula. With ``confidence = 0.0`` and ``access_count = 100`` (full
+saturation of the access term), 5 negative-feedback events drive salience
+to 0 even with maximum recency AND maximum references contribution.
+
+Phase 1 (memory-mcp v0.14) raises ``w_negative`` from ``0.30`` to ``0.40``
+to absorb the new ``w_references = 0.15`` positive term while preserving
+the invariant. Worst-case positives at full saturation:
+``access(0.30) + recency(0.25) + references(0.15·1.0) = 0.70``.
+Negative term at 5 events: ``0.40 · log1p(5) = 0.716``. Net ≤ 0. ✓
+
+Side effect: ``w_negative = 0.40`` makes a single negative subtract ``0.277``
+instead of ``0.208`` — roughly a 33 % bigger hit. Pre-Phase-1 tests that
+assumed ``w_negative = 0.30`` were updated accordingly.
 """
 
 from __future__ import annotations
@@ -67,6 +92,13 @@ class SalienceInputs:
     negative_feedback_count: int
     verified_at: dt.datetime | None
     created_at: dt.datetime
+    # Phase 1 (v0.14): per-kind graph-citation counts. Default 0 so callers
+    # that never read the four counter columns (e.g. unit tests authored
+    # against pre-Phase-1 fixtures) continue to compute a valid salience.
+    reference_count_rel_link: int = 0
+    reference_count_lineage: int = 0
+    reference_count_task: int = 0
+    reference_count_playbook: int = 0
 
 
 @dataclass(frozen=True)
@@ -81,15 +113,36 @@ class SalienceWeights:
     w_access: float = 0.30
     w_recency: float = 0.25
     w_confidence: float = 0.30
-    # 0.30 (not 0.50) — tuned so 5 negatives at zero confidence drives
-    # salience to ~0 (dominance invariant) while still letting the pinned
-    # bonus protect against moderate (1–2) negative-feedback events.
-    w_negative: float = 0.30
+    # 0.40 (raised from 0.30 in Phase 1 v0.14) — tuned so the dominance
+    # invariant survives the addition of the references term. See module
+    # docstring's "Dominance property" section.
+    w_negative: float = 0.40
     pinned_bonus: float = 0.30
     verified_bonus: float = 0.10
     access_window: int = 100
     recency_tau_seconds: int = 7 * 24 * 3600
     verified_tau_seconds: int = 30 * 24 * 3600
+
+    # ---- Phase 1: references term ----------------------------------------
+    # ``w_references`` is the *envelope* — the maximum contribution the
+    # references term can make to salience. The per-kind sub-weights below
+    # are relative within that envelope.
+    w_references: float = 0.15
+    # Per-kind sub-weights (relative). Set ratios reflect that lineage and
+    # playbook embeds carry stronger signal than ad-hoc rel_link / task
+    # references. ``Σ w_k`` is the divisor in the weighted-average step;
+    # ratios are what matters, not absolute magnitudes.
+    w_references_rl: float = 1.0
+    w_references_ln: float = 1.5
+    w_references_tk: float = 1.2
+    w_references_pb: float = 2.0
+    # Saturation windows (per-kind). At ``N_k == window_k`` the kind's
+    # per-kind term hits 1.0. Smaller windows saturate faster — lineage and
+    # playbook are *rare* signals; one or two embeds already mean a lot.
+    window_rl: int = 50
+    window_ln: int = 5
+    window_tk: int = 20
+    window_pb: int = 10
 
     # Fallback used when ``last_accessed_at is None`` and we still want a
     # tiny floor of recency from ``created_at``. Set to 0 to fully ignore.
@@ -107,6 +160,15 @@ def salience_weights_from_settings(settings: Settings) -> SalienceWeights:
         access_window=settings.dream_salience_access_window,
         recency_tau_seconds=settings.dream_salience_recency_tau_seconds,
         verified_tau_seconds=settings.dream_salience_verified_tau_seconds,
+        w_references=settings.dream_salience_w_references,
+        w_references_rl=settings.dream_salience_w_references_rl,
+        w_references_ln=settings.dream_salience_w_references_ln,
+        w_references_tk=settings.dream_salience_w_references_tk,
+        w_references_pb=settings.dream_salience_w_references_pb,
+        window_rl=settings.dream_salience_window_rl,
+        window_ln=settings.dream_salience_window_ln,
+        window_tk=settings.dream_salience_window_tk,
+        window_pb=settings.dream_salience_window_pb,
     )
 
 
@@ -137,6 +199,36 @@ def _seconds_since(then: dt.datetime | None, now: dt.datetime) -> float:
     return max(0.0, delta)
 
 
+def _references_term(row: SalienceInputs, w: SalienceWeights) -> float:
+    """Compute the references contribution, normalised independently per kind.
+
+    Returns the *unscaled* per-kind weighted average in ``[0, 1]``; the
+    caller multiplies by ``w.w_references`` to obtain the salience-space
+    contribution.
+    """
+    def _per_kind(n: int, window: int) -> float:
+        if window <= 0:
+            return 0.0
+        return _clamp01(math.log1p(max(0, n)) / math.log1p(max(1, window)))
+
+    per_rl = _per_kind(row.reference_count_rel_link, w.window_rl)
+    per_ln = _per_kind(row.reference_count_lineage, w.window_ln)
+    per_tk = _per_kind(row.reference_count_task, w.window_tk)
+    per_pb = _per_kind(row.reference_count_playbook, w.window_pb)
+
+    sum_w = w.w_references_rl + w.w_references_ln + w.w_references_tk + w.w_references_pb
+    if sum_w <= 0.0:
+        return 0.0
+
+    combined = (
+        w.w_references_rl * per_rl
+        + w.w_references_ln * per_ln
+        + w.w_references_tk * per_tk
+        + w.w_references_pb * per_pb
+    ) / sum_w
+    return _clamp01(combined)
+
+
 def compute_salience(
     row: SalienceInputs,
     *,
@@ -152,7 +244,7 @@ def compute_salience(
     """
     w = weights or SalienceWeights()
 
-    # --- Access term ---------------------------------------------------------
+    # --- Access term --------------------------------------------------------
     # Saturates at ``access_window``: above that count the term hits the
     # weight ceiling exactly. Without the ``min(1.0, ...)`` cap the ratio
     # ``log1p(N)/log1p(W)`` would keep growing past 1 for ``N > W``, which
@@ -164,7 +256,7 @@ def compute_salience(
     access_norm = min(1.0, math.log1p(max(0, row.access_count)) / access_norm_denom)
     access_term = w.w_access * access_norm
 
-    # --- Recency term --------------------------------------------------------
+    # --- Recency term -------------------------------------------------------
     # exp(-Δt / τ); collapses to 0 when ``last_accessed_at is None`` (Δt = ∞)
     # unless the floor-from-created flag is set, in which case we use
     # ``created_at`` as a tiny baseline so brand-new memories aren't
@@ -179,17 +271,20 @@ def compute_salience(
     )
     recency_term = w.w_recency * recency_factor
 
-    # --- Confidence term -----------------------------------------------------
+    # --- Confidence term ----------------------------------------------------
     confidence_term = w.w_confidence * _clamp01(row.confidence)
 
-    # --- Negative-feedback term ---------------------------------------------
+    # --- Negative-feedback term --------------------------------------------
     # Subtractive on purpose so it can dominate other contributions.
     negative_term = w.w_negative * math.log1p(max(0, row.negative_feedback_count))
 
-    # --- Pinned bonus --------------------------------------------------------
+    # --- References term ----------------------------------------------------
+    references_term = w.w_references * _references_term(row, w)
+
+    # --- Pinned bonus -------------------------------------------------------
     pinned_term = w.pinned_bonus if row.pinned else 0.0
 
-    # --- Verified bonus ------------------------------------------------------
+    # --- Verified bonus -----------------------------------------------------
     if row.verified_at is None:
         verified_term = 0.0
     else:
@@ -205,6 +300,7 @@ def compute_salience(
         + recency_term
         + confidence_term
         - negative_term
+        + references_term
         + pinned_term
         + verified_term
     )

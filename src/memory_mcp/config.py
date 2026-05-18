@@ -195,10 +195,10 @@ class Settings(BaseSettings):
     dream_salience_w_access: float = Field(default=0.30, ge=0.0)
     dream_salience_w_recency: float = Field(default=0.25, ge=0.0)
     dream_salience_w_confidence: float = Field(default=0.30, ge=0.0)
-    # 0.30 (not 0.50) — tuned so 5 negatives at zero confidence drives
-    # salience to ~0 (dominance invariant) while still letting the pinned
-    # bonus protect against moderate (1–2) negative-feedback events.
-    dream_salience_w_negative: float = Field(default=0.30, ge=0.0)
+    # 0.40 (raised from 0.30 in Phase 1 v0.14) — tuned so the dominance
+    # invariant (negatives outweigh positives at saturation) survives the
+    # addition of the references term below. See salience.py module docstring.
+    dream_salience_w_negative: float = Field(default=0.40, ge=0.0)
     dream_salience_pinned_bonus: float = Field(default=0.30, ge=0.0)
     dream_salience_verified_bonus: float = Field(default=0.10, ge=0.0)
     # Access count at which the access term saturates: at
@@ -212,6 +212,30 @@ class Settings(BaseSettings):
     # Recency boost for ``verified_at`` is capped at this many seconds —
     # past which the bonus is fully decayed. Default: 30 days.
     dream_salience_verified_tau_seconds: int = Field(default=30 * 24 * 3600, gt=0)
+
+    # ---- Phase 1 (v0.14): graph-citation references term ------------------
+    # The references term is the maximum salience contribution that
+    # graph-citation signal (rel_link / lineage / task / playbook) can make.
+    # Default 0.15 leaves head-room for the dominance invariant while still
+    # noticeably preferring well-cited memories in default-sort.
+    dream_salience_w_references: float = Field(default=0.15, ge=0.0)
+    # Per-kind sub-weights — relative magnitudes inside the references-term
+    # envelope. Set higher for kinds that carry stronger signal-per-edge:
+    # playbook embeds are the strongest, followed by lineage parents (
+    # load-bearing structural derivations), then task references, then
+    # ad-hoc rel_link mentions.
+    dream_salience_w_references_rl: float = Field(default=1.0, ge=0.0)
+    dream_salience_w_references_ln: float = Field(default=1.5, ge=0.0)
+    dream_salience_w_references_tk: float = Field(default=1.2, ge=0.0)
+    dream_salience_w_references_pb: float = Field(default=2.0, ge=0.0)
+    # Per-kind saturation windows — N_k at which the kind's per-kind term
+    # hits 1.0. Smaller windows saturate faster (more sensitive to a few
+    # citations). rel_link is cheap so window is large (50); lineage and
+    # playbook are rare so windows are small (5, 10).
+    dream_salience_window_rl: int = Field(default=50, ge=1)
+    dream_salience_window_ln: int = Field(default=5, ge=1)
+    dream_salience_window_tk: int = Field(default=20, ge=1)
+    dream_salience_window_pb: int = Field(default=10, ge=1)
 
     # ---- Dream decay pass (Phase 2.2) -------------------------------------
     # Days since ``last_accessed_at`` after which an ``active`` memory is

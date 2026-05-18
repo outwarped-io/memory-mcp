@@ -40,6 +40,10 @@ def _row(
     negative_feedback_count: int = 0,
     verified_at: dt.datetime | None = None,
     created_at: dt.datetime | None = None,
+    reference_count_rel_link: int = 0,
+    reference_count_lineage: int = 0,
+    reference_count_task: int = 0,
+    reference_count_playbook: int = 0,
 ) -> SalienceInputs:
     return SalienceInputs(
         access_count=access_count,
@@ -49,6 +53,10 @@ def _row(
         negative_feedback_count=negative_feedback_count,
         verified_at=verified_at,
         created_at=created_at if created_at is not None else NOW - dt.timedelta(days=1),
+        reference_count_rel_link=reference_count_rel_link,
+        reference_count_lineage=reference_count_lineage,
+        reference_count_task=reference_count_task,
+        reference_count_playbook=reference_count_playbook,
     )
 
 
@@ -94,9 +102,21 @@ def test_confidence_monotonically_increases_salience() -> None:
 
 
 def test_negative_feedback_monotonically_decreases_salience() -> None:
-    s_zero = compute_salience(_row(last_accessed_at=NOW, negative_feedback_count=0), now=NOW)
-    s_two = compute_salience(_row(last_accessed_at=NOW, negative_feedback_count=2), now=NOW)
-    s_ten = compute_salience(_row(last_accessed_at=NOW, negative_feedback_count=10), now=NOW)
+    # Use ``access_count=100`` + ``pinned=True`` to lift the base above the
+    # clamp floor, so the curve is monotonic across multiple negative
+    # counts under the v0.14 ``w_negative=0.40`` tuning.
+    s_zero = compute_salience(
+        _row(last_accessed_at=NOW, access_count=100, pinned=True, negative_feedback_count=0),
+        now=NOW,
+    )
+    s_two = compute_salience(
+        _row(last_accessed_at=NOW, access_count=100, pinned=True, negative_feedback_count=2),
+        now=NOW,
+    )
+    s_ten = compute_salience(
+        _row(last_accessed_at=NOW, access_count=100, pinned=True, negative_feedback_count=10),
+        now=NOW,
+    )
     assert s_zero > s_two > s_ten
 
 
@@ -203,7 +223,7 @@ def test_pinned_protects_against_moderate_negatives_but_not_extreme() -> None:
     moderate = compute_salience(
         _row(
             last_accessed_at=NOW, confidence=0.5,
-            negative_feedback_count=2, pinned=True,
+            negative_feedback_count=1, pinned=True,
         ),
         now=NOW,
     )
@@ -214,8 +234,10 @@ def test_pinned_protects_against_moderate_negatives_but_not_extreme() -> None:
         ),
         now=NOW,
     )
-    # Pinned + 2 negatives: stays above the typical stale threshold (0.30)
-    # so the decay pass won't archive it. Not "great", but not staling.
+    # Pinned + 1 negative: stays above the typical stale threshold (0.30)
+    # so the decay pass won't archive it. With the v0.14 ``w_negative=0.40``
+    # tuning, 1 negative subtracts ~0.28 from the positive 0.70 base
+    # (recency + confidence + pinned) → ~0.42 > 0.30.
     assert moderate > 0.30
     # Pinned can't outweigh 20 negatives at zero confidence.
     assert extreme < 0.10
@@ -289,3 +311,94 @@ def test_settings_overrides_propagate_to_weights() -> None:
     s = Settings(_env_file=None, dream_salience_w_negative=0.99)  # type: ignore[call-arg]
     bound = salience_weights_from_settings(s)
     assert bound.w_negative == 0.99
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 (v0.14): references term
+# ---------------------------------------------------------------------------
+
+def test_references_term_zero_when_no_citations() -> None:
+    no_refs = compute_salience(_row(last_accessed_at=NOW), now=NOW)
+    with_refs = compute_salience(
+        _row(last_accessed_at=NOW, reference_count_rel_link=10),
+        now=NOW,
+    )
+    assert with_refs > no_refs
+
+
+def test_each_reference_kind_independently_lifts_salience() -> None:
+    base = compute_salience(_row(last_accessed_at=NOW), now=NOW)
+    rl = compute_salience(_row(last_accessed_at=NOW, reference_count_rel_link=50), now=NOW)
+    ln = compute_salience(_row(last_accessed_at=NOW, reference_count_lineage=5), now=NOW)
+    tk = compute_salience(_row(last_accessed_at=NOW, reference_count_task=20), now=NOW)
+    pb = compute_salience(_row(last_accessed_at=NOW, reference_count_playbook=10), now=NOW)
+    assert rl > base
+    assert ln > base
+    assert tk > base
+    assert pb > base
+
+
+def test_playbook_carries_more_weight_per_edge_than_rel_link() -> None:
+    one_playbook = compute_salience(
+        _row(last_accessed_at=NOW, reference_count_playbook=1), now=NOW
+    )
+    one_rel_link = compute_salience(
+        _row(last_accessed_at=NOW, reference_count_rel_link=1), now=NOW
+    )
+    # Same edge count; per-kind sub-weight ordering (pb=2.0 vs rl=1.0) plus
+    # tighter playbook window (10 vs 50) should make a single playbook edge
+    # contribute more than a single rel_link edge.
+    assert one_playbook > one_rel_link
+
+
+def test_references_term_saturates_at_envelope_ceiling() -> None:
+    # All four kinds saturated past their windows; references term should
+    # approach (but not exceed) ``w_references`` (default 0.15).
+    high = _row(
+        last_accessed_at=NOW,
+        confidence=0.0,  # neutralize confidence term
+        reference_count_rel_link=500,
+        reference_count_lineage=50,
+        reference_count_task=200,
+        reference_count_playbook=100,
+    )
+    bare = _row(last_accessed_at=NOW, confidence=0.0)
+    s_high = compute_salience(high, now=NOW)
+    s_bare = compute_salience(bare, now=NOW)
+    delta = s_high - s_bare
+    # Ceiling is ``w_references`` = 0.15; saturated kinds approach 1.0 each
+    # so weighted-average → 1.0 and contribution → 0.15. Allow small
+    # numerical slack for log1p-near-window rounding.
+    assert delta <= SalienceWeights().w_references + 1e-9
+    assert delta >= 0.14  # Near ceiling at saturation.
+
+
+def test_dominance_invariant_with_references_at_max() -> None:
+    """v0.14 dominance check: even with ALL positive terms at saturation
+    AND references at full envelope, 5 negatives at zero confidence drive
+    salience to ~0. Reverifies the ``w_negative=0.40`` retune (B1)."""
+    saturated = _row(
+        access_count=1000,
+        last_accessed_at=NOW,
+        confidence=0.0,
+        negative_feedback_count=5,
+        reference_count_rel_link=500,
+        reference_count_lineage=50,
+        reference_count_task=200,
+        reference_count_playbook=100,
+    )
+    s = compute_salience(saturated, now=NOW)
+    assert s <= 0.001
+
+
+def test_settings_propagate_references_weights() -> None:
+    s = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        dream_salience_w_references=0.25,
+        dream_salience_w_references_rl=2.0,
+        dream_salience_window_pb=20,
+    )
+    bound = salience_weights_from_settings(s)
+    assert bound.w_references == 0.25
+    assert bound.w_references_rl == 2.0
+    assert bound.window_pb == 20

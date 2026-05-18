@@ -233,6 +233,29 @@ class Memory(Base):
     last_accessed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     negative_feedback_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    reference_count_rel_link: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+    )
+    reference_count_lineage: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+    )
+    reference_count_task: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+    )
+    reference_count_playbook: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+    )
+    reference_count: Mapped[int] = mapped_column(
+        Integer,
+        Computed(
+            "reference_count_rel_link "
+            "+ reference_count_lineage "
+            "+ reference_count_task "
+            "+ reference_count_playbook",
+            persisted=True,
+        ),
+        nullable=False,
+    )
     verified_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
