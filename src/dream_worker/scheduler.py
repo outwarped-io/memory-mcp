@@ -78,6 +78,7 @@ JOB_ID_DECAY = "dream-decay"
 JOB_ID_DEDUPE = "dream-dedupe"
 JOB_ID_PROMOTE = "dream-promote"
 JOB_ID_DECISION_CONFLICTS = "dream-decision-conflicts"
+JOB_ID_RECOUNT = "dream-recount"
 JOB_ID_METRICS_REFRESH = "dream-metrics-refresh"
 
 
@@ -151,11 +152,12 @@ class DreamScheduler:
         self._started = True
         log.info(
             "dream_worker scheduler started "
-            "decay=%ss dedupe=%ss promote=%ss decision_conflicts=%ss max_instances=%s",
+            "decay=%ss dedupe=%ss promote=%ss decision_conflicts=%ss recount=%ss max_instances=%s",
             self._settings.dream_decay_cadence_seconds,
             self._settings.dream_dedupe_cadence_seconds,
             self._settings.dream_promote_cadence_seconds,
             self._settings.dream_decision_conflicts_cadence_seconds,
+            self._settings.dream_recount_cadence_seconds,
             self._settings.dream_scheduler_max_instances,
         )
 
@@ -277,6 +279,11 @@ class DreamScheduler:
                 JOB_ID_DECISION_CONFLICTS,
                 self._settings.dream_decision_conflicts_cadence_seconds,
             ),
+            (
+                DreamMode.recount,
+                JOB_ID_RECOUNT,
+                self._settings.dream_recount_cadence_seconds,
+            ),
         ]
 
     def _make_tick_func(self, mode: DreamMode):  # noqa: ANN202 — APScheduler callable
@@ -394,5 +401,6 @@ __all__ = [
     "JOB_ID_DEDUPE",
     "JOB_ID_DECISION_CONFLICTS",
     "JOB_ID_PROMOTE",
+    "JOB_ID_RECOUNT",
     "DreamScheduler",
 ]

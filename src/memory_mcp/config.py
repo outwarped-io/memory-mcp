@@ -336,6 +336,12 @@ class Settings(BaseSettings):
     dream_dedupe_cadence_seconds: int = Field(default=1800, ge=60)
     dream_promote_cadence_seconds: int = Field(default=3600, ge=60)
     dream_decision_conflicts_cadence_seconds: int = Field(default=3600, ge=60)
+    # Phase 1 (v0.14) — recount pass cadence. Heavier than decay
+    # because it walks all rel_link / lineage / playbook macros per env.
+    # Hourly default mirrors decay; tune up to 86400 (daily) for envs
+    # with low edge churn, or down to 600 for envs with high churn and
+    # active reviewer feedback loops.
+    dream_recount_cadence_seconds: int = Field(default=3600, ge=60)
     # Per-pass wall-clock budget. If a pass exceeds this, the runner
     # logs a warning and the dream_run row is marked ``failed`` with
     # ``last_error="timeout"``. The pass itself isn't cancelled

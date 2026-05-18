@@ -202,6 +202,7 @@ class TestDreamRun:
             DreamMode.dedupe,
             DreamMode.promote,
             DreamMode.decision_conflicts,
+            DreamMode.recount,
         )
 
     @pytest.mark.asyncio
@@ -226,8 +227,9 @@ class TestDreamRun:
             (env, DreamMode.dedupe),
             (env, DreamMode.promote),
             (env, DreamMode.decision_conflicts),
+            (env, DreamMode.recount),
         }
-        assert len(out.reports) == 4
+        assert len(out.reports) == 5
 
     @pytest.mark.asyncio
     async def test_explicit_decision_conflicts_receives_vector_store(
@@ -305,6 +307,7 @@ class TestDreamRun:
             DreamMode.dedupe,
             DreamMode.promote,
             DreamMode.decision_conflicts,
+            DreamMode.recount,
         } == set(modes_seen)
         # The failed pass appears as a failed report rather than aborting:
         outcomes = {r.mode: r.outcome for r in out.reports}
@@ -312,6 +315,7 @@ class TestDreamRun:
         assert outcomes[DreamMode.decay] == DreamPassOutcome.done
         assert outcomes[DreamMode.promote] == DreamPassOutcome.done
         assert outcomes[DreamMode.decision_conflicts] == DreamPassOutcome.done
+        assert outcomes[DreamMode.recount] == DreamPassOutcome.done
 
     @pytest.mark.asyncio
     async def test_wait_false_returns_schedule_and_tracks_task(

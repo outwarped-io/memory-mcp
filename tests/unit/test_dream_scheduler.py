@@ -35,6 +35,7 @@ from dream_worker.scheduler import (
     JOB_ID_DECISION_CONFLICTS,
     JOB_ID_METRICS_REFRESH,
     JOB_ID_PROMOTE,
+    JOB_ID_RECOUNT,
     DreamScheduler,
 )
 from memory_mcp.identity import AgentContext
@@ -50,6 +51,7 @@ def _make_settings(
     dedupe_seconds: int = 1800,
     promote_seconds: int = 7200,
     decision_conflicts_seconds: int = 3600,
+    recount_seconds: int = 3600,
     max_instances: int = 1,
     metrics_refresh_seconds: int = 0,
 ) -> MagicMock:
@@ -59,6 +61,7 @@ def _make_settings(
     s.dream_dedupe_cadence_seconds = dedupe_seconds
     s.dream_promote_cadence_seconds = promote_seconds
     s.dream_decision_conflicts_cadence_seconds = decision_conflicts_seconds
+    s.dream_recount_cadence_seconds = recount_seconds
     s.dream_scheduler_max_instances = max_instances
     s.dream_metrics_refresh_seconds = metrics_refresh_seconds
     return s
@@ -106,6 +109,7 @@ class TestRegisterJobs:
                 JOB_ID_DEDUPE,
                 JOB_ID_PROMOTE,
                 JOB_ID_DECISION_CONFLICTS,
+                JOB_ID_RECOUNT,
             }
         finally:
             s.shutdown(wait=False)
@@ -117,6 +121,7 @@ class TestRegisterJobs:
             dedupe_seconds=240,
             promote_seconds=360,
             decision_conflicts_seconds=480,
+            recount_seconds=600,
         )
         s = _make_scheduler(settings)
         s.start()
@@ -126,6 +131,7 @@ class TestRegisterJobs:
             assert int(jobs[JOB_ID_DEDUPE].trigger.interval.total_seconds()) == 240
             assert int(jobs[JOB_ID_PROMOTE].trigger.interval.total_seconds()) == 360
             assert int(jobs[JOB_ID_DECISION_CONFLICTS].trigger.interval.total_seconds()) == 480
+            assert int(jobs[JOB_ID_RECOUNT].trigger.interval.total_seconds()) == 600
         finally:
             s.shutdown(wait=False)
 
@@ -158,6 +164,7 @@ class TestRegisterJobs:
             dedupe_seconds=120,
             promote_seconds=180,
             decision_conflicts_seconds=240,
+            recount_seconds=300,
         )
         s = _make_scheduler(settings)
         s.start()
@@ -167,6 +174,7 @@ class TestRegisterJobs:
             assert jobs[JOB_ID_DEDUPE].misfire_grace_time == 120
             assert jobs[JOB_ID_PROMOTE].misfire_grace_time == 180
             assert jobs[JOB_ID_DECISION_CONFLICTS].misfire_grace_time == 240
+            assert jobs[JOB_ID_RECOUNT].misfire_grace_time == 300
         finally:
             s.shutdown(wait=False)
 

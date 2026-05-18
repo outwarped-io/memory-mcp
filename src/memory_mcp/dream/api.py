@@ -164,6 +164,7 @@ _ALL_MODES: tuple[DreamMode, ...] = (
     DreamMode.dedupe,
     DreamMode.promote,
     DreamMode.decision_conflicts,
+    DreamMode.recount,
 )
 
 

@@ -488,6 +488,7 @@ class TestHeartbeatSinkName:
             "dream_worker:dedupe",
             "dream_worker:promote",
             "dream_worker:decision_conflicts",
+            "dream_worker:recount",
         ]
         assert len(set(sinks)) == len(sinks)
 

@@ -91,6 +91,23 @@ def _whitelist_sql_array() -> str:
 
 def upgrade() -> None:
     # ------------------------------------------------------------------
+    # dream_runs.mode CHECK constraint extension
+    # ------------------------------------------------------------------
+    # The recount pass (dispatched from dream_worker.jobs) writes
+    # dream_runs.mode = 'recount'. Extend the CHECK from 0012 to admit
+    # the new value alongside the existing four. The drop-and-recreate
+    # pattern matches 0012's approach (Alembic offers no portable
+    # ALTER-CHECK in this SQLAlchemy version).
+    op.execute("ALTER TABLE dream_runs DROP CONSTRAINT IF EXISTS dream_runs_mode_check")
+    op.execute(
+        """
+        ALTER TABLE dream_runs
+        ADD CONSTRAINT dream_runs_mode_check
+        CHECK (mode IN ('decay','dedupe','promote','retention','decision_conflicts','recount'))
+        """
+    )
+
+    # ------------------------------------------------------------------
     # Columns
     # ------------------------------------------------------------------
     op.execute(
@@ -485,5 +502,16 @@ def downgrade() -> None:
             DROP COLUMN IF EXISTS reference_count_task,
             DROP COLUMN IF EXISTS reference_count_lineage,
             DROP COLUMN IF EXISTS reference_count_rel_link
+        """
+    )
+
+    # Restore the pre-0017 dream_runs.mode CHECK (drop the 'recount' value).
+    op.execute("DELETE FROM dream_runs WHERE mode = 'recount'")
+    op.execute("ALTER TABLE dream_runs DROP CONSTRAINT IF EXISTS dream_runs_mode_check")
+    op.execute(
+        """
+        ALTER TABLE dream_runs
+        ADD CONSTRAINT dream_runs_mode_check
+        CHECK (mode IN ('decay','dedupe','promote','retention','decision_conflicts'))
         """
     )

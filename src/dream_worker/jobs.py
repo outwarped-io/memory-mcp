@@ -64,6 +64,7 @@ from memory_mcp.db.postgres import session_scope
 from memory_mcp.dream.passes.decay import run_decay
 from memory_mcp.dream.passes.dedupe import run_dedupe
 from memory_mcp.dream.passes.promote import run_promote
+from memory_mcp.dream.passes.recount import run_recount
 from memory_mcp.identity import AgentContext
 
 if TYPE_CHECKING:
@@ -89,6 +90,7 @@ _MODE_LOCK_KEY: dict[DreamMode, int] = {
     DreamMode.dedupe: _LOCK_NS_BASE | (2 << 24),
     DreamMode.promote: _LOCK_NS_BASE | (3 << 24),
     DreamMode.decision_conflicts: _LOCK_NS_BASE | (4 << 24),
+    DreamMode.recount: _LOCK_NS_BASE | (5 << 24),
 }
 
 # Synthetic sink name for the heartbeat row. Re-uses the existing
@@ -324,6 +326,16 @@ async def _dispatch_pass(
             qdrant=vector_store,
             threshold=settings.decision_conflict_cosine_threshold,
             dream_run_id=dream_run_id,
+        )
+    elif mode is DreamMode.recount:
+        # Phase 1 (v0.14): reconcile reference counters against canonical
+        # edge tables + playbook macro scan. No external resources beyond
+        # Postgres — vector_store / embedder / summarizer all unused.
+        result = await run_recount(
+            env_id,
+            actor_ctx=actor_ctx,
+            settings=settings,
+            now=now,
         )
     else:
         raise RuntimeError(f"unknown dream mode: {mode}")

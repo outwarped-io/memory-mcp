@@ -206,6 +206,7 @@ class DreamMode(StrEnum):
     promote = "promote"
     decision_conflicts = "decision_conflicts"
     retention = "retention"
+    recount = "recount"
 
 
 class DreamRunStatus(StrEnum):

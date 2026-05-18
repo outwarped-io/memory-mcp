@@ -21,6 +21,7 @@ class DreamMode(StrEnum):
     dedupe = "dedupe"
     promote = "promote"
     decision_conflicts = "decision_conflicts"
+    recount = "recount"
 
 
 class DreamPassOutcome(StrEnum):
