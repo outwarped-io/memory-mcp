@@ -257,6 +257,18 @@ class Settings(BaseSettings):
     # outbox pressure on environments with very large memory tables.
     # Tunable so operators can speed up backfill on a quiet weekend.
     dream_decay_batch_cap: int = Field(default=500, ge=1)
+    # Phase 1 (v0.14) — graph-citation popularity gate. When > 0, an
+    # ``active`` memory whose ``reference_count`` (sum of per-kind
+    # reference counters maintained by Migration 0017's triggers) is
+    # at or above this floor is held back from staling regardless of
+    # salience. Protects structurally load-bearing memories from
+    # archival just because nobody read them recently. Set to ``0``
+    # to disable the gate entirely.
+    dream_decay_reference_floor: int = Field(default=3, ge=0)
+    # Phase 1 (v0.14) — default window for ``mem_top by=reference_velocity``
+    # when the caller does not supply ``velocity_window_days``. 30 days
+    # matches the typical task-cadence sweep window.
+    mem_reference_velocity_window_days: int = Field(default=30, ge=1)
 
     # ---- Dream dedupe pass (Phase 2.2) ------------------------------------
     # Only consider ``active`` memories updated in the last N days as

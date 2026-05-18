@@ -72,6 +72,7 @@ def _candidate(
     negative_feedback_count: int = 0,
     verified_at: dt.datetime | None = None,
     created_at: dt.datetime | None = None,
+    reference_count: int = 0,
 ) -> DecayCandidateRow:
     return DecayCandidateRow(
         id=uuid4(),
@@ -86,6 +87,7 @@ def _candidate(
             verified_at=verified_at,
             created_at=created_at or (NOW - dt.timedelta(days=180)),
         ),
+        reference_count=reference_count,
     )
 
 
@@ -471,6 +473,171 @@ class TestDecaySettingsValidation:
     def test_batch_cap_must_be_positive(self) -> None:
         with pytest.raises(ValueError):  # noqa: PT011
             Settings(dream_decay_batch_cap=0)  # type: ignore[arg-type]
+
+    def test_reference_floor_rejects_negative(self) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011
+            Settings(dream_decay_reference_floor=-1)  # type: ignore[arg-type]
+
+    def test_reference_floor_zero_is_allowed(self) -> None:
+        # Zero is the documented "disable the gate" sentinel.
+        s = Settings(dream_decay_reference_floor=0)  # type: ignore[arg-type]
+        assert s.dream_decay_reference_floor == 0
+
+
+# ---------------------------------------------------------------------------
+# Reference-floor gate (Phase 1 — graph-citation popularity)
+# ---------------------------------------------------------------------------
+
+
+class TestReferenceFloorGate:
+    """The active-leg gate that protects highly-cited memories from staling.
+
+    Contract under test (decay.py ``_run_leg``):
+
+    * Active candidates with ``reference_count >= dream_decay_reference_floor``
+      are skipped regardless of salience — they survive the active→stale leg
+      and surface in ``DecayPassResult.skipped_reference_floor``.
+    * The gate is leg-specific: stale→archived ignores the floor.
+    * The gate honors the threshold: zero candidates with insufficient
+      references still transition normally.
+    * ``floor=0`` disables the gate entirely.
+    """
+
+    @pytest.mark.asyncio
+    async def test_active_at_or_above_floor_skipped(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        env_id = uuid4()
+        # Would-otherwise-decay candidate: cold + low-confidence + negative
+        # feedback. Salience well below 0.30.
+        cold_but_cited = _candidate(
+            access_count=0,
+            last_accessed_at=NOW - dt.timedelta(days=180),
+            confidence=0.1,
+            negative_feedback_count=3,
+            reference_count=5,  # >= default floor of 3
+        )
+        _patch_loaders(monkeypatch, active=[cold_but_cited], stale=[])
+        update = _patch_memory_update(monkeypatch)
+
+        result = await run_decay(
+            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+        )
+
+        assert result.examined_active == 1
+        assert result.transitioned_to_stale == 0
+        assert result.skipped_above_threshold == 0
+        assert result.skipped_reference_floor == 1
+        assert update.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_active_below_floor_still_transitions(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        env_id = uuid4()
+        cold = _candidate(
+            access_count=0,
+            last_accessed_at=NOW - dt.timedelta(days=180),
+            confidence=0.1,
+            negative_feedback_count=3,
+            reference_count=2,  # < default floor of 3
+        )
+        _patch_loaders(monkeypatch, active=[cold], stale=[])
+        update = _patch_memory_update(monkeypatch)
+
+        result = await run_decay(
+            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+        )
+
+        assert result.transitioned_to_stale == 1
+        assert result.skipped_reference_floor == 0
+        assert update.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_stale_leg_ignores_floor(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Stale → archived is structural decay; cited stale rows still go."""
+        env_id = uuid4()
+        cited_stale = _candidate(
+            status=MemoryStatus.stale,
+            access_count=0,
+            last_accessed_at=NOW - dt.timedelta(days=365),
+            confidence=0.0,
+            negative_feedback_count=5,
+            reference_count=10,  # well above the active-leg floor
+        )
+        _patch_loaders(monkeypatch, active=[], stale=[cited_stale])
+        update = _patch_memory_update(monkeypatch)
+
+        result = await run_decay(
+            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+        )
+
+        assert result.transitioned_to_archived == 1
+        assert result.skipped_reference_floor == 0
+        assert update.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_floor_zero_disables_gate(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        env_id = uuid4()
+        cold_but_cited = _candidate(
+            access_count=0,
+            last_accessed_at=NOW - dt.timedelta(days=180),
+            confidence=0.1,
+            negative_feedback_count=3,
+            reference_count=999,
+        )
+        _patch_loaders(monkeypatch, active=[cold_but_cited], stale=[])
+        update = _patch_memory_update(monkeypatch)
+
+        settings = Settings(  # type: ignore[arg-type]
+            dream_decay_inactive_days=30,
+            dream_decay_stale_threshold=0.30,
+            dream_decay_archive_threshold=0.10,
+            dream_decay_batch_cap=500,
+            dream_decay_reference_floor=0,
+        )
+        result = await run_decay(
+            env_id, actor_ctx=_ctx(env_id), settings=settings, now=NOW,
+        )
+
+        assert result.transitioned_to_stale == 1
+        assert result.skipped_reference_floor == 0
+        assert update.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_above_threshold_takes_precedence_over_floor_counter(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Floor gate fires first — above-threshold counter only counts rows
+        whose salience genuinely cleared the threshold, not gate-saved ones.
+        """
+        env_id = uuid4()
+        hot_and_cited = _candidate(
+            access_count=50,
+            last_accessed_at=NOW - dt.timedelta(days=180),
+            confidence=0.9,
+            negative_feedback_count=0,
+            reference_count=10,
+        )
+        _patch_loaders(monkeypatch, active=[hot_and_cited], stale=[])
+        update = _patch_memory_update(monkeypatch)
+
+        result = await run_decay(
+            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+        )
+
+        # The candidate is hot (would survive on salience), but the floor
+        # gate evaluates first → counted in skipped_reference_floor, NOT
+        # skipped_above_threshold. The two counters stay individually
+        # observable.
+        assert result.skipped_reference_floor == 1
+        assert result.skipped_above_threshold == 0
+        assert result.transitioned_to_stale == 0
+        assert update.await_count == 0
 
 
 # Marker so unused-import doesn't complain when test bodies are simplified.

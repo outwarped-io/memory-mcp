@@ -57,6 +57,11 @@ from memory_mcp.browse import (
     memory_browse,
     memory_facets,
 )
+from memory_mcp.top import (
+    MemTopRequest,
+    MemTopResponse,
+    memory_top,
+)
 from memory_mcp.config import Settings, get_settings
 from memory_mcp.context_pack import ContextPackResponse, pack as context_pack
 from memory_mcp.decisions import AdrExportResponse, adr_export as adr_export_memory
@@ -1084,6 +1089,45 @@ def build_mcp_server(
         )
         request = await _resolve_env_refs(request)
         out: MemFacetsResponse = await memory_facets(request, ctx=ctx)
+        return _dump(out)
+
+    @mcp.tool()
+    @_wrap
+    async def mem_top(
+        request: MemTopRequest,
+        agent_id: UUID | None = None,
+        attached_env_ids: list[UUID] | None = None,
+        attached_env_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Return the highest-ranked memories under a chosen metric.
+
+        Example:
+            {
+              "request": {
+                "env_names": ["cdp"],
+                "by": "reference_count",
+                "kinds": ["fact", "procedure"],
+                "tags": ["repo:cdp-svc-agent"],
+                "tag_match": "any",
+                "limit": 10
+              }
+            }
+
+        Metrics: ``salience`` (default), ``access_count``,
+        ``reference_count`` (graph-citation sum across rel_link / lineage
+        / task / playbook), or ``reference_velocity`` (recent citation
+        arrival rate; honors ``velocity_window_days``, default 30).
+
+        Tie-breaker is stable: ``(metric DESC, created_at DESC, id DESC)``.
+        Default status filter is ``[active]`` — top-of-the-board is a live
+        signal. ``tag_match`` defaults to ``"any"`` (OR semantics, parity
+        with ``mem_search`` / ``mem_browse``).
+        """
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+        )
+        request = await _resolve_env_refs(request)
+        out: MemTopResponse = await memory_top(request, ctx=ctx)
         return _dump(out)
 
     @mcp.tool()

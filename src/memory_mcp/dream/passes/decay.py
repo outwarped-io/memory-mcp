@@ -86,6 +86,7 @@ class DecayCandidateRow:
     version: int
     status: MemoryStatus
     salience_inputs: SalienceInputs
+    reference_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,11 @@ class DecayPassResult:
     transitioned_to_archived: int = 0
     skipped_version_conflicts: int = 0
     skipped_above_threshold: int = 0
+    # Phase 1 (v0.14): active rows held back from staling because their
+    # graph-citation count meets ``dream_decay_reference_floor``. Distinct
+    # from ``skipped_above_threshold`` so the two reasons remain
+    # observable individually.
+    skipped_reference_floor: int = 0
     items_capped_active_leg: bool = False
     items_capped_stale_leg: bool = False
     duration_seconds: float = 0.0
@@ -140,6 +146,11 @@ async def _load_active_candidates(
                 Memory.negative_feedback_count,
                 Memory.verified_at,
                 Memory.created_at,
+                Memory.reference_count,
+                Memory.reference_count_rel_link,
+                Memory.reference_count_lineage,
+                Memory.reference_count_task,
+                Memory.reference_count_playbook,
             )
             .where(
                 and_(
@@ -183,6 +194,11 @@ async def _load_stale_candidates(
                 Memory.negative_feedback_count,
                 Memory.verified_at,
                 Memory.created_at,
+                Memory.reference_count,
+                Memory.reference_count_rel_link,
+                Memory.reference_count_lineage,
+                Memory.reference_count_task,
+                Memory.reference_count_playbook,
             )
             .where(
                 and_(
@@ -206,8 +222,6 @@ def _row_to_candidate(row: object) -> DecayCandidateRow:
     without going through SQLAlchemy.
     """
 
-    # ``row`` is a ``sqlalchemy.engine.Row`` here; positional access by
-    # column index keeps this loader cheap and DTO-agnostic.
     return DecayCandidateRow(
         id=row[0],
         version=row[1],
@@ -220,7 +234,12 @@ def _row_to_candidate(row: object) -> DecayCandidateRow:
             negative_feedback_count=row[7],
             verified_at=row[8],
             created_at=row[9],
+            reference_count_rel_link=int(row[11] or 0),
+            reference_count_lineage=int(row[12] or 0),
+            reference_count_task=int(row[13] or 0),
+            reference_count_playbook=int(row[14] or 0),
         ),
+        reference_count=int(row[10] or 0),
     )
 
 
@@ -285,6 +304,7 @@ async def run_decay(
         cap=cap,
         target_status=MemoryStatus.stale,
         threshold=settings.dream_decay_stale_threshold,
+        reference_count_floor=settings.dream_decay_reference_floor,
     )
     result_stale = await _run_leg(
         env_id=env_id,
@@ -296,6 +316,10 @@ async def run_decay(
         cap=cap,
         target_status=MemoryStatus.archived,
         threshold=settings.dream_decay_archive_threshold,
+        # Stale → archived is not gated by reference floor — once a row is
+        # stale, decay to archived is the natural lifecycle. Surface the
+        # gate only on the active → stale leg.
+        reference_count_floor=0,
     )
 
     return DecayPassResult(
@@ -310,6 +334,7 @@ async def run_decay(
         skipped_above_threshold=(
             result_active["above_threshold"] + result_stale["above_threshold"]
         ),
+        skipped_reference_floor=result_active["reference_floor"],
         items_capped_active_leg=result_active["capped"],
         items_capped_stale_leg=result_stale["capped"],
         duration_seconds=time.perf_counter() - started,
@@ -327,22 +352,30 @@ async def _run_leg(  # noqa: PLR0913 — explicit args document the contract
     cap: int,
     target_status: MemoryStatus,
     threshold: float,
+    reference_count_floor: int = 0,
 ) -> dict[str, int | bool]:
     """Generic decay leg — recompute salience, transition if below threshold.
 
-    Returns a dict of counters so the caller can fold them into the
-    final :class:`DecayPassResult`. ``capped`` is ``True`` iff the loader
-    returned exactly ``cap`` rows — i.e. the SELECT ran into the limit,
-    so there *may* be more eligible rows we didn't see this run.
+    The optional ``reference_count_floor`` adds a structural-popularity
+    gate (Phase 1 v0.14): when ``reference_count_floor > 0`` and a
+    candidate has ``reference_count >= reference_count_floor``, the
+    transition is skipped (counted in ``reference_floor``) regardless of
+    salience. This protects highly-cited memories from being archived
+    just because nobody read them recently — graph-citation is a
+    structural use signal even when access is dormant.
     """
 
     examined = 0
     transitioned = 0
     above_threshold = 0
     version_conflicts = 0
+    reference_floor_skipped = 0
 
     for cand in candidates:
         examined += 1
+        if reference_count_floor > 0 and cand.reference_count >= reference_count_floor:
+            reference_floor_skipped += 1
+            continue
         salience = compute_salience(
             cand.salience_inputs,
             now=now,
@@ -362,8 +395,6 @@ async def _run_leg(  # noqa: PLR0913 — explicit args document the contract
                 settings=settings,
             )
         except VersionConflictError:
-            # The row was just touched by an agent — likely no longer
-            # decay-eligible. Silently skip; next tick will re-evaluate.
             version_conflicts += 1
             log.debug(
                 "decay: version conflict on memory %s (env %s); skipping",
@@ -377,6 +408,7 @@ async def _run_leg(  # noqa: PLR0913 — explicit args document the contract
         "transitioned": transitioned,
         "above_threshold": above_threshold,
         "version_conflicts": version_conflicts,
+        "reference_floor": reference_floor_skipped,
         "capped": len(candidates) >= cap,
     }
 

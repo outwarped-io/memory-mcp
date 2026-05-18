@@ -121,6 +121,12 @@ class MemoryResponse(BaseModel):
     created_at: dt.datetime
     updated_at: dt.datetime
 
+    reference_count: int = 0
+    reference_breakdown: dict[str, int] = Field(
+        default_factory=lambda: {"rel_link": 0, "lineage": 0, "task": 0, "playbook": 0}
+    )
+    reference_velocity: int | None = None
+
 
 class MemorySupersedeResponse(BaseModel):
     """Wire shape returned by ``mem_supersede``.

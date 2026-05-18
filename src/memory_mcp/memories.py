@@ -604,7 +604,17 @@ def _ensure_env_visible(memory: Memory, ctx: AgentContext) -> None:
         )
 
 
-def _to_response(memory: Memory, tag_names: list[str]) -> MemoryResponse:
+def _to_response(
+    memory: Memory,
+    tag_names: list[str],
+    *,
+    reference_velocity: int | None = None,
+) -> MemoryResponse:
+    rc_rl = int(getattr(memory, "reference_count_rel_link", 0) or 0)
+    rc_ln = int(getattr(memory, "reference_count_lineage", 0) or 0)
+    rc_tk = int(getattr(memory, "reference_count_task", 0) or 0)
+    rc_pb = int(getattr(memory, "reference_count_playbook", 0) or 0)
+    rc_total = int(getattr(memory, "reference_count", rc_rl + rc_ln + rc_tk + rc_pb) or 0)
     return MemoryResponse(
         id=memory.id,
         env_id=memory.env_id,
@@ -630,6 +640,14 @@ def _to_response(memory: Memory, tag_names: list[str]) -> MemoryResponse:
         version=memory.version,
         created_at=memory.created_at,
         updated_at=memory.updated_at,
+        reference_count=rc_total,
+        reference_breakdown={
+            "rel_link": rc_rl,
+            "lineage": rc_ln,
+            "task": rc_tk,
+            "playbook": rc_pb,
+        },
+        reference_velocity=reference_velocity,
     )
 
 
