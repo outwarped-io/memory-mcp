@@ -2,6 +2,35 @@
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-05-19 — Popularity Phase 1 (graph-citation reference counters)
+
+### Added
+- **Four per-kind `reference_count_*` columns on `memories`** — `reference_count_rel_link`, `reference_count_lineage`, `reference_count_task`, `reference_count_playbook` — plus a stored `reference_count INTEGER GENERATED ALWAYS AS (sum) STORED` for ordered-scan indexes. Surface the structural graph-citation signal that lived only on the read axis (`access_count` / `last_accessed_at`) before now.
+- **Three Postgres triggers (Migration 0017)** keep counters at transactional truth in the hot path:
+  - `memories_bump_on_relation_change` — `AFTER INSERT OR DELETE ON relations`. Branches on `src.node_type` (task → `task`; else → `rel_link`), skips Phase 4's reserved `related_to_popular` predicate, no-ops on UPDATE.
+  - `memories_bump_on_lineage_change` — `AFTER INSERT OR DELETE ON memory_lineage`. Counts only the load-bearing whitelist `{summarized_from, promoted_from, derives_from, split_from, derived_from}`; **excludes `supersedes`** so version-chain bookkeeping does not inflate parent authority. `split_from` / `derived_from` are forward-listed for Phase 3.
+  - `memories_status_flip_decrement` — `AFTER UPDATE OF status ON memories WHEN OLD.status IS DISTINCT FROM NEW.status`. Walks outgoing edges from the flipping memory on `active ↔ (retired | superseded)`; symmetric (re-increments on un-retire).
+- **Bounded sync backfill in `upgrade()`** — single-pass aggregate when `relations + memory_lineage` together are below 100k edges; above that the migration leaves counters at zero and emits a NOTICE. The dream `recount` pass is canonical truth and fills in either case.
+- **`mem_top` MCP tool** — `mem_top(env_id?, by, kinds?, tags?, tag_match='any'|'all', status?, velocity_window_days?, limit=10)`. Returns memories ordered by `salience | access_count | reference_count | reference_velocity` with stable tie-breaker `ORDER BY metric DESC, created_at DESC, id DESC`. `tag_match='all'` enables AND semantics (vs `mem_browse`'s OR default).
+- **`MemoryResponse` carries `reference_count`, `reference_breakdown: {rel_link, lineage, task, playbook}`, and `reference_velocity`** — additive; old clients tolerate the new fields.
+- **Salience extension** — `SalienceInputs` and `SalienceWeights` gain reference-aware terms. Per-kind counts are normalized independently via `log1p(N) / log1p(window)`, then weighted-averaged and scaled by `w_references` (default `0.15`). Per-kind weights: `w_rl=1.0`, `w_ln=1.5`, `w_tk=1.2`, `w_pb=2.0`; per-kind windows: `50 / 5 / 20 / 10`. The dominance invariant (negative term swallows max positives at 5 negative events) is preserved by bumping `w_negative` from `0.30` to `0.40`.
+- **Decay-resistance gate** — `dream_decay_reference_floor: int = 3` (settable). The decay pass skips the `active → stale` transition when `reference_count >= floor`. Structural decay (stale → archived) is not gated.
+- **New dream pass `recount`** (`memory_mcp.dream.passes.recount`) — canonical writer of the four counters. Reconciles drift, performs supersede-chain ancestry exclusion (S6 — triggers cannot afford it on the hot path), and text-scans active playbook `steps[]` for `{{memory:<uuid>}}` macros (the playbook counter has no edge row backing it). Idempotent.
+- **Scheduler wiring for the new pass** — `JOB_ID_RECOUNT = "dream-recount"`; default `dream_recount_cadence_seconds = 3600`; `_MODE_LOCK_KEY` slot 5; `DreamMode.recount` registered in both `schemas/enums.py` and `schemas/dream.py`; dispatch branch in `dream_worker.jobs._dispatch_pass`.
+- **New indexes** — `memories_reference_count_idx (env_id, status, reference_count DESC, created_at DESC, id DESC)` for stable-order `mem_top by=reference_count`; `relations_velocity_idx (env_id, created_at DESC, dst_node_id)` and `memory_lineage_velocity_idx (created_at DESC, parent_memory_id)` cover the velocity CTEs.
+
+### Changed
+- **`w_negative` default raised `0.30 → 0.40`** to absorb the new positive `references` term while preserving the dominance invariant. Memories with 1 negative event now subtract `~0.277` instead of `~0.208` (~33% bigger hit). Pre-existing decay tests updated.
+- **`dream_runs.mode` CHECK extended** to admit `'recount'` alongside the existing `decay / dedupe / promote / retention / decision_conflicts`. Migration 0017 drops and recreates the constraint following the v0.12 pattern.
+- **Default velocity window raised `14 → 30` days** (`mem_reference_velocity_window_days: int = 30`). Per-request override via `mem_top.velocity_window_days`. Playbook citations are excluded from velocity (no per-edge timestamp).
+
+### Notes
+- DB migration required: alembic head advances to **`0017_popularity_counters`**. The fast-path backfill is bounded to 100k edges; envs above that rely on the recount pass for first-fill.
+- The salience formula change is **observable to callers**: memories with substantial graph-citation footprint will see their `salience` rise; the dominance invariant is preserved at the negative-event tail. Decay candidates change accordingly.
+- **Phase 1 deferred (`mpc-phase1-authority`)** — authority weighting via `Σ source.salience` is fractional and cannot live in integer counter columns; the design needs separate float columns and a chicken-and-egg resolution for circular citations. Re-planned for a v0.14.x follow-up.
+- **Intra-supersede-chain rel_link exclusion is recount-only.** Triggers may transiently over-count when a `rel_link` between two memories in the same supersede chain is inserted; the next recount-pass run converges. Documented limitation S6.
+- **Backwards compatible.** `mem_top` is opt-in; the new `MemoryResponse` fields are additive; the salience change preserves the invariant; the decay-resistance gate defaults to `floor=3` (set `floor=0` to disable).
+
 ## [0.13.1] — 2026-05-16 — Plugin manifest switched to Streamable HTTP
 
 ### Changed
