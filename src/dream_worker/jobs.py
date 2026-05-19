@@ -50,6 +50,7 @@ import logging
 import time
 import uuid as uuidlib
 from dataclasses import asdict, dataclass
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -354,6 +355,8 @@ def _coerce_value(v: Any) -> Any:
         return str(v)
     if isinstance(v, dt.datetime):
         return v.isoformat()
+    if isinstance(v, Decimal):
+        return float(v)
     if isinstance(v, list):
         return [_coerce_value(x) for x in v]
     if isinstance(v, dict):

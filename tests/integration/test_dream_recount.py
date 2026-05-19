@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
 
 from memory_mcp.config import Settings
+from memory_mcp.dream.passes.recount import _q
 from memory_mcp.identity import AgentContext
 
 from .conftest import (
@@ -213,18 +215,39 @@ def _ctx() -> AgentContext:
 # ---------------------------------------------------------------------------
 
 
-async def _run(env_id: UUID, monkeypatch, factory):
-    """Invoke ``run_recount`` with session_scope routed to ``factory``."""
+async def _run(env_id: UUID, monkeypatch, factory, *, settings: Settings | None = None):
+    """Invoke ``run_recount`` with session_scope routed to ``factory``.
+
+    Also patches ``memory_mcp.memories.session_scope`` so the R-B3
+    salience-recompute path (which calls ``memory_update``) lands in
+    the test container, and pre-inserts the actor's ``agents`` row so
+    the audit_log FK doesn't fire.
+    """
 
     from memory_mcp.dream.passes import recount as recount_mod
+    from memory_mcp import memories as memories_mod
 
     monkeypatch.setattr(recount_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    ctx = _ctx()
+    # ``memory_update`` writes audit_log rows with by_agent_id pointing
+    # at ``agents.id`` — pre-seed so the R-B3 path's API call doesn't
+    # trip the FK constraint.
+    async with factory() as _agent_session:
+        await _agent_session.execute(
+            text(
+                "INSERT INTO agents (id, name) VALUES (:id, :name) "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"id": ctx.agent_id, "name": f"test-{ctx.agent_id.hex[:8]}"},
+        )
+        await _agent_session.commit()
     token = use_session_factory(factory)
     try:
         return await recount_mod.run_recount(
             env_id,
-            actor_ctx=_ctx(),
-            settings=_settings(),
+            actor_ctx=ctx,
+            settings=settings or _settings(),
             now=dt.datetime.now(dt.UTC),
         )
     finally:
@@ -722,3 +745,689 @@ async def test_dispatch_via_run_dream_pass(
             )
         ).all()
     assert len(rows) >= 1
+
+
+# ===========================================================================
+# Phase 1e — authority leg coverage (slice 1e-c, v0.14.1)
+# ===========================================================================
+#
+# 13 new tests covering the gated authority recount + R-B3 salience
+# recompute. Layout mirrors the existing sections: helpers first, then
+# tests grouped by concern (knob gating, initial recount, drift,
+# idempotency, exclusion rules, R-B3 recompute, eventual correction).
+
+
+async def _set_salience(session, mem_id: UUID, value: float) -> None:
+    """Force a memory's salience to a known value to seed citer-salience scenarios."""
+
+    await session.execute(
+        text("UPDATE memories SET salience = :v WHERE id = :id"),
+        {"v": value, "id": mem_id},
+    )
+
+
+async def _read_authority(session, mem_id: UUID) -> dict[str, object]:
+    """Read the four ``ref_authority_*`` columns + total + recount stamp."""
+
+    row = (
+        await session.execute(
+            text(
+                "SELECT ref_authority_rel_link, ref_authority_lineage, "
+                "       ref_authority_task, ref_authority_playbook, "
+                "       reference_authority, authority_last_recount_at "
+                "FROM memories WHERE id = :id"
+            ),
+            {"id": mem_id},
+        )
+    ).one()
+    return {
+        "rel_link": row[0],
+        "lineage": row[1],
+        "task": row[2],
+        "playbook": row[3],
+        "total": row[4],
+        "stamp": row[5],
+    }
+
+
+async def _set_authority_raw(
+    session,
+    mem_id: UUID,
+    *,
+    rl: float = 0.0,
+    ln: float = 0.0,
+    tk: float = 0.0,
+    pb: float = 0.0,
+) -> None:
+    """Force ``ref_authority_*`` to specific values to seed drift."""
+
+    await session.execute(
+        text(
+            "UPDATE memories SET "
+            "  ref_authority_rel_link = :rl, "
+            "  ref_authority_lineage  = :ln, "
+            "  ref_authority_task     = :tk, "
+            "  ref_authority_playbook = :pb "
+            "WHERE id = :mid"
+        ),
+        {"rl": rl, "ln": ln, "tk": tk, "pb": pb, "mid": mem_id},
+    )
+
+
+def _settings_authority_on(**overrides) -> Settings:
+    """Settings with ``dream_popularity_authority_weighted=True`` (knob ON)."""
+
+    return Settings(dream_popularity_authority_weighted=True, **overrides)
+
+
+# ---------------------------------------------------------------------------
+# Test 13: knob off skips authority leg entirely
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_authority_off_skips_authority_leg(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Default Settings (knob off) → no authority columns touched, no stamp set."""
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        m_src = await _mk_mem(session, env_id)
+        m_dst = await _mk_mem(session, env_id)
+        await _set_salience(session, m_src, 0.5)
+        gn_src = await _mk_gn_mem(session, env_id, m_src)
+        gn_dst = await _mk_gn_mem(session, env_id, m_dst)
+        await _mk_rel(session, env_id, gn_src, gn_dst)
+        await session.commit()
+
+    # Run with default settings (knob OFF).
+    result = await _run(env_id, monkeypatch, factory)
+    assert result.memories_authority_adjusted == 0
+    assert result.drift_authority_rel_link == Decimal("0")
+    assert result.drift_authority_lineage == Decimal("0")
+    assert result.drift_authority_task == Decimal("0")
+    assert result.drift_authority_playbook == Decimal("0")
+
+    async with factory() as session:
+        auth = await _read_authority(session, m_dst)
+    # Defaults persist.
+    assert auth["rel_link"] == Decimal("0.000000")
+    assert auth["total"] == Decimal("0.000000")
+    assert auth["stamp"] is None
+
+
+# ---------------------------------------------------------------------------
+# Test 14: initial recount sums citer salience
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_authority_initial_recount_sums_citer_salience(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Two citers with salience 0.4 and 0.7 → target's rel_link authority = 1.1."""
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        a = await _mk_mem(session, env_id)
+        b = await _mk_mem(session, env_id)
+        dst = await _mk_mem(session, env_id)
+        await _set_salience(session, a, 0.4)
+        await _set_salience(session, b, 0.7)
+        gn_a = await _mk_gn_mem(session, env_id, a)
+        gn_b = await _mk_gn_mem(session, env_id, b)
+        gn_dst = await _mk_gn_mem(session, env_id, dst)
+        await _mk_rel(session, env_id, gn_a, gn_dst)
+        await _mk_rel(session, env_id, gn_b, gn_dst)
+        await session.commit()
+
+    result = await _run(env_id, monkeypatch, factory, settings=_settings_authority_on())
+    assert result.memories_authority_adjusted == 1
+    assert _q(result.drift_authority_rel_link) == _q(Decimal("1.1"))
+
+    async with factory() as session:
+        auth = await _read_authority(session, dst)
+    assert auth["rel_link"] == Decimal("1.100000")
+    assert auth["total"] == Decimal("1.100000")
+    assert auth["stamp"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Test 15: drift correction
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_authority_drift_corrected_by_recount(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Manually mis-set ``ref_authority_rel_link = 99`` → recount restores canonical."""
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        src = await _mk_mem(session, env_id)
+        dst = await _mk_mem(session, env_id)
+        await _set_salience(session, src, 0.5)
+        gn_src = await _mk_gn_mem(session, env_id, src)
+        gn_dst = await _mk_gn_mem(session, env_id, dst)
+        await _mk_rel(session, env_id, gn_src, gn_dst)
+        await _set_authority_raw(session, dst, rl=99.0)
+        await session.commit()
+
+    result = await _run(env_id, monkeypatch, factory, settings=_settings_authority_on())
+    assert result.memories_authority_adjusted == 1
+    # canonical 0.5 - current 99 = -98.5
+    assert _q(result.drift_authority_rel_link) == _q(Decimal("-98.5"))
+
+    async with factory() as session:
+        auth = await _read_authority(session, dst)
+    assert auth["rel_link"] == Decimal("0.500000")
+
+
+# ---------------------------------------------------------------------------
+# Test 16: idempotency at α=1.0
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_authority_idempotent_at_alpha_1_0(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Two consecutive recount runs with α=1.0 — second reports zero authority drift.
+
+    Idempotency holds only at α=1.0 (default). At α<1.0 the blend is
+    monotonic-convergent but not idempotent — covered by separate
+    test if/when damping is exercised.
+    """
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        src = await _mk_mem(session, env_id)
+        dst = await _mk_mem(session, env_id)
+        await _set_salience(session, src, 0.6)
+        gn_src = await _mk_gn_mem(session, env_id, src)
+        gn_dst = await _mk_gn_mem(session, env_id, dst)
+        await _mk_rel(session, env_id, gn_src, gn_dst)
+        await session.commit()
+
+    settings_on = _settings_authority_on()
+    first = await _run(env_id, monkeypatch, factory, settings=settings_on)
+    assert first.memories_authority_adjusted >= 1
+
+    second = await _run(env_id, monkeypatch, factory, settings=settings_on)
+    assert second.memories_authority_adjusted == 0
+    assert second.drift_authority_rel_link == Decimal("0")
+    assert second.drift_authority_lineage == Decimal("0")
+    assert second.drift_authority_task == Decimal("0")
+    assert second.drift_authority_playbook == Decimal("0")
+
+
+# ---------------------------------------------------------------------------
+# Test 17: retired citer excluded
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_retired_citer_excluded_from_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Retired src memory's salience does not contribute to dst authority."""
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        active_src = await _mk_mem(session, env_id, status="active")
+        retired_src = await _mk_mem(session, env_id, status="retired")
+        dst = await _mk_mem(session, env_id)
+        await _set_salience(session, active_src, 0.5)
+        await _set_salience(session, retired_src, 0.8)
+        gn_active = await _mk_gn_mem(session, env_id, active_src)
+        gn_retired = await _mk_gn_mem(session, env_id, retired_src)
+        gn_dst = await _mk_gn_mem(session, env_id, dst)
+        await _mk_rel(session, env_id, gn_active, gn_dst)
+        await _mk_rel(session, env_id, gn_retired, gn_dst)
+        await session.commit()
+
+    result = await _run(env_id, monkeypatch, factory, settings=_settings_authority_on())
+    # Only the active citer contributes: 0.5
+    assert _q(result.drift_authority_rel_link) == _q(Decimal("0.5"))
+
+    async with factory() as session:
+        auth = await _read_authority(session, dst)
+    assert auth["rel_link"] == Decimal("0.500000")
+
+
+# ---------------------------------------------------------------------------
+# Test 18: task source contributes zero authority (D1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_task_source_contributes_zero_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Task edges increment integer counter but contribute 0 to authority (D1)."""
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        dst = await _mk_mem(session, env_id)
+        task = await _mk_task(session, env_id)
+        gn_src = await _mk_gn_task(session, env_id, task)
+        gn_dst = await _mk_gn_mem(session, env_id, dst)
+        await _mk_rel(session, env_id, gn_src, gn_dst, rel_type="references")
+        await session.commit()
+
+    result = await _run(env_id, monkeypatch, factory, settings=_settings_authority_on())
+    # Integer counter bumps but authority stays at 0.
+    assert result.drift_authority_task == Decimal("0")
+    assert result.drift_authority_rel_link == Decimal("0")
+
+    async with factory() as session:
+        counts = await _read_counts(session, dst)
+        auth = await _read_authority(session, dst)
+    assert counts["task"] == 1
+    assert auth["task"] == Decimal("0.000000")
+    assert auth["total"] == Decimal("0.000000")
+
+
+# ---------------------------------------------------------------------------
+# Test 19: salience recomputed after integer-counter drift (R-B3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_salience_recomputed_after_integer_counter_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Counter drift + wrong salience → recount fixes both via outbox path (R-B3).
+
+    Verifies (a) integer counter restored, (b) salience recomputed
+    consistent with canonical inputs, (c) outbox event enqueued (the
+    memory_update API path that keeps the Qdrant payload aligned).
+    """
+
+    from memory_mcp.dream.salience import (
+        SalienceInputs,
+        compute_salience,
+        salience_weights_from_settings,
+    )
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        src = await _mk_mem(session, env_id)
+        dst = await _mk_mem(session, env_id)
+        await _set_salience(session, src, 0.5)
+        gn_src = await _mk_gn_mem(session, env_id, src)
+        gn_dst = await _mk_gn_mem(session, env_id, dst)
+        await _mk_rel(session, env_id, gn_src, gn_dst)
+        # Drift: counter forced too-high, salience stale.
+        await _set_counter_raw(session, dst, rl=99)
+        await _set_salience(session, dst, 0.5)
+        await session.commit()
+
+    # Run with knob OFF — R-B3 must still recompute salience for
+    # the counter-drifted row (D6).
+    result = await _run(env_id, monkeypatch, factory)
+    assert result.memories_adjusted >= 1
+    assert result.memories_salience_recomputed >= 1
+    assert result.salience_version_conflicts == 0
+
+    async with factory() as session:
+        # (a) integer counter restored
+        counts = await _read_counts(session, dst)
+        assert counts["rel_link"] == 1
+        # (b) salience recomputed consistent with current canonical inputs
+        row = (
+            await session.execute(
+                text(
+                    "SELECT salience, access_count, last_accessed_at, "
+                    "       confidence, pinned, negative_feedback_count, "
+                    "       verified_at, created_at, "
+                    "       reference_count_rel_link, reference_count_lineage, "
+                    "       reference_count_task, reference_count_playbook "
+                    "FROM memories WHERE id = :id"
+                ),
+                {"id": dst},
+            )
+        ).one()
+        # (c) outbox enqueued — at least one event for dst memory
+        outbox_rows = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox "
+                    "WHERE aggregate_id = :id AND aggregate_type = 'memory'"
+                ),
+                {"id": dst},
+            )
+        ).scalar_one()
+
+    inputs = SalienceInputs(
+        access_count=int(row[1] or 0),
+        last_accessed_at=row[2],
+        confidence=float(row[3] or 0.0),
+        pinned=bool(row[4]),
+        negative_feedback_count=int(row[5] or 0),
+        verified_at=row[6],
+        created_at=row[7],
+        reference_count_rel_link=int(row[8] or 0),
+        reference_count_lineage=int(row[9] or 0),
+        reference_count_task=int(row[10] or 0),
+        reference_count_playbook=int(row[11] or 0),
+    )
+    expected = compute_salience(
+        inputs,
+        now=dt.datetime.now(dt.UTC),
+        weights=salience_weights_from_settings(_settings()),
+    )
+    # Tight tolerance — recency term has a few seconds of drift from
+    # test elapsed time, but salience math is deterministic enough.
+    assert abs(float(row[0]) - expected) < 0.01, (
+        f"stored salience {row[0]} differs from canonical {expected}"
+    )
+    assert outbox_rows >= 1
+
+
+# ---------------------------------------------------------------------------
+# Test 20: next pass heals new edge after recount (eventual correction)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_next_pass_heals_new_edge_after_recount(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """New edge inserted between two recount passes is picked up on pass 2.
+
+    Models the eventual-correction concurrency contract (R-S8) — NOT
+    a mid-pass race. A true race test would need an injected barrier
+    inside ``run_recount`` and is deferred. Asserts no NULL / negative
+    values land in any authority column at any point.
+    """
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        src_a = await _mk_mem(session, env_id)
+        src_b = await _mk_mem(session, env_id)
+        dst = await _mk_mem(session, env_id)
+        await _set_salience(session, src_a, 0.5)
+        await _set_salience(session, src_b, 0.5)
+        gn_a = await _mk_gn_mem(session, env_id, src_a)
+        gn_dst = await _mk_gn_mem(session, env_id, dst)
+        await _mk_gn_mem(session, env_id, src_b)  # GN exists, edge does not yet
+        await _mk_rel(session, env_id, gn_a, gn_dst)
+        await session.commit()
+
+    settings_on = _settings_authority_on()
+    # Pass 1: only src_a contributes
+    first = await _run(env_id, monkeypatch, factory, settings=settings_on)
+    async with factory() as session:
+        auth1 = await _read_authority(session, dst)
+    assert auth1["rel_link"] == Decimal("0.500000")
+    assert auth1["rel_link"] >= Decimal("0")  # no negative
+
+    # Insert second edge after pass 1 lands
+    async with factory() as session:
+        # Refetch gn ids for src_b
+        gn_b_row = (
+            await session.execute(
+                text("SELECT id FROM graph_nodes WHERE memory_id = :m"),
+                {"m": src_b},
+            )
+        ).one()
+        gn_dst_row = (
+            await session.execute(
+                text("SELECT id FROM graph_nodes WHERE memory_id = :m"),
+                {"m": dst},
+            )
+        ).one()
+        await _mk_rel(session, env_id, gn_b_row[0], gn_dst_row[0])
+        await session.commit()
+
+    # Pass 2: sums both
+    second = await _run(env_id, monkeypatch, factory, settings=settings_on)
+    async with factory() as session:
+        auth2 = await _read_authority(session, dst)
+    assert auth2["rel_link"] == Decimal("1.000000")
+    assert auth2["total"] == Decimal("1.000000")
+    assert auth2["rel_link"] >= Decimal("0")
+
+
+# ---------------------------------------------------------------------------
+# Test 21: supersede-chain ancestry excluded from authority (parity)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_supersede_chain_ancestry_excluded_from_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """``a → a'`` rel_link inside supersede chain contributes 0 to authority."""
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        a = await _mk_mem(session, env_id)
+        a_prime = await _mk_mem(session, env_id)
+        gn_a = await _mk_gn_mem(session, env_id, a)
+        gn_ap = await _mk_gn_mem(session, env_id, a_prime)
+        # Pre-set salience while a is still active so citer lookup
+        # would have a value to contribute (if not for chain exclusion).
+        await _set_salience(session, a, 0.7)
+        await _set_salience(session, a_prime, 0.5)
+        await _mk_rel(session, env_id, gn_a, gn_ap, rel_type="mentions")
+        await session.commit()
+        # Now make a a member of a_prime's supersede chain.
+        await session.execute(
+            text(
+                "UPDATE memories SET status = 'superseded', "
+                "  superseded_by = :p WHERE id = :a"
+            ),
+            {"p": a_prime, "a": a},
+        )
+        # Seed authority drift to prove recount zeroes it.
+        await _set_authority_raw(session, a_prime, rl=99.0)
+        await session.commit()
+
+    result = await _run(env_id, monkeypatch, factory, settings=_settings_authority_on())
+    # Authority canonical = 0 (a is in chain AND retired; both rules
+    # exclude). Drift = 0 - 99 = -99.
+    assert _q(result.drift_authority_rel_link) == _q(Decimal("-99.0"))
+
+    async with factory() as session:
+        auth = await _read_authority(session, a_prime)
+    assert auth["rel_link"] == Decimal("0.000000")
+
+
+# ---------------------------------------------------------------------------
+# Test 22: self-citation excluded from authority (D8)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_self_citation_excluded_from_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """A memory citing itself contributes 0 to its own authority (D8).
+
+    Prevents fixed-point feedback once slice 1e-d wires authority into
+    the salience formula. The integer counter may include self-cites
+    (Phase 1 contract unchanged); only authority enforces D8.
+    """
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        m = await _mk_mem(session, env_id)
+        await _set_salience(session, m, 0.5)
+        gn = await _mk_gn_mem(session, env_id, m)
+        # Self-citation: src == dst
+        await _mk_rel(session, env_id, gn, gn, rel_type="mentions")
+        await session.commit()
+
+    result = await _run(env_id, monkeypatch, factory, settings=_settings_authority_on())
+    assert result.drift_authority_rel_link == Decimal("0")
+
+    async with factory() as session:
+        auth = await _read_authority(session, m)
+    assert auth["rel_link"] == Decimal("0.000000")
+    assert auth["total"] == Decimal("0.000000")
+
+
+# ---------------------------------------------------------------------------
+# Test 23: ``related_to_popular`` excluded from authority (parity)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_related_to_popular_excluded_from_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Phase 4 auto-wire predicate contributes 0 to authority."""
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        src = await _mk_mem(session, env_id)
+        dst = await _mk_mem(session, env_id)
+        await _set_salience(session, src, 0.6)
+        gn_src = await _mk_gn_mem(session, env_id, src)
+        gn_dst = await _mk_gn_mem(session, env_id, dst)
+        await _mk_rel(
+            session, env_id, gn_src, gn_dst, rel_type="related_to_popular",
+        )
+        # Seed authority drift to prove recount zeroes it.
+        await _set_authority_raw(session, dst, rl=42.0)
+        await session.commit()
+
+    result = await _run(env_id, monkeypatch, factory, settings=_settings_authority_on())
+    assert _q(result.drift_authority_rel_link) == _q(Decimal("-42.0"))
+
+    async with factory() as session:
+        auth = await _read_authority(session, dst)
+    assert auth["rel_link"] == Decimal("0.000000")
+
+
+# ---------------------------------------------------------------------------
+# Test 24: cross-env playbook macro excluded from authority (parity)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cross_env_playbook_macro_excluded_from_authority(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """A playbook in env A citing a memory in env B → no authority in B."""
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_a = await _mk_env(session)
+        env_b = await _mk_env(session)
+        target_b = await _mk_mem(session, env_b)
+        # Playbook lives in env_a, cites target_b in env_b.
+        pb = await _mk_mem(
+            session,
+            env_a,
+            kind="playbook",
+            steps=[f"Cite {{{{memory:{target_b}}}}}"],
+        )
+        await _set_salience(session, pb, 0.8)
+        await session.commit()
+
+    # Recount env A — cross-env macro is silently dropped.
+    result_a = await _run(env_a, monkeypatch, factory, settings=_settings_authority_on())
+    assert result_a.drift_authority_playbook == Decimal("0")
+
+    # Recount env B — no playbook in env B → nothing to scan.
+    result_b = await _run(env_b, monkeypatch, factory, settings=_settings_authority_on())
+    assert result_b.drift_authority_playbook == Decimal("0")
+
+    async with factory() as session:
+        auth = await _read_authority(session, target_b)
+    assert auth["playbook"] == Decimal("0.000000")
+    assert auth["total"] == Decimal("0.000000")
+
+
+# ---------------------------------------------------------------------------
+# Test 25: lineage and playbook authority sum correctly
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_lineage_and_playbook_authority_sum_correctly(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Combined: child contributes via lineage (0.3); playbook cites target 3× (0.6·3=1.8)."""
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        parent = await _mk_mem(session, env_id)
+        child = await _mk_mem(session, env_id)
+        await _set_salience(session, child, 0.3)
+        # Lineage edge: child summarized_from parent (child contributes)
+        await session.execute(
+            text(
+                "INSERT INTO memory_lineage (parent_memory_id, child_memory_id, relation) "
+                "VALUES (:p, :c, 'summarized_from')"
+            ),
+            {"p": parent, "c": child},
+        )
+        # Playbook cites parent 3 times across its steps.
+        pb = await _mk_mem(
+            session,
+            env_id,
+            kind="playbook",
+            steps=[
+                f"Step 1 {{{{memory:{parent}}}}}",
+                f"Step 2 {{{{memory:{parent}}}}} again",
+                f"Step 3 {{{{memory:{parent}}}}} third",
+            ],
+        )
+        await _set_salience(session, pb, 0.6)
+        await session.commit()
+
+    result = await _run(env_id, monkeypatch, factory, settings=_settings_authority_on())
+    # parent.lineage = 0.3 (one child contributes)
+    # parent.playbook = 0.6 * 3 = 1.8 (per-occurrence)
+    assert _q(result.drift_authority_lineage) == _q(Decimal("0.3"))
+    assert _q(result.drift_authority_playbook) == _q(Decimal("1.8"))
+
+    async with factory() as session:
+        auth = await _read_authority(session, parent)
+    assert auth["lineage"] == Decimal("0.300000")
+    assert auth["playbook"] == Decimal("1.800000")
+    assert auth["total"] == Decimal("2.100000")
