@@ -58,13 +58,32 @@ to 0 even with maximum recency AND maximum references contribution.
 
 Phase 1 (memory-mcp v0.14) raises ``w_negative`` from ``0.30`` to ``0.40``
 to absorb the new ``w_references = 0.15`` positive term while preserving
-the invariant. Worst-case positives at full saturation:
-``access(0.30) + recency(0.25) + references(0.15·1.0) = 0.70``.
-Negative term at 5 events: ``0.40 · log1p(5) = 0.716``. Net ≤ 0. ✓
+the invariant. Phase 1e (memory-mcp v0.14.1) raises it again from
+``0.40`` to ``0.46`` to absorb the new ``w_authority = 0.10`` positive
+term **and** to narrow the dominance scope.
 
-Side effect: ``w_negative = 0.40`` makes a single negative subtract ``0.277``
-instead of ``0.208`` — roughly a 33 % bigger hit. Pre-Phase-1 tests that
-assumed ``w_negative = 0.30`` were updated accordingly.
+**Narrowed scope (Phase 1e — R-B2).** The 5-negative dominance
+invariant applies only to rows where ``confidence = 0.0``,
+``pinned = False``, and ``verified_at = None``. Pinned, verified, or
+high-confidence memories are *intentionally* non-dominable by 5
+negatives — that's the documented design intent of the bonus terms.
+
+Re-derivation at ``w_negative = 0.46`` under the narrowed scope:
+
+* Positives saturated: ``access(0.30) + recency(0.25) +
+  references(0.15) + authority(0.10) = 0.80``.
+* Required: ``w_negative · log1p(5) ≥ 0.80`` →
+  ``w_negative ≥ 0.80 / 1.7918 = 0.4465``.
+* Picked ``w_negative = 0.46``: ``0.46 · 1.7918 ≈ 0.8242``.
+* Net: ``0.80 - 0.8242 = -0.0242`` → clamp01 → 0. ✓
+
+Margin ``-0.0242`` is 4× the Phase 1 margin (``-0.006`` at the original
+plan target) and comfortable headroom against float drift.
+
+Side effect: ``w_negative = 0.46`` makes a single negative subtract
+``0.46 · log1p(1) ≈ 0.319`` (vs ``0.277`` at v0.14, ``0.208`` at the
+pre-Phase-1 baseline) — roughly a 15 % heavier hit per negative
+relative to v0.14. Tests with hard-coded thresholds were updated.
 """
 
 from __future__ import annotations
@@ -113,10 +132,13 @@ class SalienceWeights:
     w_access: float = 0.30
     w_recency: float = 0.25
     w_confidence: float = 0.30
-    # 0.40 (raised from 0.30 in Phase 1 v0.14) — tuned so the dominance
-    # invariant survives the addition of the references term. See module
-    # docstring's "Dominance property" section.
-    w_negative: float = 0.40
+    # 0.46 (raised from 0.40 in Phase 1e v0.14.1; from 0.30 in pre-Phase-1
+    # baseline). Tuned so the narrowed-scope dominance invariant
+    # (``confidence=0, pinned=False, verified_at=None``) survives the
+    # addition of both the references term (Phase 1) AND the authority
+    # term (Phase 1e, ``w_authority=0.10``). See module docstring's
+    # "Dominance property" section.
+    w_negative: float = 0.46
     pinned_bonus: float = 0.30
     verified_bonus: float = 0.10
     access_window: int = 100
@@ -144,6 +166,21 @@ class SalienceWeights:
     window_tk: int = 20
     window_pb: int = 10
 
+    # ---- Phase 1e: authority term ----------------------------------------
+    # Authority = Σ source.salience over inbound citations. Stored as
+    # ``Memory.reference_authority`` (sum of four per-kind authority
+    # columns). The salience term is gated by
+    # ``Settings.dream_popularity_authority_weighted`` at the
+    # ``compute_salience`` callsite (this dataclass holds the weights
+    # unconditionally so that ``salience_weights_from_settings`` is
+    # symmetric with the other phases).
+    #
+    # Dormant in Phase 1e-b (this slice) — ``compute_salience`` does not
+    # yet read these fields. Wired up in slice 1e-d alongside the
+    # clamped log1p term ``log1p(authority) / log1p(authority_window)``.
+    w_authority: float = 0.10
+    authority_window: float = 25.0
+
     # Fallback used when ``last_accessed_at is None`` and we still want a
     # tiny floor of recency from ``created_at``. Set to 0 to fully ignore.
     _floor_recency_from_created: bool = field(default=True, repr=False)
@@ -169,6 +206,9 @@ def salience_weights_from_settings(settings: Settings) -> SalienceWeights:
         window_ln=settings.dream_salience_window_ln,
         window_tk=settings.dream_salience_window_tk,
         window_pb=settings.dream_salience_window_pb,
+        # Phase 1e (dormant until slice 1e-d wires the formula).
+        w_authority=settings.dream_salience_w_authority,
+        authority_window=settings.dream_salience_authority_window,
     )
 
 

@@ -195,10 +195,14 @@ class Settings(BaseSettings):
     dream_salience_w_access: float = Field(default=0.30, ge=0.0)
     dream_salience_w_recency: float = Field(default=0.25, ge=0.0)
     dream_salience_w_confidence: float = Field(default=0.30, ge=0.0)
-    # 0.40 (raised from 0.30 in Phase 1 v0.14) — tuned so the dominance
-    # invariant (negatives outweigh positives at saturation) survives the
-    # addition of the references term below. See salience.py module docstring.
-    dream_salience_w_negative: float = Field(default=0.40, ge=0.0)
+    # 0.46 (raised from 0.40 in Phase 1e v0.14.1; previously 0.30 in
+    # pre-Phase-1 baseline). Tuned so the narrowed-scope dominance
+    # invariant (negatives outweigh positives at saturation, where
+    # ``confidence=0, pinned=False, verified_at=None``) survives the
+    # addition of both the references term (Phase 1) AND the authority
+    # term (Phase 1e, w_authority=0.10). See salience.py module
+    # docstring for the full re-derivation.
+    dream_salience_w_negative: float = Field(default=0.46, ge=0.0)
     dream_salience_pinned_bonus: float = Field(default=0.30, ge=0.0)
     dream_salience_verified_bonus: float = Field(default=0.10, ge=0.0)
     # Access count at which the access term saturates: at
@@ -236,6 +240,32 @@ class Settings(BaseSettings):
     dream_salience_window_ln: int = Field(default=5, ge=1)
     dream_salience_window_tk: int = Field(default=20, ge=1)
     dream_salience_window_pb: int = Field(default=10, ge=1)
+
+    # ---- Phase 1e (v0.14.1) — authority weighting -------------------------
+    # Authority = Σ source.salience over inbound citations. When the knob
+    # is ON, the recount pass populates ``reference_authority_*`` columns
+    # and ``compute_salience()`` adds an authority term
+    # ``clamp01(log1p(reference_authority) / log1p(authority_window))``
+    # scaled by ``w_authority``. Default OFF — Phase 1e ships dormant so
+    # v0.14.1 is a no-op for existing envs until an operator opts in.
+    dream_popularity_authority_weighted: bool = Field(default=False)
+    # Salience weight for the authority term (consumed by
+    # ``compute_salience`` when the knob is ON). Sized at 0.10 to leave
+    # headroom for the narrowed-scope dominance invariant under
+    # ``w_negative=0.46`` — see ``salience.py`` docstring.
+    dream_salience_w_authority: float = Field(default=0.10, ge=0.0, le=1.0)
+    # Authority normalization window — the ``reference_authority`` value
+    # at which the normalized term saturates ~1.0 (post-clamp). 25.0 ≈
+    # 50 citers at average salience 0.5, or 25 citers at salience 1.0.
+    # Hand-tuned for v0.14.1; revisit with telemetry.
+    dream_salience_authority_window: float = Field(default=25.0, gt=0.0)
+    # Damping factor for the authority recurrence (consumed by recount,
+    # not by ``compute_salience``). ``α=1.0`` = off / no damping
+    # (default). When ``α<1.0``: ``new = (1-α)·old + α·computed`` →
+    # slower convergence but more stable in self-reinforcing subgraphs.
+    # Reserved as a future stability lever; ship at 1.0 and flip if
+    # telemetry shows oscillation.
+    dream_popularity_authority_damping: float = Field(default=1.0, gt=0.0, le=1.0)
 
     # ---- Dream decay pass (Phase 2.2) -------------------------------------
     # Days since ``last_accessed_at`` after which an ``active`` memory is

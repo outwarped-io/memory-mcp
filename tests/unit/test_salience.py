@@ -104,7 +104,7 @@ def test_confidence_monotonically_increases_salience() -> None:
 def test_negative_feedback_monotonically_decreases_salience() -> None:
     # Use ``access_count=100`` + ``pinned=True`` to lift the base above the
     # clamp floor, so the curve is monotonic across multiple negative
-    # counts under the v0.14 ``w_negative=0.40`` tuning.
+    # counts under the v0.14.1 ``w_negative=0.46`` tuning.
     s_zero = compute_salience(
         _row(last_accessed_at=NOW, access_count=100, pinned=True, negative_feedback_count=0),
         now=NOW,
@@ -235,9 +235,9 @@ def test_pinned_protects_against_moderate_negatives_but_not_extreme() -> None:
         now=NOW,
     )
     # Pinned + 1 negative: stays above the typical stale threshold (0.30)
-    # so the decay pass won't archive it. With the v0.14 ``w_negative=0.40``
-    # tuning, 1 negative subtracts ~0.28 from the positive 0.70 base
-    # (recency + confidence + pinned) → ~0.42 > 0.30.
+    # so the decay pass won't archive it. With the v0.14.1
+    # ``w_negative=0.46`` tuning, 1 negative subtracts ~0.319 from the
+    # positive 0.70 base (recency + confidence + pinned) → ~0.381 > 0.30.
     assert moderate > 0.30
     # Pinned can't outweigh 20 negatives at zero confidence.
     assert extreme < 0.10
@@ -374,9 +374,15 @@ def test_references_term_saturates_at_envelope_ceiling() -> None:
 
 
 def test_dominance_invariant_with_references_at_max() -> None:
-    """v0.14 dominance check: even with ALL positive terms at saturation
+    """v0.14.1 dominance check: even with ALL positive terms at saturation
     AND references at full envelope, 5 negatives at zero confidence drive
-    salience to ~0. Reverifies the ``w_negative=0.40`` retune (B1)."""
+    salience to ~0. Reverifies the ``w_negative=0.46`` retune (B1 from
+    Phase 1; R-S6 from Phase 1e under the narrowed scope).
+
+    Narrowed scope (Phase 1e — R-B2): ``confidence=0, pinned=False,
+    verified_at=None``. Pinned/verified/high-confidence rows are
+    intentionally non-dominable.
+    """
     saturated = _row(
         access_count=1000,
         last_accessed_at=NOW,
@@ -402,6 +408,31 @@ def test_settings_propagate_references_weights() -> None:
     assert bound.w_references == 0.25
     assert bound.w_references_rl == 2.0
     assert bound.window_pb == 20
+
+
+def test_settings_propagate_authority_weights() -> None:
+    """Phase 1e (v0.14.1) — ``Settings.dream_salience_{w_authority,
+    authority_window}`` must propagate through ``salience_weights_from_settings``
+    so that ``compute_salience`` (slice 1e-d) consumes operator-tuned
+    values.
+
+    Defaults: ``w_authority=0.10``, ``authority_window=25.0``.
+    """
+    # Defaults bind correctly.
+    defaults = salience_weights_from_settings(Settings(_env_file=None))  # type: ignore[call-arg]
+    assert defaults.w_authority == 0.10
+    assert defaults.authority_window == 25.0
+
+    # Overrides propagate.
+    overridden = salience_weights_from_settings(
+        Settings(  # type: ignore[call-arg]
+            _env_file=None,
+            dream_salience_w_authority=0.20,
+            dream_salience_authority_window=50.0,
+        )
+    )
+    assert overridden.w_authority == 0.20
+    assert overridden.authority_window == 50.0
 
 
 # ---------------------------------------------------------------------------
