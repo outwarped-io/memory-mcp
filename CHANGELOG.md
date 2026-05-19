@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+## [0.14.1] — 2026-05-19 — Popularity Phase 1e (authority weighting)
+
+### Added
+- **`reference_authority` signal** — each `memories` row gains four per-kind float columns (`ref_authority_rel_link`, `ref_authority_lineage`, `ref_authority_task`, `ref_authority_playbook`) plus a stored `reference_authority NUMERIC GENERATED ALWAYS AS (sum) STORED`. Surfaces the **weighted** citation footprint (`Σ source.salience` over inbound citations) — complementing the **counted** footprint (`reference_count_*`) added in v0.14.0.
+- **Migration 0018 (`authority_columns`)** — adds the four authority columns + GENERATED total + partial covering index `memories_reference_authority_idx (env_id, status, reference_authority DESC, created_at DESC, id DESC) WHERE reference_authority > 0` (matches `mem_top by="reference_authority"` access pattern).
+- **Migration 0019 (`salience_formula_version`)** — adds `memories.salience_formula_version INTEGER NOT NULL DEFAULT 0`. Used by the recount pass to detect rows on a stale salience formula and re-stamp them; future-proofs the salience math against silent drift after operators upgrade.
+- **Recount authority leg** — `dream.passes.recount` extended (R-B3 / R-S8 / R-S9) to compute `Σ source.salience` from inbound `relations` (rel_link + task), `memory_lineage` (lineage), and embedded `{{memory:<uuid>}}` macros in `playbook.steps` (per-occurrence). Writes the four per-kind columns; the total is GENERATED. Reconciles drift (canonical writer pattern from v0.14.0). Mirrors the integer-counter exclusions: chain-ancestry, retired-citer, `related_to_popular` predicate, cross-env playbook macros, self-citation. Task-sourced edges contribute `0` to `ref_authority_task` (tasks have no salience column).
+- **Recount salience-recompute step** — counter-changed and authority-changed rows feed into a salience recompute leg that re-evaluates `compute_salience()` and stamps `salience_formula_version` to the current setting. Persists via `MemoryUpdatePatch` so outbox / Qdrant payload stay consistent. Bounded per cycle via `dream_recount_salience_recompute_cap=500` (configurable; `0` = unbounded).
+- **Formula-version backfill** — first post-deploy recount cycle picks up all existing rows (default `salience_formula_version=0 < target=1`) and re-stamps them under the cap. `RecountPassResult` exposes `memories_formula_version_restamped` + `memories_formula_version_pending` so operators can monitor the drain.
+- **`compute_salience` authority term** — `w_authority · clamp01(log1p(reference_authority) / log1p(authority_window))`. Pure function — knob-gated via the weight: `salience_weights_from_settings` returns `w_authority=0.0` when `dream_popularity_authority_weighted=False`. Default OFF — no behaviour change on existing envs until opt-in.
+- **New Settings**:
+  - `dream_popularity_authority_weighted: bool = False` — master knob.
+  - `dream_salience_w_authority: float = 0.10` — weight of the authority term in salience.
+  - `dream_salience_authority_window: float = 25.0` — log1p normalization saturation point (~50 citers at avg salience 0.5).
+  - `dream_popularity_authority_damping: float = 1.0` — recurrence damping; reserved (no-op at 1.0).
+  - `dream_salience_formula_version: int = 1` — current formula version stamp.
+  - `dream_recount_salience_recompute_cap: int = 500` — per-cycle cap on formula-version backfill rows.
+- **`mem_top by="reference_authority"`** — new ranking metric. Returns the highest-authority memories with stable tie-breaker `(reference_authority DESC, created_at DESC, id DESC)`. Mirrors `reference_velocity` semantics: zero-authority rows are excluded from `items` but counted by `total_examined`.
+- **`MemoryResponse.reference_authority: float = 0.0`** — additive response field. Defaults to 0.0 so old clients are tolerated.
+- **`AUTHORITY_DISABLED` error code** — raised by `mem_top by="reference_authority"` when `dream_popularity_authority_weighted=False`. Fires before env / RBAC / DB so callers get a clean "metric unavailable" signal at no cost.
+
+### Changed
+- **`w_negative` default `0.40 → 0.46`** — absorbs the new authority term (saturated at `w_authority=0.10`) so the dominance invariant holds at the narrowed scope (`confidence=0, pinned=False, verified_at=None`). New margin `-0.0242` (was `-0.1242` in v0.14.0); still negative-clamped to 0 → 5 negative events still suppress a memory. Memories with 1 negative event now subtract `~0.319` instead of `~0.277` (~15% bigger hit).
+- **`SalienceWeights.w_authority` default `0.10 → 0.0`** — direct-constructor unit-test paths now default to knob-OFF semantics. The `0.10` lives in `Settings.dream_salience_w_authority` only and is bound through `salience_weights_from_settings`. Callers constructing `SalienceWeights(...)` directly must pass `w_authority=...` explicitly to opt in.
+- **`SalienceInputs.reference_authority: float = 0.0`** — new dataclass field; all callsites (recount, decay, two `memories.py` access-bump paths) updated to populate it. Access-bump reads the field but does **not** stamp `salience_formula_version` — only recount stamps.
+
+### Notes
+- **DB migration required**: alembic head advances to **`0019_salience_formula_version`** (via `0018_authority_columns`). No backfill of authority counters in `upgrade()` — the recount pass is canonical writer.
+- **First post-deploy recount cycle**: all existing rows have `salience_formula_version=0`, so the formula-version backfill leg lifts up to `dream_recount_salience_recompute_cap=500` per cycle. Default cap × default cadence (3600s) drains ~12k rows/day. Operators with larger envs can raise the cap or set it to `0` (unbounded — drains in one cycle).
+- **Ship-dormant**: `dream_popularity_authority_weighted` defaults to `False`. With the knob OFF, `compute_salience` zeros the authority term, recount writes zeros to the four `ref_authority_*` columns (idempotent), and `mem_top by="reference_authority"` returns `AUTHORITY_DISABLED`. No observable behaviour change on existing envs until an operator opts in.
+- **Response wire-format**: `MemoryResponse.reference_authority` is additive and Pydantic-default-safe. Strict typed clients (Pydantic `extra="forbid"` consumers on the *response* side) may need to recompile their schemas to recognize the new field; the JSON wire is byte-compatible for clients that ignore unknown fields.
+- **Decay-resistance shift (knob-ON only)**: with `dream_popularity_authority_weighted=True` and `reference_authority > 0`, salience is higher → cited memories decay more slowly than under v0.14.0. Intentional design (cited memories ARE more valuable). Max boost is `w_authority=0.10` at saturation; cannot lift below-threshold rows past the dominance invariant.
+- **Future formula bumps**: any change to `compute_salience` math MUST bump `dream_salience_formula_version`. The recount pass picks up the version mismatch and re-stamps existing rows on subsequent cycles. Documented in `salience.py` module docstring + `config.py` field comment.
+
 ## [0.14.0] — 2026-05-19 — Popularity Phase 1 (graph-citation reference counters)
 
 ### Added

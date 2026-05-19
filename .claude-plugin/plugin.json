@@ -1,6 +1,6 @@
 {
   "name": "memory-mcp",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "Shared cross-session memory MCP server (Postgres + Qdrant + Neo4j). Stores facts, procedures, decisions, observations, journal entries, tasks, playbooks, and snippets across agents and sessions. 58 MCP tools across CRUD, search (lex/semantic/hybrid), entities, relations, chain-of-thought, plans, decisions, dream worker, and environment operations.",
   "author": {
     "name": "outwarped-io",
