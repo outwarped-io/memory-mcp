@@ -654,6 +654,7 @@ def _to_response(
             "task": rc_tk,
             "playbook": rc_pb,
         },
+        reference_authority=float(getattr(memory, "reference_authority", 0) or 0),
         reference_velocity=reference_velocity,
     )
 

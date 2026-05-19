@@ -11,7 +11,10 @@ from memory_mcp_schemas.enums import MemoryKind, MemoryStatus
 from memory_mcp_schemas.memories import MemoryResponse
 
 
-MemTopBy = Literal["salience", "access_count", "reference_count", "reference_velocity"]
+MemTopBy = Literal[
+    "salience", "access_count", "reference_count", "reference_velocity",
+    "reference_authority",
+]
 MemTopTagMatch = Literal["any", "all"]
 
 

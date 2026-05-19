@@ -270,6 +270,26 @@ class LLMUnavailableError(MemoryMCPError):
     code = "LLM_UNAVAILABLE"
 
 
+class AuthorityDisabledError(MemoryMCPError):
+    """The ``reference_authority`` signal is dormant — caller asked for it anyway.
+
+    Raised by ``mem_top(by="reference_authority")`` when
+    ``Settings.dream_popularity_authority_weighted`` is ``False`` (default).
+
+    When the knob is OFF, the recount pass does not maintain the four
+    ``ref_authority_*`` columns, so they stay at 0 across the env and
+    the metric would return only zero-ranked rows. Rather than surface
+    a meaningless ranking, the tool fails fast — callers must flip the
+    knob in settings and let at least one recount cycle complete before
+    this metric is meaningful.
+
+    The check fires before env resolution / RBAC / DB so callers see a
+    clean "metric unavailable" signal at no cost.
+    """
+
+    code = "AUTHORITY_DISABLED"
+
+
 class ValidationFailedError(MemoryMCPError):
     """Request did not satisfy the tool's input schema.
 
@@ -296,6 +316,7 @@ class ValidationFailedError(MemoryMCPError):
 
 __all__ = [
     "AlreadyExistsError",
+    "AuthorityDisabledError",
     "BlastRadiusExceededError",
     "CycleDetectedError",
     "EmbeddingModelMismatchError",

@@ -1,8 +1,8 @@
 """Top-of-the-board ranking — Phase 1 ``mem_top`` MCP tool.
 
 Returns the highest-ranked memories in the requested env(s) by one of
-four metrics: ``salience`` / ``access_count`` / ``reference_count`` /
-``reference_velocity``.
+five metrics: ``salience`` / ``access_count`` / ``reference_count`` /
+``reference_velocity`` / ``reference_authority``.
 
 All metrics share a stable tie-breaker — ``(metric DESC, created_at DESC,
 id DESC)`` — so a deterministic top-N is reproducible across runs.
@@ -22,6 +22,14 @@ the requested ``velocity_window_days`` window from the ``relations`` +
 ``memory_lineage`` edge tables. Playbook embeds are *excluded* from
 velocity because they have no per-edge timestamp; that limitation is
 documented in the parent plan's S7.
+
+Reference-authority (``by="reference_authority"``) is the **weighted**
+citation footprint — ``Σ source.salience`` over inbound citations,
+maintained by the recount pass. The metric is **knob-gated**: when
+``Settings.dream_popularity_authority_weighted`` is ``False`` (default),
+the tool raises ``AUTHORITY_DISABLED`` before any DB work. When ON,
+zero-authority rows are excluded from ``items`` (mirroring
+``reference_velocity`` semantics) but counted in ``total_examined``.
 """
 
 from __future__ import annotations
@@ -51,7 +59,7 @@ from memory_mcp.db.models import (
 )
 from memory_mcp.db.postgres import session_scope
 from memory_mcp.db.types import MemoryKind, MemoryStatus
-from memory_mcp.errors import InvalidInputError
+from memory_mcp.errors import AuthorityDisabledError, InvalidInputError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import _to_response
 
@@ -192,6 +200,8 @@ def _column_for_metric(by: str) -> Any:
         return Memory.access_count
     if by == "reference_count":
         return Memory.reference_count
+    if by == "reference_authority":
+        return Memory.reference_authority
     raise InvalidInputError(f"INVALID_INPUT: unknown column metric: {by!r}")
 
 
@@ -206,7 +216,12 @@ async def _rank_by_column(
     by: str,
     limit: int,
 ) -> tuple[list[Memory], list[float]]:
-    """Salience / access_count / reference_count — all stored on memories."""
+    """Salience / access_count / reference_count / reference_authority —
+    all stored on memories. ``reference_authority`` additionally applies
+    a ``metric > 0`` WHERE clause so zero-authority rows are excluded
+    from results (mirrors ``reference_velocity`` semantics — a metric
+    that's only meaningful for memories with positive citation weight).
+    """
     metric_col = _column_for_metric(by)
     stmt: Select[Any] = select(Memory, metric_col.label("metric_value"))
     stmt = _apply_base_filters(
@@ -217,6 +232,8 @@ async def _rank_by_column(
         tags=tags,
         tag_match=tag_match,
     )
+    if by == "reference_authority":
+        stmt = stmt.where(metric_col > 0)
     stmt = stmt.order_by(
         metric_col.desc(),
         Memory.created_at.desc(),
@@ -327,7 +344,22 @@ async def memory_top(
     settings: Settings | None = None,
 ) -> MemTopResponse:
     """Compute the top-N memories under the requested ranking metric."""
-    _ = settings or get_settings()
+    settings = settings or get_settings()
+
+    # Knob gate for the reference_authority metric. Fires immediately,
+    # before env resolution / RBAC / DB, so callers get a clean "metric
+    # unavailable" signal without spurious load when the authority
+    # signal is dormant.
+    if (
+        req.by == "reference_authority"
+        and not settings.dream_popularity_authority_weighted
+    ):
+        raise AuthorityDisabledError(
+            "reference_authority metric requires "
+            "dream_popularity_authority_weighted=True; the authority "
+            "signal is dormant under this env's current settings."
+        )
+
     env_ids = _resolve_env_ids(req.env_ids, ctx)
     for env_id in env_ids:
         rbac.require("read", env_id, ctx)

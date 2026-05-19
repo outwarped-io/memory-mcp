@@ -125,6 +125,7 @@ class MemoryResponse(BaseModel):
     reference_breakdown: dict[str, int] = Field(
         default_factory=lambda: {"rel_link": 0, "lineage": 0, "task": 0, "playbook": 0}
     )
+    reference_authority: float = 0.0
     reference_velocity: int | None = None
 
 

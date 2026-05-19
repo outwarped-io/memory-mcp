@@ -485,3 +485,335 @@ async def test_mem_top_limit_cap_honored(
 
     assert len(resp.items) == 2
     assert resp.total_examined == 5
+
+
+# ---------------------------------------------------------------------------
+# Phase 1e-e (v0.14.1) — reference_authority metric + AUTHORITY_DISABLED
+# ---------------------------------------------------------------------------
+
+
+from memory_mcp.config import Settings
+from memory_mcp.errors import AuthorityDisabledError
+
+
+def _settings_authority_on(**overrides) -> Settings:
+    """Settings preset with the popularity-authority knob ON."""
+    return Settings(dream_popularity_authority_weighted=True, **overrides)
+
+
+async def _set_authority(
+    session, mem_id: UUID, *, rel_link: float = 0.0, lineage: float = 0.0,
+    task: float = 0.0, playbook: float = 0.0,
+) -> None:
+    """Directly stamp the four per-kind ref_authority_* columns.
+
+    The GENERATED total (``reference_authority``) updates automatically.
+    Bypasses the recount pass — fixture-only path.
+    """
+    await session.execute(
+        text(
+            "UPDATE memories "
+            "SET ref_authority_rel_link = :rl, ref_authority_lineage = :ln, "
+            "    ref_authority_task = :tk, ref_authority_playbook = :pb "
+            "WHERE id = :id"
+        ),
+        {"id": mem_id, "rl": rel_link, "ln": lineage, "tk": task, "pb": playbook},
+    )
+
+
+@pytest.mark.asyncio
+async def test_mem_top_by_reference_authority_ranks_descending(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Knob ON. Two memories with different authority values are ranked
+    descending by reference_authority. metric_value matches the GENERATED
+    total. Response carries ``memory.reference_authority``.
+    """
+    monkeypatch.setattr(top_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        m_high = await _mk_mem(session, env_id, title="high")
+        m_low = await _mk_mem(session, env_id, title="low")
+        await _set_authority(session, m_high, rel_link=1.2)
+        await _set_authority(session, m_low, rel_link=0.4)
+        await session.commit()
+
+    token = use_session_factory(factory)
+    try:
+        ctx = await _ctx_with_env(env_id)
+        resp = await memory_top(
+            MemTopRequest(env_ids=[env_id], by="reference_authority", limit=5),
+            ctx=ctx,
+            settings=_settings_authority_on(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    ids = [item.memory.id for item in resp.items]
+    assert ids == [m_high, m_low]
+    assert resp.items[0].metric_value == pytest.approx(1.2, abs=1e-6)
+    assert resp.items[1].metric_value == pytest.approx(0.4, abs=1e-6)
+    assert resp.items[0].memory.reference_authority == pytest.approx(1.2, abs=1e-6)
+    assert resp.items[1].memory.reference_authority == pytest.approx(0.4, abs=1e-6)
+    assert resp.by == "reference_authority"
+
+
+@pytest.mark.asyncio
+async def test_mem_top_by_reference_authority_knob_off_raises_zero_db(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Knob OFF (default). Tool raises AUTHORITY_DISABLED before any DB
+    work — asserted by replacing ``session_scope`` with a tripwire that
+    raises if entered.
+    """
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        m = await _mk_mem(session, env_id, title="m")
+        await _set_authority(session, m, rel_link=1.0)
+        await session.commit()
+
+    def _tripwire(*_args, **_kwargs):
+        raise AssertionError(
+            "session_scope must not be entered on AUTHORITY_DISABLED"
+        )
+
+    monkeypatch.setattr(top_mod, "session_scope", _tripwire)
+
+    token = use_session_factory(factory)
+    try:
+        ctx = await _ctx_with_env(env_id)
+        with pytest.raises(AuthorityDisabledError) as exc:
+            await memory_top(
+                MemTopRequest(env_ids=[env_id], by="reference_authority", limit=5),
+                ctx=ctx,
+                # No settings override — falls back to Settings() defaults
+                # which carry dream_popularity_authority_weighted=False.
+            )
+        assert exc.value.code == "AUTHORITY_DISABLED"
+    finally:
+        reset_session_factory(token)
+
+
+@pytest.mark.asyncio
+async def test_mem_top_by_reference_authority_excludes_zero_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Knob ON. Zero-authority rows are excluded from ``items`` but
+    counted by ``total_examined`` (mirrors ``reference_velocity``
+    semantics).
+    """
+    monkeypatch.setattr(top_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        m_a = await _mk_mem(session, env_id, title="A")
+        m_b = await _mk_mem(session, env_id, title="B")
+        m_c = await _mk_mem(session, env_id, title="C")  # zero-authority
+        await _set_authority(session, m_a, rel_link=1.5)
+        await _set_authority(session, m_b, rel_link=0.3)
+        # m_c left at zero
+        await session.commit()
+
+    token = use_session_factory(factory)
+    try:
+        ctx = await _ctx_with_env(env_id)
+        resp = await memory_top(
+            MemTopRequest(env_ids=[env_id], by="reference_authority", limit=10),
+            ctx=ctx,
+            settings=_settings_authority_on(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    item_ids = {item.memory.id for item in resp.items}
+    assert m_a in item_ids
+    assert m_b in item_ids
+    assert m_c not in item_ids
+    assert len(resp.items) == 2
+    # total_examined counts ALL eligible rows pre-metric-filter
+    assert resp.total_examined == 3
+
+
+@pytest.mark.asyncio
+async def test_mem_top_by_reference_authority_default_status_excludes_non_active(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Knob ON. A stale memory with positive authority is filtered
+    out by the default ``statuses=[active]`` filter; explicit opt-in
+    surfaces it.
+    """
+    monkeypatch.setattr(top_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        m_active = await _mk_mem(session, env_id, title="active", status="active")
+        m_stale = await _mk_mem(session, env_id, title="stale", status="stale")
+        await _set_authority(session, m_active, rel_link=0.5)
+        await _set_authority(session, m_stale, rel_link=2.0)  # higher
+        await session.commit()
+
+    token = use_session_factory(factory)
+    try:
+        ctx = await _ctx_with_env(env_id)
+        # Default statuses → only active row visible
+        resp_default = await memory_top(
+            MemTopRequest(env_ids=[env_id], by="reference_authority", limit=10),
+            ctx=ctx,
+            settings=_settings_authority_on(),
+        )
+        # Explicit opt-in → stale row included and ranks first
+        resp_explicit = await memory_top(
+            MemTopRequest(
+                env_ids=[env_id], by="reference_authority", limit=10,
+                statuses=[MemoryStatus.active, MemoryStatus.stale],
+            ),
+            ctx=ctx,
+            settings=_settings_authority_on(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    assert [item.memory.id for item in resp_default.items] == [m_active]
+    assert [item.memory.id for item in resp_explicit.items] == [m_stale, m_active]
+
+
+@pytest.mark.asyncio
+async def test_mem_top_by_reference_authority_tag_match_all(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Knob ON. ``tag_match='all'`` requires every listed tag — a row
+    tagged with only one of the two listed tags is excluded even when
+    its authority would otherwise rank it first.
+    """
+    monkeypatch.setattr(top_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        m_both = await _mk_mem(session, env_id, title="both")
+        m_one = await _mk_mem(session, env_id, title="one")
+        await _attach_tag(session, env_id, m_both, "a")
+        await _attach_tag(session, env_id, m_both, "b")
+        await _attach_tag(session, env_id, m_one, "a")
+        # Make the one-tag row carry HIGHER authority so the test
+        # actually exercises the tag filter and not just a ranking sort.
+        await _set_authority(session, m_both, rel_link=0.5)
+        await _set_authority(session, m_one, rel_link=2.0)
+        await session.commit()
+
+    token = use_session_factory(factory)
+    try:
+        ctx = await _ctx_with_env(env_id)
+        resp = await memory_top(
+            MemTopRequest(
+                env_ids=[env_id], by="reference_authority", limit=10,
+                tags=["a", "b"], tag_match="all",
+            ),
+            ctx=ctx,
+            settings=_settings_authority_on(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    assert [item.memory.id for item in resp.items] == [m_both]
+
+
+@pytest.mark.asyncio
+async def test_mem_top_by_reference_authority_limit_truncates(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Knob ON. ``limit=3`` returns top 3 of 5 cited memories.
+    ``total_examined`` counts all 5.
+    """
+    monkeypatch.setattr(top_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        for i in range(5):
+            m = await _mk_mem(session, env_id, title=f"m{i}")
+            await _set_authority(session, m, rel_link=float(i + 1) * 0.1)
+        await session.commit()
+
+    token = use_session_factory(factory)
+    try:
+        ctx = await _ctx_with_env(env_id)
+        resp = await memory_top(
+            MemTopRequest(env_ids=[env_id], by="reference_authority", limit=3),
+            ctx=ctx,
+            settings=_settings_authority_on(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    assert len(resp.items) == 3
+    assert resp.total_examined == 5
+    # Descending: 0.5, 0.4, 0.3
+    values = [item.metric_value for item in resp.items]
+    assert values == sorted(values, reverse=True)
+
+
+@pytest.mark.asyncio
+async def test_mem_top_by_reference_authority_stable_tiebreaker(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Knob ON. Two memories with identical authority — order is stable
+    across requeries by ``(metric DESC, created_at DESC, id DESC)``.
+    """
+    monkeypatch.setattr(top_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+
+    now = dt.datetime.now(dt.UTC)
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        # Stagger created_at so tie-breaker can fire deterministically.
+        m_old = await _mk_mem(
+            session, env_id, title="old",
+            created_at=now - dt.timedelta(hours=1),
+        )
+        m_new = await _mk_mem(
+            session, env_id, title="new", created_at=now,
+        )
+        await _set_authority(session, m_old, rel_link=0.5)
+        await _set_authority(session, m_new, rel_link=0.5)
+        await session.commit()
+
+    token = use_session_factory(factory)
+    try:
+        ctx = await _ctx_with_env(env_id)
+        resp_a = await memory_top(
+            MemTopRequest(env_ids=[env_id], by="reference_authority", limit=10),
+            ctx=ctx,
+            settings=_settings_authority_on(),
+        )
+        resp_b = await memory_top(
+            MemTopRequest(env_ids=[env_id], by="reference_authority", limit=10),
+            ctx=ctx,
+            settings=_settings_authority_on(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    # created_at DESC → newer first
+    assert [i.memory.id for i in resp_a.items] == [m_new, m_old]
+    # Stable across re-requests
+    assert [i.memory.id for i in resp_a.items] == [i.memory.id for i in resp_b.items]

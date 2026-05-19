@@ -1115,13 +1115,19 @@ def build_mcp_server(
 
         Metrics: ``salience`` (default), ``access_count``,
         ``reference_count`` (graph-citation sum across rel_link / lineage
-        / task / playbook), or ``reference_velocity`` (recent citation
-        arrival rate; honors ``velocity_window_days``, default 30).
+        / task / playbook), ``reference_velocity`` (recent citation
+        arrival rate; honors ``velocity_window_days``, default 30), or
+        ``reference_authority`` (weighted citation footprint —
+        ``Σ source.salience`` over inbound citations; **requires**
+        ``dream_popularity_authority_weighted=True`` in settings or the
+        call raises ``AUTHORITY_DISABLED``).
 
         Tie-breaker is stable: ``(metric DESC, created_at DESC, id DESC)``.
         Default status filter is ``[active]`` — top-of-the-board is a live
         signal. ``tag_match`` defaults to ``"any"`` (OR semantics, parity
-        with ``mem_search`` / ``mem_browse``).
+        with ``mem_search`` / ``mem_browse``). For ``reference_velocity``
+        and ``reference_authority``, zero-valued rows are excluded from
+        ``items`` but counted in ``total_examined``.
         """
         ctx = await _resolve_ctx(
             agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
