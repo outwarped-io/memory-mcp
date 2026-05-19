@@ -256,6 +256,38 @@ class Memory(Base):
         ),
         nullable=False,
     )
+    # Phase 1e — authority-weighted citations (recount-pass-only writes).
+    # NUMERIC(18,6) accommodates per-citation-occurrence worst case; recount
+    # walks canonical edge state each cycle when DREAM_POPULARITY_AUTHORITY_WEIGHTED
+    # is enabled.
+    ref_authority_rel_link: Mapped[float] = mapped_column(
+        Numeric(18, 6), nullable=False, default=0, server_default=text("0"),
+    )
+    ref_authority_lineage: Mapped[float] = mapped_column(
+        Numeric(18, 6), nullable=False, default=0, server_default=text("0"),
+    )
+    ref_authority_task: Mapped[float] = mapped_column(
+        Numeric(18, 6), nullable=False, default=0, server_default=text("0"),
+    )
+    ref_authority_playbook: Mapped[float] = mapped_column(
+        Numeric(18, 6), nullable=False, default=0, server_default=text("0"),
+    )
+    reference_authority: Mapped[float] = mapped_column(
+        Numeric(19, 6),
+        Computed(
+            "ref_authority_rel_link "
+            "+ ref_authority_lineage "
+            "+ ref_authority_task "
+            "+ ref_authority_playbook",
+            persisted=True,
+        ),
+        nullable=False,
+    )
+    # Stamped by the recount pass each cycle it touches a memory; NULL means
+    # "never recomputed" (knob has never been on for this env).
+    authority_last_recount_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
     verified_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
