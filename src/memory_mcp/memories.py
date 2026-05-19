@@ -1264,6 +1264,13 @@ async def memory_get(
                     negative_feedback_count=memory.negative_feedback_count,
                     verified_at=memory.verified_at,
                     created_at=memory.created_at,
+                    # Phase 1 (v0.14) — without these, the access bump
+                    # erases the citation-derived component of salience
+                    # for cited memories. R-B4 regression fix.
+                    reference_count_rel_link=memory.reference_count_rel_link,
+                    reference_count_lineage=memory.reference_count_lineage,
+                    reference_count_task=memory.reference_count_task,
+                    reference_count_playbook=memory.reference_count_playbook,
                 ),
                 now=now,
                 weights=weights,
@@ -1353,6 +1360,12 @@ async def memory_get_many(
                             negative_feedback_count=m.negative_feedback_count,
                             verified_at=m.verified_at,
                             created_at=m.created_at,
+                            # Phase 1 (v0.14) — bulk-read bump must preserve
+                            # citation contribution. R-B4 regression fix.
+                            reference_count_rel_link=m.reference_count_rel_link,
+                            reference_count_lineage=m.reference_count_lineage,
+                            reference_count_task=m.reference_count_task,
+                            reference_count_playbook=m.reference_count_playbook,
                         ),
                         now=now,
                         weights=weights,

@@ -402,3 +402,62 @@ def test_settings_propagate_references_weights() -> None:
     assert bound.w_references == 0.25
     assert bound.w_references_rl == 2.0
     assert bound.window_pb == 20
+
+
+# ---------------------------------------------------------------------------
+# R-B4 — access-bump preserves citation contribution
+# ---------------------------------------------------------------------------
+
+def test_access_bump_preserves_citation_contribution() -> None:
+    """R-B4 regression (Phase 1e plan §A10 / slice 1e-b').
+
+    On the read-path access bump, ``memories.py`` constructs a
+    ``SalienceInputs`` reflecting the post-bump row and recomputes
+    salience. The pre-1e-b' code path passed only the access/recency/
+    feedback fields and omitted the four ``reference_count_*`` fields,
+    silently letting them default to 0. Effect: every read on a cited
+    memory recomputed salience as if the citations didn't exist —
+    erasing the references-term contribution from the stored salience.
+
+    This test pins the post-fix behavior: with non-zero citation
+    counts, the recomputed salience must include the references term.
+    The simplest assertion is monotone — bumping the access count of a
+    cited memory yields a salience strictly greater than what bumping
+    an uncited memory with identical other fields would produce, AND
+    strictly greater than what the buggy "omit citations" path would
+    have computed.
+    """
+    weights = SalienceWeights()
+    # Same row: bumped access, fixed recency, cited.
+    cited_post_bump = compute_salience(
+        _row(
+            access_count=10,
+            last_accessed_at=NOW,
+            confidence=0.0,  # neutralize confidence so references is visible
+            reference_count_rel_link=20,
+            reference_count_lineage=2,
+            reference_count_task=5,
+            reference_count_playbook=3,
+        ),
+        now=NOW,
+        weights=weights,
+    )
+    # Same row sans citations — the broken pre-1e-b' constructor that
+    # forgot to pass the counts.
+    uncited_post_bump = compute_salience(
+        _row(
+            access_count=10,
+            last_accessed_at=NOW,
+            confidence=0.0,
+        ),
+        now=NOW,
+        weights=weights,
+    )
+    # The fixed path must produce strictly larger salience than the
+    # broken path would have. Margin floor at 0.05 (well below the
+    # w_references=0.15 envelope) to keep the test robust against
+    # window/weight tweaks.
+    assert cited_post_bump - uncited_post_bump >= 0.05, (
+        f"access-bump path lost citation contribution: "
+        f"cited={cited_post_bump:.4f}, uncited={uncited_post_bump:.4f}"
+    )
