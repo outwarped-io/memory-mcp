@@ -65,38 +65,37 @@ async def _mk_mem(
     status: str = "active",
     body: str = "b",
     steps: list[str] | None = None,
+    macro: str | None = None,
 ) -> UUID:
     mem_id = uuid4()
-    if steps is None:
-        await session.execute(
-            text(
-                "INSERT INTO memories (id, env_id, kind, status, body) "
-                "VALUES (:id, :env_id, :kind, :status, :body)"
-            ),
-            {
-                "id": mem_id,
-                "env_id": env_id,
-                "kind": kind,
-                "status": status,
-                "body": body,
-            },
-        )
-    else:
-        # ``steps`` is a Postgres text[] column on memories.
-        await session.execute(
-            text(
-                "INSERT INTO memories (id, env_id, kind, status, body, steps) "
-                "VALUES (:id, :env_id, :kind, :status, :body, :steps)"
-            ),
-            {
-                "id": mem_id,
-                "env_id": env_id,
-                "kind": kind,
-                "status": status,
-                "body": body,
-                "steps": steps,
-            },
-        )
+    # Phase 1e-d test-fixture safety net: playbooks created via _mk_mem
+    # are now reachable from _recompute_salience_for via the
+    # formula-version mismatch backfill (every active row in a fresh
+    # test env starts at salience_formula_version=0 < target=1).
+    # ``memory_update`` requires a non-empty macro on playbook kind, so
+    # synthesize one if the caller didn't supply one.
+    if kind == "playbook" and not macro:
+        macro = f"test-macro-{mem_id}"
+    cols = ["id", "env_id", "kind", "status", "body"]
+    params: dict[str, object] = {
+        "id": mem_id,
+        "env_id": env_id,
+        "kind": kind,
+        "status": status,
+        "body": body,
+    }
+    if steps is not None:
+        cols.append("steps")
+        params["steps"] = steps
+    if macro is not None:
+        cols.append("macro")
+        params["macro"] = macro
+    col_sql = ", ".join(cols)
+    val_sql = ", ".join(f":{c}" for c in cols)
+    await session.execute(
+        text(f"INSERT INTO memories ({col_sql}) VALUES ({val_sql})"),
+        params,
+    )
     return mem_id
 
 
@@ -758,10 +757,21 @@ async def test_dispatch_via_run_dream_pass(
 
 
 async def _set_salience(session, mem_id: UUID, value: float) -> None:
-    """Force a memory's salience to a known value to seed citer-salience scenarios."""
+    """Force a memory's salience to a known value to seed citer-salience scenarios.
+
+    Phase 1e-d: also stamp ``salience_formula_version=1`` so the recount
+    pass's formula-version backfill leg does NOT pull the row into
+    ``mismatched_ids`` and recompute the pinned salience away. Manual
+    fixtures bypass the formula by design — that's the whole point of
+    ``_set_salience``.
+    """
 
     await session.execute(
-        text("UPDATE memories SET salience = :v WHERE id = :id"),
+        text(
+            "UPDATE memories "
+            "SET salience = :v, salience_formula_version = 1 "
+            "WHERE id = :id"
+        ),
         {"v": value, "id": mem_id},
     )
 
@@ -1431,3 +1441,252 @@ async def test_lineage_and_playbook_authority_sum_correctly(
     assert auth["lineage"] == Decimal("0.300000")
     assert auth["playbook"] == Decimal("1.800000")
     assert auth["total"] == Decimal("2.100000")
+
+
+# ---------------------------------------------------------------------------
+# Phase 1e-d (v0.14.1) — formula-version backfill + authority-in-formula
+# ---------------------------------------------------------------------------
+
+
+async def _read_salience_and_version(
+    session, mem_id: UUID
+) -> tuple[float, int]:
+    row = (
+        await session.execute(
+            text(
+                "SELECT salience, salience_formula_version "
+                "FROM memories WHERE id = :id"
+            ),
+            {"id": mem_id},
+        )
+    ).one()
+    return float(row[0] or 0), int(row[1] or 0)
+
+
+@pytest.mark.asyncio
+async def test_formula_version_mismatch_triggers_recompute(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """A row whose stored ``salience_formula_version`` is behind the
+    settings target is picked up by recount and re-stamped: both
+    ``salience`` and ``salience_formula_version`` advance together.
+    """
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        # Active row; default DB column is salience_formula_version=0
+        # (per Migration 0019), settings target = 1, so the row is
+        # "behind" and will be re-stamped.
+        m = await _mk_mem(session, env_id, body="m")
+        # Pin an unusual salience so we can detect that recount overwrote
+        # it with compute_salience(...) output.
+        await session.execute(
+            text("UPDATE memories SET salience = 0.123 WHERE id = :id"),
+            {"id": m},
+        )
+        await session.commit()
+
+    result = await _run(env_id, monkeypatch, factory, settings=_settings())
+
+    async with factory() as session:
+        sal, ver = await _read_salience_and_version(session, m)
+
+    assert ver == 1
+    assert sal != 0.123  # recount overwrote with compute_salience output
+    assert result.memories_formula_version_restamped >= 1
+    assert result.memories_formula_version_pending == 0
+
+
+@pytest.mark.asyncio
+async def test_formula_version_match_skips_recompute(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """When stored ``salience_formula_version`` already equals the
+    settings target AND no counter / authority drift exists, no row is
+    pulled into the recompute set: ``restamped=0`` and the seeded
+    salience is untouched.
+    """
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        m = await _mk_mem(session, env_id, body="m")
+        # Pre-stamp the row at the current formula version + seed a known salience.
+        await session.execute(
+            text(
+                "UPDATE memories "
+                "SET salience = 0.456, salience_formula_version = 1 "
+                "WHERE id = :id"
+            ),
+            {"id": m},
+        )
+        await session.commit()
+
+    result = await _run(env_id, monkeypatch, factory, settings=_settings())
+
+    async with factory() as session:
+        sal, ver = await _read_salience_and_version(session, m)
+
+    # Row was already at target version; no recount work for it.
+    assert ver == 1
+    assert sal == pytest.approx(0.456, abs=1e-6)
+    # Other tests in this file count restamped via the mismatch helper,
+    # which only fires for rows behind target.
+    assert result.memories_formula_version_restamped == 0
+    assert result.memories_formula_version_pending == 0
+
+
+@pytest.mark.asyncio
+async def test_authority_value_lifts_salience_when_knob_on(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """With the authority knob ON, a target whose citers carry positive
+    salience ends up with a salience strictly greater than an
+    otherwise-identical isolated row that has no citers.
+
+    Validates the authority term in ``compute_salience`` is reached
+    through the recount's salience-recompute leg.
+    """
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        # Citer with a substantial salience (pinned via _set_salience,
+        # so the recompute leg leaves it alone — see _set_salience
+        # docstring re: salience_formula_version stamping).
+        citer = await _mk_mem(session, env_id, body="citer")
+        await _set_salience(session, citer, 0.8)
+        # Two targets — one cited, one isolated.
+        cited = await _mk_mem(session, env_id, body="cited")
+        isolated = await _mk_mem(session, env_id, body="isolated")
+        gn_citer = await _mk_gn_mem(session, env_id, citer)
+        gn_cited = await _mk_gn_mem(session, env_id, cited)
+        await _mk_gn_mem(session, env_id, isolated)
+        await _mk_rel(session, env_id, gn_citer, gn_cited)
+        await session.commit()
+
+    await _run(env_id, monkeypatch, factory, settings=_settings_authority_on())
+
+    async with factory() as session:
+        cited_sal, _ = await _read_salience_and_version(session, cited)
+        iso_sal, _ = await _read_salience_and_version(session, isolated)
+        auth = await _read_authority(session, cited)
+
+    assert auth["rel_link"] == Decimal("0.800000")
+    assert cited_sal > iso_sal, (
+        f"cited salience ({cited_sal:.4f}) should exceed isolated "
+        f"salience ({iso_sal:.4f}) when authority knob is ON"
+    )
+
+
+@pytest.mark.asyncio
+async def test_authority_value_no_effect_when_knob_off(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Even when ``reference_authority > 0`` is present on the row (e.g.
+    residual from a prior on-cycle), the salience computed with the
+    knob OFF matches an otherwise-identical row with zero authority.
+    """
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        # Two identical-shaped rows; one carries residual authority,
+        # the other does not. Both have salience_formula_version=0 so
+        # recount will recompute under knob-OFF weights.
+        with_auth = await _mk_mem(session, env_id, body="with-auth")
+        no_auth = await _mk_mem(session, env_id, body="no-auth")
+        await session.execute(
+            text(
+                "UPDATE memories "
+                "SET ref_authority_rel_link = 10.0 "
+                "WHERE id = :id"
+            ),
+            {"id": with_auth},
+        )
+        await session.commit()
+
+    # Default settings — knob OFF.
+    await _run(env_id, monkeypatch, factory, settings=_settings())
+
+    async with factory() as session:
+        sal_with, _ = await _read_salience_and_version(session, with_auth)
+        sal_no, _ = await _read_salience_and_version(session, no_auth)
+
+    # With knob OFF, authority residual must not move salience.
+    assert sal_with == sal_no, (
+        f"knob-OFF salience must ignore authority: with={sal_with}, no={sal_no}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_formula_version_backfill_chunked(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """When more rows are behind the target version than the
+    per-cycle cap allows, recount restamps up to ``cap`` rows and
+    reports the remainder via ``memories_formula_version_pending``.
+    The next cycle picks up where the first left off.
+    """
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        # 5 active rows, all at formula_version=0 by default.
+        for i in range(5):
+            await _mk_mem(session, env_id, body=f"m{i}")
+        await session.commit()
+
+    # Cap at 2 per cycle.
+    settings = Settings(dream_recount_salience_recompute_cap=2)
+
+    first = await _run(env_id, monkeypatch, factory, settings=settings)
+    assert first.memories_formula_version_restamped == 2
+    assert first.memories_formula_version_pending == 3
+
+    second = await _run(env_id, monkeypatch, factory, settings=settings)
+    assert second.memories_formula_version_restamped == 2
+    assert second.memories_formula_version_pending == 1
+
+    third = await _run(env_id, monkeypatch, factory, settings=settings)
+    assert third.memories_formula_version_restamped == 1
+    assert third.memories_formula_version_pending == 0
+
+    fourth = await _run(env_id, monkeypatch, factory, settings=settings)
+    assert fourth.memories_formula_version_restamped == 0
+    assert fourth.memories_formula_version_pending == 0
+
+
+@pytest.mark.asyncio
+async def test_formula_version_backfill_unbounded_when_cap_zero(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """``dream_recount_salience_recompute_cap=0`` means unbounded: one
+    cycle drains the entire backlog.
+    """
+
+    factory, _ = postgres_session_factories()
+    async with factory() as session:
+        env_id = await _mk_env(session)
+        for i in range(4):
+            await _mk_mem(session, env_id, body=f"m{i}")
+        await session.commit()
+
+    settings = Settings(dream_recount_salience_recompute_cap=0)
+    result = await _run(env_id, monkeypatch, factory, settings=settings)
+
+    assert result.memories_formula_version_restamped == 4
+    assert result.memories_formula_version_pending == 0

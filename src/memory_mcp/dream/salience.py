@@ -25,6 +25,7 @@ Formula
         + w_confidence · confidence
         - w_negative   · log1p(negative_feedback_count)
         + w_references · references_term(N_rl, N_ln, N_tk, N_pb)
+        + w_authority  · clamp01(log1p(reference_authority) / log1p(authority_window))
         + pinned_bonus      if pinned    else 0
         + verified_bonus    · exp(-Δt_verified / τ_verified)   if verified_at else 0
     )
@@ -84,6 +85,24 @@ Side effect: ``w_negative = 0.46`` makes a single negative subtract
 ``0.46 · log1p(1) ≈ 0.319`` (vs ``0.277`` at v0.14, ``0.208`` at the
 pre-Phase-1 baseline) — roughly a 15 % heavier hit per negative
 relative to v0.14. Tests with hard-coded thresholds were updated.
+
+Formula version invariant (Phase 1e-d)
+--------------------------------------
+
+``Memory.salience_formula_version`` stamps the formula version each row's
+stored ``salience`` was computed under.
+``Settings.dream_salience_formula_version`` declares the current
+version. The recount pass picks up any row whose stamp lags the current
+version and recomputes + re-stamps.
+
+**ANY change to ``compute_salience`` math — new term, retuned weight,
+new clamp behavior — MUST bump
+``Settings.dream_salience_formula_version``.** Otherwise existing rows
+keep their pre-change salience forever (the recount pass uses set-union
+to decide what to recompute; without a version bump, undrifted rows
+never enter the set). This includes the obvious "added a new term"
+case but also subtler changes like flipping a default weight in
+``SalienceWeights`` if that weight is the path callers go through.
 """
 
 from __future__ import annotations
@@ -118,6 +137,15 @@ class SalienceInputs:
     reference_count_lineage: int = 0
     reference_count_task: int = 0
     reference_count_playbook: int = 0
+    # Phase 1e-d (v0.14.1): authority = Σ source.salience over inbound
+    # citations. Stored in ``Memory.reference_authority`` (GENERATED total
+    # of four ``ref_authority_*`` per-kind columns). The salience term is
+    # gated through ``SalienceWeights.w_authority`` — when the knob is
+    # OFF, ``salience_weights_from_settings`` returns ``w_authority=0.0``
+    # and this field has no effect even at saturation. Default 0.0 so
+    # callers / unit tests that pre-date 1e-d still compute valid
+    # salience.
+    reference_authority: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -170,15 +198,17 @@ class SalienceWeights:
     # Authority = Σ source.salience over inbound citations. Stored as
     # ``Memory.reference_authority`` (sum of four per-kind authority
     # columns). The salience term is gated by
-    # ``Settings.dream_popularity_authority_weighted`` at the
-    # ``compute_salience`` callsite (this dataclass holds the weights
-    # unconditionally so that ``salience_weights_from_settings`` is
-    # symmetric with the other phases).
+    # ``Settings.dream_popularity_authority_weighted`` — when the knob is
+    # OFF, :func:`salience_weights_from_settings` returns
+    # ``w_authority=0.0`` and the term zeros without needing a branch
+    # inside :func:`compute_salience`. Default ``0.0`` here so direct-ctor
+    # callers (unit tests building ``SalienceWeights()`` without a
+    # Settings instance) get knob-OFF semantics by default — the
+    # ``0.10`` knob-ON value lives in
+    # ``Settings.dream_salience_w_authority``.
     #
-    # Dormant in Phase 1e-b (this slice) — ``compute_salience`` does not
-    # yet read these fields. Wired up in slice 1e-d alongside the
-    # clamped log1p term ``log1p(authority) / log1p(authority_window)``.
-    w_authority: float = 0.10
+    # Wired into :func:`compute_salience` in slice 1e-d.
+    w_authority: float = 0.0
     authority_window: float = 25.0
 
     # Fallback used when ``last_accessed_at is None`` and we still want a
@@ -187,6 +217,16 @@ class SalienceWeights:
 
 
 def salience_weights_from_settings(settings: Settings) -> SalienceWeights:
+    # Phase 1e knob gating: when the operator hasn't opted in to authority
+    # weighting, return ``w_authority=0.0`` so the term in
+    # :func:`compute_salience` zeroes out regardless of the
+    # ``reference_authority`` value on the row. Keeps ``compute_salience``
+    # pure (no Settings dependency) while still honoring the knob.
+    if settings.dream_popularity_authority_weighted:
+        w_authority = settings.dream_salience_w_authority
+    else:
+        w_authority = 0.0
+
     return SalienceWeights(
         w_access=settings.dream_salience_w_access,
         w_recency=settings.dream_salience_w_recency,
@@ -206,8 +246,8 @@ def salience_weights_from_settings(settings: Settings) -> SalienceWeights:
         window_ln=settings.dream_salience_window_ln,
         window_tk=settings.dream_salience_window_tk,
         window_pb=settings.dream_salience_window_pb,
-        # Phase 1e (dormant until slice 1e-d wires the formula).
-        w_authority=settings.dream_salience_w_authority,
+        # Phase 1e-d — gated via ``w_authority`` above (see comment).
+        w_authority=w_authority,
         authority_window=settings.dream_salience_authority_window,
     )
 
@@ -321,6 +361,23 @@ def compute_salience(
     # --- References term ----------------------------------------------------
     references_term = w.w_references * _references_term(row, w)
 
+    # --- Authority term -----------------------------------------------------
+    # Phase 1e-d: Σ source.salience over inbound citations, log-clamped
+    # against ``authority_window`` so very-cited memories saturate the
+    # contribution rather than dominating the formula. Gated via the
+    # weight itself — when the operator has not opted in to authority
+    # weighting, ``w.w_authority`` is 0.0 (set by
+    # :func:`salience_weights_from_settings`) and the term contributes
+    # zero regardless of ``row.reference_authority``. The
+    # ``max(1.0, w.authority_window)`` guard avoids division by
+    # ``log1p(0) == 0`` if the operator sets the window to a degenerate
+    # value.
+    authority_norm_denom = math.log1p(max(1.0, w.authority_window))
+    authority_norm = _clamp01(
+        math.log1p(max(0.0, row.reference_authority)) / authority_norm_denom
+    )
+    authority_term = w.w_authority * authority_norm
+
     # --- Pinned bonus -------------------------------------------------------
     pinned_term = w.pinned_bonus if row.pinned else 0.0
 
@@ -341,6 +398,7 @@ def compute_salience(
         + confidence_term
         - negative_term
         + references_term
+        + authority_term
         + pinned_term
         + verified_term
     )

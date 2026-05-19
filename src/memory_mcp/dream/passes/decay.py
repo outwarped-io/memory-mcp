@@ -151,6 +151,7 @@ async def _load_active_candidates(
                 Memory.reference_count_lineage,
                 Memory.reference_count_task,
                 Memory.reference_count_playbook,
+                Memory.reference_authority,
             )
             .where(
                 and_(
@@ -199,6 +200,7 @@ async def _load_stale_candidates(
                 Memory.reference_count_lineage,
                 Memory.reference_count_task,
                 Memory.reference_count_playbook,
+                Memory.reference_authority,
             )
             .where(
                 and_(
@@ -238,6 +240,14 @@ def _row_to_candidate(row: object) -> DecayCandidateRow:
             reference_count_lineage=int(row[12] or 0),
             reference_count_task=int(row[13] or 0),
             reference_count_playbook=int(row[14] or 0),
+            # Phase 1e-d — decay reads ``reference_authority`` so the
+            # authority term contributes to the salience used for
+            # decay-threshold decisions. Decay does NOT stamp
+            # ``salience_formula_version`` (recount owns that); decay-pass
+            # UPDATEs go via direct SQL today and only set
+            # ``salience`` / ``status``. Next recount picks the row up via
+            # the formula-version mismatch path if applicable.
+            reference_authority=float(row[15] or 0),
         ),
         reference_count=int(row[10] or 0),
     )

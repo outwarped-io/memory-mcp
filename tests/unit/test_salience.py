@@ -44,6 +44,7 @@ def _row(
     reference_count_lineage: int = 0,
     reference_count_task: int = 0,
     reference_count_playbook: int = 0,
+    reference_authority: float = 0.0,
 ) -> SalienceInputs:
     return SalienceInputs(
         access_count=access_count,
@@ -57,6 +58,7 @@ def _row(
         reference_count_lineage=reference_count_lineage,
         reference_count_task=reference_count_task,
         reference_count_playbook=reference_count_playbook,
+        reference_authority=reference_authority,
     )
 
 
@@ -411,28 +413,57 @@ def test_settings_propagate_references_weights() -> None:
 
 
 def test_settings_propagate_authority_weights() -> None:
-    """Phase 1e (v0.14.1) — ``Settings.dream_salience_{w_authority,
+    """Phase 1e — ``Settings.dream_salience_{w_authority,
     authority_window}`` must propagate through ``salience_weights_from_settings``
-    so that ``compute_salience`` (slice 1e-d) consumes operator-tuned
-    values.
+    so that ``compute_salience`` consumes operator-tuned values.
 
-    Defaults: ``w_authority=0.10``, ``authority_window=25.0``.
+    Phase 1e-d (v0.14.1) adds knob-gating: when
+    ``dream_popularity_authority_weighted`` is False (default),
+    ``salience_weights_from_settings`` returns ``w_authority=0.0`` so
+    the authority term in :func:`compute_salience` zeros out regardless
+    of the operator-set weight. Only when the knob is ON does the
+    operator-tuned ``dream_salience_w_authority`` value propagate.
+
+    ``authority_window`` is unconditionally propagated — it has no
+    effect on salience when ``w_authority=0.0`` anyway, and unifying
+    the binding keeps the dataclass shape symmetric across knob states.
     """
-    # Defaults bind correctly.
-    defaults = salience_weights_from_settings(Settings(_env_file=None))  # type: ignore[call-arg]
-    assert defaults.w_authority == 0.10
-    assert defaults.authority_window == 25.0
+    # Knob OFF (default) — w_authority is forced to 0.0 regardless of
+    # ``dream_salience_w_authority``. authority_window still binds.
+    defaults_off = salience_weights_from_settings(Settings(_env_file=None))  # type: ignore[call-arg]
+    assert defaults_off.w_authority == 0.0
+    assert defaults_off.authority_window == 25.0
 
-    # Overrides propagate.
-    overridden = salience_weights_from_settings(
+    # Knob OFF + custom w_authority — w_authority still zeroes (gate has
+    # final say) but authority_window propagates.
+    custom_off = salience_weights_from_settings(
         Settings(  # type: ignore[call-arg]
             _env_file=None,
             dream_salience_w_authority=0.20,
             dream_salience_authority_window=50.0,
         )
     )
-    assert overridden.w_authority == 0.20
-    assert overridden.authority_window == 50.0
+    assert custom_off.w_authority == 0.0
+    assert custom_off.authority_window == 50.0
+
+    # Knob ON — operator's w_authority propagates verbatim.
+    defaults_on = salience_weights_from_settings(
+        Settings(_env_file=None, dream_popularity_authority_weighted=True)  # type: ignore[call-arg]
+    )
+    assert defaults_on.w_authority == 0.10
+    assert defaults_on.authority_window == 25.0
+
+    # Knob ON + custom — both propagate.
+    custom_on = salience_weights_from_settings(
+        Settings(  # type: ignore[call-arg]
+            _env_file=None,
+            dream_popularity_authority_weighted=True,
+            dream_salience_w_authority=0.20,
+            dream_salience_authority_window=50.0,
+        )
+    )
+    assert custom_on.w_authority == 0.20
+    assert custom_on.authority_window == 50.0
 
 
 # ---------------------------------------------------------------------------
@@ -491,4 +522,113 @@ def test_access_bump_preserves_citation_contribution() -> None:
     assert cited_post_bump - uncited_post_bump >= 0.05, (
         f"access-bump path lost citation contribution: "
         f"cited={cited_post_bump:.4f}, uncited={uncited_post_bump:.4f}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1e-d (v0.14.1) — authority term in compute_salience
+# ---------------------------------------------------------------------------
+
+def test_authority_term_zero_when_w_authority_zero() -> None:
+    """When ``w_authority=0.0`` (knob OFF default of
+    :class:`SalienceWeights`), :func:`compute_salience` ignores
+    ``reference_authority`` entirely — two rows that differ only in
+    ``reference_authority`` produce the same salience.
+    """
+    weights = SalienceWeights(w_authority=0.0)
+    low = compute_salience(_row(reference_authority=0.0), now=NOW, weights=weights)
+    high = compute_salience(_row(reference_authority=1000.0), now=NOW, weights=weights)
+    assert low == high
+
+
+def test_authority_term_saturates_at_window() -> None:
+    """At ``reference_authority == authority_window``, the normalized
+    authority component (``log1p(N)/log1p(W)``) equals 1.0 exactly, so
+    the term contributes ``w_authority`` to the formula.
+
+    Verified by zeroing every other weight and checking the salience
+    equals ``w_authority`` at saturation.
+    """
+    weights = SalienceWeights(
+        w_access=0.0,
+        w_recency=0.0,
+        w_confidence=0.0,
+        w_negative=0.0,
+        w_references=0.0,
+        pinned_bonus=0.0,
+        verified_bonus=0.0,
+        w_authority=0.10,
+        authority_window=25.0,
+    )
+    s = compute_salience(_row(reference_authority=25.0), now=NOW, weights=weights)
+    assert abs(s - 0.10) < 1e-9
+
+
+def test_authority_term_contributes_to_salience() -> None:
+    """Knob-ON weights with positive ``reference_authority`` yield
+    strictly higher salience than the knob-OFF baseline on the same row.
+    """
+    weights_off = SalienceWeights(w_authority=0.0)
+    weights_on = SalienceWeights(w_authority=0.10, authority_window=25.0)
+    row = _row(access_count=10, last_accessed_at=NOW, confidence=0.5, reference_authority=10.0)
+    s_off = compute_salience(row, now=NOW, weights=weights_off)
+    s_on = compute_salience(row, now=NOW, weights=weights_on)
+    assert s_on > s_off
+
+
+def test_settings_knob_off_zeros_w_authority() -> None:
+    """``salience_weights_from_settings`` returns ``w_authority=0.0``
+    when ``dream_popularity_authority_weighted=False`` (default),
+    regardless of the operator-tuned ``dream_salience_w_authority``.
+    """
+    s = Settings(_env_file=None, dream_salience_w_authority=0.30)  # type: ignore[call-arg]
+    w = salience_weights_from_settings(s)
+    assert w.w_authority == 0.0
+
+
+def test_settings_knob_on_propagates_w_authority() -> None:
+    """When the operator opts in via
+    ``dream_popularity_authority_weighted=True``, the configured
+    ``dream_salience_w_authority`` value propagates verbatim.
+    """
+    s = Settings(  # type: ignore[call-arg]
+        _env_file=None,
+        dream_popularity_authority_weighted=True,
+        dream_salience_w_authority=0.30,
+    )
+    w = salience_weights_from_settings(s)
+    assert w.w_authority == 0.30
+
+
+def test_dominance_invariant_with_authority_at_max() -> None:
+    """Phase 1e-d dominance — narrowed scope (``confidence=0,
+    pinned=False, verified_at=None``) keeps the 5-negative dominance
+    invariant even at all positive saturation INCLUDING the new
+    authority term.
+
+    Positives at saturation: ``access(0.30) + recency(0.25) +
+    references(0.15) + authority(0.10) = 0.80``. Negative at 5 events:
+    ``w_negative · log1p(5) = 0.46 · 1.7918 ≈ 0.8242``. Net ``-0.0242``
+    → clamp01 → 0.
+    """
+    s = Settings(_env_file=None, dream_popularity_authority_weighted=True)  # type: ignore[call-arg]
+    weights = salience_weights_from_settings(s)
+    row = _row(
+        access_count=100,                              # access term saturated
+        last_accessed_at=NOW,                          # recency term ≈ 1.0
+        confidence=0.0,                                # narrowed-scope constraint
+        pinned=False,                                  # narrowed-scope constraint
+        negative_feedback_count=5,
+        verified_at=None,                              # narrowed-scope constraint
+        # references term saturated across all four kinds
+        reference_count_rel_link=10_000,
+        reference_count_lineage=10_000,
+        reference_count_task=10_000,
+        reference_count_playbook=10_000,
+        # authority term saturated at the window
+        reference_authority=25.0,
+    )
+    s_val = compute_salience(row, now=NOW, weights=weights)
+    assert s_val <= 0.001, (
+        f"dominance invariant breached with authority at max: salience={s_val:.4f}"
     )

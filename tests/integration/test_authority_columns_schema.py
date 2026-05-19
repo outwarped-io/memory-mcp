@@ -139,3 +139,67 @@ async def test_authority_index_exists_and_is_partial(postgres_session_factories:
         assert "created_at desc" in defn
         assert "id desc" in defn
         assert "where (status = 'active'::text)" in defn or "where status = 'active'" in defn
+
+
+async def test_0019_salience_formula_version_column(
+    postgres_session_factories: SessionPairFactory,
+):
+    """Migration 0019 adds ``memories.salience_formula_version`` —
+    NOT NULL, default 0, integer. New rows insert with version=0 by
+    default. Verifies the upgrade path landed; downgrade is covered
+    indirectly by the testcontainer round-trip in CI.
+    """
+    pair = postgres_session_factories()
+    async with pair[0]() as session:
+        env_id = await _mk_env(session)
+        mem_id = await _mk_mem(session, env_id)
+        await session.commit()
+
+        # 1. Column exists, default applied, integer-typed.
+        row = (
+            await session.execute(
+                text(
+                    "SELECT salience_formula_version "
+                    "FROM memories WHERE id = :id"
+                ),
+                {"id": mem_id},
+            )
+        ).one()
+        assert row.salience_formula_version == 0
+
+        # 2. Schema metadata: NOT NULL + integer + default 0.
+        meta = (
+            await session.execute(
+                text(
+                    "SELECT data_type, is_nullable, column_default "
+                    "FROM information_schema.columns "
+                    "WHERE table_name = 'memories' "
+                    "  AND column_name = 'salience_formula_version'"
+                )
+            )
+        ).one()
+        assert meta.data_type == "integer"
+        assert meta.is_nullable == "NO"
+        # Postgres normalizes the literal default; just confirm '0' is in there.
+        assert meta.column_default is not None
+        assert "0" in meta.column_default
+
+        # 3. Bump-then-read sanity: column accepts arbitrary positive ints.
+        await session.execute(
+            text(
+                "UPDATE memories SET salience_formula_version = 42 "
+                "WHERE id = :id"
+            ),
+            {"id": mem_id},
+        )
+        await session.commit()
+        bumped = (
+            await session.execute(
+                text(
+                    "SELECT salience_formula_version "
+                    "FROM memories WHERE id = :id"
+                ),
+                {"id": mem_id},
+            )
+        ).scalar_one()
+        assert bumped == 42

@@ -184,6 +184,13 @@ class MemoryUpdatePatch(BaseModel):
     tags: list[str] | None = None  # None=no change; []=clear; [...]=replace
     metadata: dict[str, Any] | None = None
     salience: float | None = Field(default=None, ge=0.0, le=1.0)
+    # Phase 1e-d (v0.14.1) — internal/dream-pass-only. Stamped by the
+    # recount pass together with a ``salience`` recompute. Not exposed
+    # through user-facing ``memory_update`` callers (mcp tool wrappers do
+    # not include this field). When ``None`` the column is left
+    # unchanged (so direct-UPDATE paths that only touch ``salience``
+    # never silently rewrite the version).
+    salience_formula_version: int | None = Field(default=None, ge=0)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     pinned: bool | None = None
     expires_at: dt.datetime | None = None
@@ -1271,6 +1278,13 @@ async def memory_get(
                     reference_count_lineage=memory.reference_count_lineage,
                     reference_count_task=memory.reference_count_task,
                     reference_count_playbook=memory.reference_count_playbook,
+                    # Phase 1e-d (v0.14.1) — read-only here. The access-bump
+                    # path computes salience under the current formula but
+                    # intentionally does NOT stamp ``salience_formula_version``:
+                    # only the recount pass stamps. Next recount picks the row
+                    # up via the integer-counter / formula-version mismatch
+                    # union and re-stamps then.
+                    reference_authority=float(memory.reference_authority or 0),
                 ),
                 now=now,
                 weights=weights,
@@ -1366,6 +1380,11 @@ async def memory_get_many(
                             reference_count_lineage=m.reference_count_lineage,
                             reference_count_task=m.reference_count_task,
                             reference_count_playbook=m.reference_count_playbook,
+                            # Phase 1e-d — read-only (see single-read callsite
+                            # above for full rationale). Access-bump never
+                            # stamps ``salience_formula_version``; recount
+                            # owns that stamp.
+                            reference_authority=float(m.reference_authority or 0),
                         ),
                         now=now,
                         weights=weights,
@@ -1493,6 +1512,14 @@ async def memory_update(
                 raise InvalidInputError("decision_meta only valid for kind=decision")
             if "salience" in fields_set and patch.salience is not None:
                 update_values["salience"] = patch.salience
+            # Phase 1e-d: bundle the formula-version stamp with the
+            # salience write so recount's recompute leaves a coherent
+            # ``(salience, salience_formula_version)`` pair on the row.
+            if (
+                "salience_formula_version" in fields_set
+                and patch.salience_formula_version is not None
+            ):
+                update_values["salience_formula_version"] = patch.salience_formula_version
             if "confidence" in fields_set and patch.confidence is not None:
                 update_values["confidence"] = patch.confidence
             if "pinned" in fields_set and patch.pinned is not None:

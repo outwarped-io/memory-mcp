@@ -267,6 +267,26 @@ class Settings(BaseSettings):
     # telemetry shows oscillation.
     dream_popularity_authority_damping: float = Field(default=1.0, gt=0.0, le=1.0)
 
+    # ---- Phase 1e-d (v0.14.1) — formula version + backfill chunk cap ------
+    # Bumped whenever ``compute_salience`` math changes. The recount pass
+    # compares ``Memory.salience_formula_version`` against this value and
+    # re-stamps + re-computes any row that's behind. **ANY change to
+    # ``compute_salience`` math MUST bump this value** so existing rows
+    # re-stamp on the next recount cycle; otherwise their stored salience
+    # stays on the old formula indefinitely. Default ``1`` is the 1e-d
+    # release (authority term wired). Operators rolling back to a pre-1e-d
+    # server should also reset this to ``0`` to avoid a no-op write storm
+    # (the formula matches pre-1e-d when knob=OFF anyway, so the work is
+    # wasted but harmless).
+    dream_salience_formula_version: int = Field(default=1, ge=0)
+    # Cap on the number of formula-version-mismatched rows the recount
+    # pass will salience-recompute per cycle. Sized to bound the
+    # audit/outbox spike at first deploy: 500 rows × ~daily recount
+    # cadence covers most envs in 1-2 weeks. ``0`` = unbounded
+    # (test-only). Increase for operators who want to backfill faster on
+    # big envs at the cost of a longer recount run.
+    dream_recount_salience_recompute_cap: int = Field(default=500, ge=0)
+
     # ---- Dream decay pass (Phase 2.2) -------------------------------------
     # Days since ``last_accessed_at`` after which an ``active`` memory is
     # eligible to be considered for staling. Memories accessed inside the

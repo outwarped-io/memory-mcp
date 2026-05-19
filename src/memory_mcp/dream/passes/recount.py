@@ -228,6 +228,17 @@ class RecountPassResult:
     drift_authority_lineage: Decimal = Decimal("0")
     drift_authority_task: Decimal = Decimal("0")
     drift_authority_playbook: Decimal = Decimal("0")
+    # ---- Phase 1e-d (v0.14.1) — formula-version backfill observability ----
+    # Active rows re-stamped this cycle because their stored
+    # ``salience_formula_version`` was behind
+    # ``Settings.dream_salience_formula_version``. After a formula bump
+    # (any change to ``compute_salience`` math), expect this to be
+    # non-zero for several cycles until the backlog drains.
+    memories_formula_version_restamped: int = 0
+    # Active rows still behind ``target_version`` after this cycle —
+    # bounded by ``Settings.dream_recount_salience_recompute_cap``. A
+    # non-zero value here means the next cycle will pick up more work.
+    memories_formula_version_pending: int = 0
 
 
 @dataclass(frozen=True)
@@ -426,6 +437,24 @@ async def run_recount(
                 authority_adjusted += 1
                 salience_targets.add(mid)
 
+    # ---- Phase 1e-d formula-version backfill ------------------------
+    # Pull active rows whose stored ``salience_formula_version`` lags
+    # ``Settings.dream_salience_formula_version`` (bumped on every
+    # ``compute_salience`` math change). Union into ``salience_targets``
+    # so the next loop re-stamps both ``salience`` AND
+    # ``salience_formula_version`` atomically through ``MemoryUpdatePatch``.
+    # Bounded by ``Settings.dream_recount_salience_recompute_cap`` so a
+    # single cycle doesn't pump unbounded audit / outbox rows on first
+    # post-bump deploy.
+    target_formula_version = settings.dream_salience_formula_version
+    formula_cap = settings.dream_recount_salience_recompute_cap
+    mismatched_ids = await _load_formula_version_mismatched(
+        env_id=env_id,
+        target_version=target_formula_version,
+        cap=formula_cap,
+    )
+    salience_targets = salience_targets | mismatched_ids
+
     # ---- R-B3 salience recompute (always runs) -----------------------
     # Runs OUTSIDE the outer session so memory_update can open its own
     # session_scope and the integer-counter / authority writes from the
@@ -439,6 +468,15 @@ async def run_recount(
         actor_ctx=actor_ctx,
         settings=settings,
         now=now_ts,
+    )
+
+    # Phase 1e-d — after the recompute leg, query the remaining backlog
+    # for observability. Pending > 0 means the cap was hit (or version
+    # conflicts left some rows behind); next cycle continues from where
+    # this one stopped.
+    formula_version_pending = await _count_formula_version_pending(
+        env_id=env_id,
+        target_version=target_formula_version,
     )
 
     result = RecountPassResult(
@@ -458,18 +496,22 @@ async def run_recount(
         drift_authority_lineage=drift_auth_ln,
         drift_authority_task=drift_auth_tk,
         drift_authority_playbook=drift_auth_pb,
+        memories_formula_version_restamped=len(mismatched_ids),
+        memories_formula_version_pending=formula_version_pending,
     )
 
     log.info(
         "recount: env=%s examined=%d adjusted=%d drift(rl/ln/tk/pb)=%d/%d/%d/%d "
         "auth_adjusted=%d salience_recomputed=%d salience_conflicts=%d "
-        "drift_auth(rl/ln/tk/pb)=%s/%s/%s/%s",
+        "drift_auth(rl/ln/tk/pb)=%s/%s/%s/%s "
+        "formula_version(target=%d restamped=%d pending=%d)",
         env_id,
         result.memories_examined,
         result.memories_adjusted,
         drift_rl, drift_ln, drift_tk, drift_pb,
         authority_adjusted, salience_recomputed, salience_conflicts,
         drift_auth_rl, drift_auth_ln, drift_auth_tk, drift_auth_pb,
+        target_formula_version, len(mismatched_ids), formula_version_pending,
     )
     return result
 
@@ -1090,6 +1132,7 @@ async def _recompute_salience_for(
         return 0, 0
 
     weights = salience_weights_from_settings(settings)
+    target_formula_version = settings.dream_salience_formula_version
     recomputed = 0
     conflicts = 0
 
@@ -1100,7 +1143,8 @@ async def _recompute_salience_for(
                 "       confidence, pinned, negative_feedback_count, "
                 "       verified_at, created_at, "
                 "       reference_count_rel_link, reference_count_lineage, "
-                "       reference_count_task, reference_count_playbook "
+                "       reference_count_task, reference_count_playbook, "
+                "       reference_authority "
                 "FROM memories "
                 "WHERE id = ANY(:ids) "
                 "  AND env_id = :env_id "
@@ -1122,6 +1166,11 @@ async def _recompute_salience_for(
             reference_count_lineage=int(row.reference_count_lineage or 0),
             reference_count_task=int(row.reference_count_task or 0),
             reference_count_playbook=int(row.reference_count_playbook or 0),
+            # Phase 1e-d — formula now reads ``reference_authority``. When
+            # the knob is OFF, ``weights.w_authority`` is 0 (set by
+            # ``salience_weights_from_settings``) so the term zeros out;
+            # the field still flows for symmetry / future-proofing.
+            reference_authority=float(row.reference_authority or 0),
         )
         new_salience = compute_salience(inputs, now=now, weights=weights)
         try:
@@ -1130,6 +1179,13 @@ async def _recompute_salience_for(
                 MemoryUpdatePatch(
                     expected_version=row.version,
                     salience=new_salience,
+                    # Phase 1e-d — stamp the formula version atomically
+                    # with the salience write. Recount is the sole stamper
+                    # (access-bump + decay leave the version unchanged on
+                    # purpose). On the next recount cycle, a row with a
+                    # stamped current version is no longer "behind" so
+                    # the formula-version mismatch query won't pull it in.
+                    salience_formula_version=target_formula_version,
                 ),
                 ctx=actor_ctx,
                 settings=settings,
@@ -1144,6 +1200,88 @@ async def _recompute_salience_for(
         recomputed += 1
 
     return recomputed, conflicts
+
+
+async def _load_formula_version_mismatched(
+    *,
+    env_id: UUID,
+    target_version: int,
+    cap: int,
+) -> set[UUID]:
+    """Phase 1e-d — load active memory IDs whose stored salience formula version
+    is behind ``target_version``.
+
+    Bounded by ``cap`` (``Settings.dream_recount_salience_recompute_cap``)
+    to keep the first-cycle audit/outbox spike from blowing past sane
+    limits when an operator bumps ``dream_salience_formula_version``.
+    ``cap=0`` means unbounded (test-only).
+
+    Order is deterministic — ``(created_at ASC, id ASC)`` — so multiple
+    consecutive recount cycles make forward progress through the
+    backlog without thrashing the same rows. Newer memories naturally
+    inherit ``salience_formula_version`` equal to the current version
+    on creation (server default ``0`` is bumped to current on first
+    salience write); the backlog is the set of pre-bump rows whose
+    formula-version stamp was set under an earlier setting.
+    """
+
+    if target_version <= 0:
+        # version 0 = "any version is fine", short-circuit so we never
+        # treat an unstamped pre-1e-d env as a mismatched backlog.
+        return set()
+
+    async with session_scope() as s:
+        if cap == 0:
+            stmt = text(
+                "SELECT id FROM memories "
+                "WHERE env_id = :env_id "
+                "  AND status = 'active' "
+                "  AND salience_formula_version < :v "
+                "ORDER BY created_at ASC, id ASC"
+            )
+            params = {"env_id": env_id, "v": target_version}
+        else:
+            stmt = text(
+                "SELECT id FROM memories "
+                "WHERE env_id = :env_id "
+                "  AND status = 'active' "
+                "  AND salience_formula_version < :v "
+                "ORDER BY created_at ASC, id ASC "
+                "LIMIT :cap"
+            )
+            params = {"env_id": env_id, "v": target_version, "cap": cap}
+        rows = (await s.execute(stmt, params)).all()
+
+    return {row.id for row in rows}
+
+
+async def _count_formula_version_pending(
+    *,
+    env_id: UUID,
+    target_version: int,
+) -> int:
+    """Phase 1e-d — total active rows still behind ``target_version``.
+
+    Used to populate ``RecountPassResult.memories_formula_version_pending``
+    so operators have visibility into how many rows still need re-stamping
+    after the cap-limited cycle finishes.
+    """
+
+    if target_version <= 0:
+        return 0
+
+    async with session_scope() as s:
+        result = (await s.execute(
+            text(
+                "SELECT COUNT(*) AS n FROM memories "
+                "WHERE env_id = :env_id "
+                "  AND status = 'active' "
+                "  AND salience_formula_version < :v"
+            ),
+            {"env_id": env_id, "v": target_version},
+        )).scalar_one()
+
+    return int(result or 0)
 
 
 __all__ = [

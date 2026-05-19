@@ -288,6 +288,15 @@ class Memory(Base):
     authority_last_recount_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
+    # Phase 1e-d (Migration 0019) — formula version this row's stored
+    # ``salience`` was computed under. ``0`` = pre-1e-d / unstamped;
+    # recount pass compares against ``Settings.dream_salience_formula_version``
+    # and re-stamps + re-computes any row that's behind. **Any change to
+    # ``compute_salience`` math MUST bump the settings value** so existing
+    # rows re-stamp on the next recount cycle (see ``salience.py`` docstring).
+    salience_formula_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+    )
     verified_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
