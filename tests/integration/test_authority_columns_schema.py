@@ -203,3 +203,105 @@ async def test_0019_salience_formula_version_column(
             )
         ).scalar_one()
         assert bumped == 42
+
+
+async def test_0020_compose_dedupe_key_column_and_partial_unique_index(
+    postgres_session_factories: SessionPairFactory,
+):
+    """Migration 0020 adds ``memories.compose_dedupe_key`` (TEXT NULL) and a
+    partial unique index on ``(env_id, compose_dedupe_key)`` scoped to non-NULL
+    keys.
+
+    The partial-uniqueness contract is the load-bearing piece of Phase 2's
+    idempotency story: two concurrent identical ``mem_compose`` calls must
+    race onto the same winning row. The race-recovery path (savepoint +
+    re-fetch on ``UniqueViolation``) lives in ``composers.py``; this test
+    asserts the index exists, is unique, is partial, and lets multiple NULLs
+    coexist.
+    """
+    pair = postgres_session_factories()
+    async with pair[0]() as session:
+        env_id = await _mk_env(session)
+
+        # 1. Column exists, defaults to NULL, no NOT NULL constraint.
+        meta = (
+            await session.execute(
+                text(
+                    "SELECT data_type, is_nullable, column_default "
+                    "FROM information_schema.columns "
+                    "WHERE table_name = 'memories' "
+                    "  AND column_name = 'compose_dedupe_key'"
+                )
+            )
+        ).one()
+        assert meta.data_type == "text"
+        assert meta.is_nullable == "YES"
+        assert meta.column_default is None
+
+        # 2. Partial unique index exists with the expected predicate.
+        row = (
+            await session.execute(
+                text(
+                    "SELECT indexdef FROM pg_indexes "
+                    "WHERE schemaname='public' "
+                    "  AND indexname='ix_memories_compose_dedupe'"
+                )
+            )
+        ).one_or_none()
+        assert row is not None, "ix_memories_compose_dedupe not created"
+        defn = row.indexdef.lower()
+        assert "unique index" in defn
+        assert "env_id" in defn
+        assert "compose_dedupe_key" in defn
+        assert "where (compose_dedupe_key is not null)" in defn
+
+        # 3. Multiple NULL keys are fine in the same env (partial predicate).
+        mem_a = await _mk_mem(session, env_id)
+        mem_b = await _mk_mem(session, env_id)
+        await session.commit()
+
+        # 4. Same dedupe-key + same env_id is rejected by the partial index.
+        await session.execute(
+            text(
+                "UPDATE memories SET compose_dedupe_key = 'duplicate-key' "
+                "WHERE id = :id"
+            ),
+            {"id": mem_a},
+        )
+        await session.commit()
+
+        with pytest.raises(Exception):
+            await session.execute(
+                text(
+                    "UPDATE memories SET compose_dedupe_key = 'duplicate-key' "
+                    "WHERE id = :id"
+                ),
+                {"id": mem_b},
+            )
+            await session.commit()
+        await session.rollback()
+
+        # 5. Same dedupe-key in a DIFFERENT env is allowed (index is per env).
+        other_env = await _mk_env(session)
+        mem_c = await _mk_mem(session, other_env)
+        await session.execute(
+            text(
+                "UPDATE memories SET compose_dedupe_key = 'duplicate-key' "
+                "WHERE id = :id"
+            ),
+            {"id": mem_c},
+        )
+        await session.commit()
+
+        # Final read: both rows hold the same key in their respective envs.
+        keys = (
+            await session.execute(
+                text(
+                    "SELECT id, env_id, compose_dedupe_key FROM memories "
+                    "WHERE compose_dedupe_key = 'duplicate-key' "
+                    "ORDER BY env_id"
+                )
+            )
+        ).all()
+        assert len(keys) == 2
+        assert {k.env_id for k in keys} == {env_id, other_env}

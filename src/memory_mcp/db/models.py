@@ -203,6 +203,17 @@ class Memory(Base):
     __tablename__ = "memories"
     __table_args__ = (
         UniqueConstraint("id", "env_id", name="memories_id_env_uniq"),
+        # Phase 2 (Migration 0020) — partial unique index on
+        # ``(env_id, compose_dedupe_key)`` only for compose-produced rows.
+        # Lets concurrent identical ``mem_compose`` calls race onto the same
+        # winning row via savepoint + ``UniqueViolation`` re-fetch.
+        Index(
+            "ix_memories_compose_dedupe",
+            "env_id",
+            "compose_dedupe_key",
+            unique=True,
+            postgresql_where=text("compose_dedupe_key IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
@@ -311,6 +322,13 @@ class Memory(Base):
     )
     decision_meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1, server_default=text("1"))
+    # Phase 2 (Migration 0020) — deterministic 32-hex key over the
+    # ``mem_compose`` request content + constraints (mode, sorted source_ids,
+    # target.kind/title/body/sorted tags/metadata/decision_meta/confidence/
+    # salience/pinned). ``NULL`` for every memory not created via
+    # ``mem_compose``; uniqueness is enforced per env via the partial index
+    # ``ix_memories_compose_dedupe`` in ``__table_args__``.
+    compose_dedupe_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 # ---------------------------------------------------------------------------
