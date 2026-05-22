@@ -535,6 +535,29 @@ async def _load_env_embedding_model(
     return val
 
 
+async def _lock_memories(s: AsyncSession, ids: list[UUID]) -> list[Memory]:
+    """``SELECT ... FOR UPDATE`` on memory rows in input (sorted) order.
+
+    Callers must pass ``ids`` already sorted (typically by UUID) to ensure a
+    consistent lock-acquisition order across concurrent transactions and avoid
+    deadlocks. Rows are returned ordered by ``Memory.id``; missing rows are
+    simply absent — the caller is responsible for checking for missing.
+
+    Shared by the dream accept path (:mod:`memory_mcp.dream.api`) and the
+    caller-driven compose path (:mod:`memory_mcp.composers`).
+    """
+    if not ids:
+        return []
+    stmt = (
+        select(Memory)
+        .where(Memory.id.in_(ids))
+        .order_by(Memory.id)
+        .with_for_update()
+    )
+    rows = (await s.execute(stmt)).scalars().all()
+    return list(rows)
+
+
 async def _ensure_memory_graph_node(
     session: AsyncSession,
     *,

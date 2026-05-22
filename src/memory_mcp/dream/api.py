@@ -96,6 +96,7 @@ from memory_mcp.memories import (
     _audit_snapshot,
     _load_env_embedding_model,
     _load_tag_names,
+    _lock_memories,
     _outbox_op_for,
     _projection_payload,
     _record_audit,
@@ -1095,24 +1096,6 @@ async def _accept_promotion(
     )
 
     return new_memory, new_tag_names
-
-
-async def _lock_memories(s: AsyncSession, ids: list[UUID]) -> list[Memory]:
-    """``SELECT ... FOR UPDATE`` on memory rows in input (sorted) order.
-
-    Returns rows in the same order as ``ids`` when found; missing rows
-    are simply absent. Caller checks for missing.
-    """
-    if not ids:
-        return []
-    stmt = (
-        select(Memory)
-        .where(Memory.id.in_(ids))
-        .order_by(Memory.id)
-        .with_for_update()
-    )
-    rows = (await s.execute(stmt)).scalars().all()
-    return list(rows)
 
 
 # ---------------------------------------------------------------------------
