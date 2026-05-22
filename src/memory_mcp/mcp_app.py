@@ -157,6 +157,11 @@ from memory_mcp.graph import (
 )
 from memory_mcp.identity import AgentContext, get_identity_resolver
 from memory_mcp.journal import JournalRequest, memory_journal
+from memory_mcp.composers import (
+    MemComposeRequest,
+    MemComposeResponse,
+    memory_compose,
+)
 from memory_mcp.memories import (
     MemoryHardDeleteRequest,
     MemoryHardDeleteResponse,
@@ -663,6 +668,58 @@ def build_mcp_server(
         )
         old, new = await memory_supersede(old_memory_id, request, ctx=ctx)
         return {"old": _dump(old), "new": _dump(new)}
+
+    @mcp.tool()
+    @_wrap
+    async def mem_compose(
+        request: MemComposeRequest,
+        agent_id: UUID | None = None,
+        attached_env_ids: list[UUID] | None = None,
+        attached_env_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Compose N≥2 source memories into a single new memory (Phase 2, v0.15.0).
+
+        Two modes:
+
+        * ``promote`` (default, non-destructive) — sources stay ``active``;
+          new memory cites them via ``promoted_from``.
+        * ``merge`` (destructive) — sources transition to ``superseded``
+          with ``superseded_by`` set to the new memory; new memory cites
+          them via ``supersedes``.
+
+        Idempotent via dedupe key: same ``{mode, source_ids, target}``
+        replays the same composed memory with ``idempotency_replay=true``
+        and performs no mutation. Caller may override the dedupe key with
+        ``request.idempotency_key``.
+
+        Popularity caveat (v1): the composed memory starts at
+        ``reference_count=0``. Citation transfer (rewriting incoming edges
+        from sources to the new memory) is deferred to v1.5.
+
+        Example:
+            {
+              "request": {
+                "source_ids": [
+                  "00000000-0000-0000-0000-000000000001",
+                  "00000000-0000-0000-0000-000000000002"
+                ],
+                "target": {
+                  "kind": "fact",
+                  "title": "Combined deploy outcome",
+                  "body": "Stamp A and Stamp B both reached steady state.",
+                  "tags": ["topic:deploy", "release:2026.05"]
+                },
+                "mode": "promote"
+              }
+            }
+        """
+        ctx = await _resolve_ctx(
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
+        )
+        out: MemComposeResponse = await memory_compose(request, ctx=ctx)
+        return _dump(out)
 
     @mcp.tool()
     @_wrap
