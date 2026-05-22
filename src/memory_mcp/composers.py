@@ -479,14 +479,14 @@ async def _compose_in_session(
     # Step 5 — Validate envelope (state + RBAC + kind invariants).
     for src in locked:
         if src.env_id != env_id:
-            raise InvalidTransitionError(
+            raise InvalidInputError(
                 "mem_compose: all sources must belong to the same env"
             )
         _ensure_env_visible(src, ctx)
 
     # Optional caller-asserted env scope.
     if request.env_id is not None and request.env_id != env_id:
-        raise InvalidTransitionError(
+        raise InvalidInputError(
             f"mem_compose: request.env_id={request.env_id} does not match "
             f"source env {env_id}"
         )
@@ -497,22 +497,19 @@ async def _compose_in_session(
     _allowed_status = {MemoryStatus.active.value, MemoryStatus.stale.value}
     for src in locked:
         if src.status not in _allowed_status:
-            raise InvalidTransitionError(
-                f"mem_compose: source {src.id} status={src.status!r} not "
-                f"composable (allowed: active, stale)"
-            )
+            raise InvalidTransitionError(src=str(src.status), dst="composed")
 
     # Kind invariants.
     _validate_target_kind(request.target)
     if request.mode == "merge":
         source_kinds = {src.kind for src in locked}
         if len(source_kinds) > 1:
-            raise InvalidTransitionError(
+            raise InvalidInputError(
                 "mem_compose mode=merge requires all sources to share kind; "
                 f"saw {sorted(source_kinds)}"
             )
         if request.target.kind.value not in source_kinds:
-            raise InvalidTransitionError(
+            raise InvalidInputError(
                 f"mem_compose mode=merge requires target.kind="
                 f"{request.target.kind.value!r} to match source kind"
             )
@@ -593,7 +590,7 @@ async def _compose_in_session(
                 ).limit(1)
             )).scalar_one_or_none()
         if existing is None:  # pragma: no cover — race resolution must surface a row
-            raise InvalidTransitionError(
+            raise RuntimeError(
                 "mem_compose: dedupe-key race recovery found no matching row"
             ) from exc
         source_ids_out, retired_ids, recon_mode, lineage_rows = (

@@ -914,3 +914,526 @@ async def test_accounting_replay_no_side_effects(
     s2_after_replay = await _fetch_memory(factory, src2)
     assert s1_after_replay.reference_count_lineage == src1_lineage_count_after_first
     assert s2_after_replay.reference_count_lineage == src2_lineage_count_after_first
+
+
+# ---------------------------------------------------------------------------
+# B-finish-2 — validation + tag-policy + concurrent-race matrix
+#
+# Schema-layer validations (too few / too many / duplicate / expected_versions
+# subset) are covered in tests/unit/test_compose_schemas.py. The cases here
+# require a live DB to exercise the in-session validation steps after the
+# sources are locked.
+# ---------------------------------------------------------------------------
+
+
+from memory_mcp.errors import (
+    InvalidTransitionError,
+    NotFoundError as MemNotFoundError,
+    VersionConflictError,
+)
+
+
+@pytest.mark.asyncio
+async def test_validation_cross_env_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Sources from two different envs → InvalidTransitionError."""
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(composers_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+
+    # Two envs sharing one agent (agent.attached set covers both).
+    env1_id, agent_id = await _setup_env_and_agent(factory)
+    async with factory() as session:
+        env2 = Environment(
+            name=f"compose-smoke-{uuid4()}",
+            kind="test",
+            default_embedding_model_id="test-embedding",
+        )
+        session.add(env2)
+        await session.commit()
+        env2_id = env2.id
+
+    src1 = await _write_source(factory, env_id=env1_id, agent_id=agent_id, title="src1", body="a")
+    src2 = await _write_source(factory, env_id=env2_id, agent_id=agent_id, title="src2", body="b")
+
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env1_id, env2_id])
+
+    token = use_session_factory(factory)
+    try:
+        with pytest.raises(InvalidInputError, match="same env"):
+            await composers_mod.memory_compose(
+                MemComposeRequest(
+                    source_ids=[src1, src2],
+                    target=MemComposeTarget(kind=MemoryKind.fact, title="t", body="b"),
+                    mode="promote",
+                ),
+                ctx=ctx,
+                settings=_settings(),
+            )
+    finally:
+        reset_session_factory(token)
+
+
+@pytest.mark.asyncio
+async def test_validation_retired_source_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """One source in status=retired → InvalidTransitionError before any insert."""
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(composers_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+
+    src1 = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="src1", body="a")
+    src2 = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="src2", body="b")
+
+    # Mark src1 retired directly.
+    async with factory() as session:
+        from sqlalchemy import update
+        await session.execute(
+            update(Memory)
+            .where(Memory.id == src1)
+            .values(status=MemoryStatus.retired.value)
+        )
+        await session.commit()
+
+    token = use_session_factory(factory)
+    try:
+        with pytest.raises(InvalidTransitionError) as exc_info:
+            await composers_mod.memory_compose(
+                MemComposeRequest(
+                    source_ids=[src1, src2],
+                    target=MemComposeTarget(kind=MemoryKind.fact, title="t", body="b"),
+                    mode="promote",
+                ),
+                ctx=ctx,
+                settings=_settings(),
+            )
+        # src is the retired status; dst is the attempted target state ("composed").
+        assert exc_info.value.dst == "composed"
+    finally:
+        reset_session_factory(token)
+
+
+@pytest.mark.asyncio
+async def test_validation_mixed_kind_merge_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """mode=merge with mixed source kinds → InvalidTransitionError."""
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(composers_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+
+    src1 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="src1", body="a", kind=MemoryKind.fact,
+    )
+    src2 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="src2", body="b", kind=MemoryKind.decision,
+    )
+
+    token = use_session_factory(factory)
+    try:
+        with pytest.raises(InvalidInputError, match="share kind"):
+            await composers_mod.memory_compose(
+                MemComposeRequest(
+                    source_ids=[src1, src2],
+                    target=MemComposeTarget(kind=MemoryKind.fact, title="t", body="b"),
+                    mode="merge",
+                ),
+                ctx=ctx,
+                settings=_settings(),
+            )
+    finally:
+        reset_session_factory(token)
+
+
+@pytest.mark.asyncio
+async def test_validation_mixed_kind_promote_ok(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """mode=promote with mixed source kinds → succeeds (target.kind free)."""
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(composers_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+
+    src1 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="src1", body="a", kind=MemoryKind.fact,
+    )
+    src2 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="src2", body="b", kind=MemoryKind.observation,
+    )
+
+    token = use_session_factory(factory)
+    try:
+        resp = await composers_mod.memory_compose(
+            MemComposeRequest(
+                source_ids=[src1, src2],
+                target=MemComposeTarget(kind=MemoryKind.fact, title="t", body="b"),
+                mode="promote",
+            ),
+            ctx=ctx,
+            settings=_settings(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    assert resp.mode == "promote"
+    assert resp.idempotency_replay is False
+
+
+@pytest.mark.asyncio
+async def test_validation_target_kind_merge_mismatch_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """mode=merge with target.kind != source.kind → InvalidTransitionError."""
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(composers_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+
+    src1 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="src1", body="a", kind=MemoryKind.fact,
+    )
+    src2 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="src2", body="b", kind=MemoryKind.fact,
+    )
+
+    token = use_session_factory(factory)
+    try:
+        with pytest.raises(InvalidInputError, match="match source kind"):
+            await composers_mod.memory_compose(
+                MemComposeRequest(
+                    source_ids=[src1, src2],
+                    target=MemComposeTarget(
+                        kind=MemoryKind.decision, title="t", body="b",
+                    ),
+                    mode="merge",
+                ),
+                ctx=ctx,
+                settings=_settings(),
+            )
+    finally:
+        reset_session_factory(token)
+
+
+@pytest.mark.asyncio
+async def test_validation_expected_version_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Stale expected_versions → VersionConflictError."""
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(composers_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+
+    src1 = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="src1", body="a")
+    src2 = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="src2", body="b")
+
+    # Capture real version, supply a wrong one.
+    s1 = await _fetch_memory(factory, src1)
+    actual_version = s1.version
+
+    token = use_session_factory(factory)
+    try:
+        with pytest.raises(VersionConflictError):
+            await composers_mod.memory_compose(
+                MemComposeRequest(
+                    source_ids=[src1, src2],
+                    target=MemComposeTarget(kind=MemoryKind.fact, title="t", body="b"),
+                    mode="promote",
+                    expected_versions={src1: actual_version + 99},
+                ),
+                ctx=ctx,
+                settings=_settings(),
+            )
+    finally:
+        reset_session_factory(token)
+
+
+@pytest.mark.asyncio
+async def test_validation_rbac_invisible_source(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Source belongs to env not in ctx.attached_env_ids → NotFoundError.
+
+    Exercises _ensure_env_visible: ctx has a non-empty attached set that
+    excludes the source's env, so visibility narrows.
+    """
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(composers_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+
+    env1_id, agent_id = await _setup_env_and_agent(factory)
+    async with factory() as session:
+        env_other = Environment(
+            name=f"compose-smoke-{uuid4()}",
+            kind="test",
+            default_embedding_model_id="test-embedding",
+        )
+        session.add(env_other)
+        await session.commit()
+        env_other_id = env_other.id
+
+    # Write sources in env1, then call with ctx attached to env_other only.
+    src1 = await _write_source(factory, env_id=env1_id, agent_id=agent_id, title="src1", body="a")
+    src2 = await _write_source(factory, env_id=env1_id, agent_id=agent_id, title="src2", body="b")
+
+    # Narrow ctx: attached set contains env_other but NOT env1.
+    ctx_narrow = AgentContext(agent_id=agent_id, attached_env_ids=[env_other_id])
+
+    token = use_session_factory(factory)
+    try:
+        with pytest.raises(MemNotFoundError, match="not visible"):
+            await composers_mod.memory_compose(
+                MemComposeRequest(
+                    source_ids=[src1, src2],
+                    target=MemComposeTarget(kind=MemoryKind.fact, title="t", body="b"),
+                    mode="promote",
+                ),
+                ctx=ctx_narrow,
+                settings=_settings(),
+            )
+    finally:
+        reset_session_factory(token)
+
+
+async def _fetch_tag_names_for(factory, memory_id: UUID) -> list[str]:
+    """Read effective tag names for a memory via the memory_tags join table."""
+    from memory_mcp.db.models import MemoryTag, Tag
+    async with factory() as session:
+        rows = (await session.execute(
+            select(Tag.name)
+            .join(MemoryTag, Tag.id == MemoryTag.tag_id)
+            .where(MemoryTag.memory_id == memory_id)
+        )).all()
+        return sorted([r[0] for r in rows])
+
+
+@pytest.mark.asyncio
+async def test_tag_policy_target_only(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Explicit tag_policy='target': only target tags land; source tags ignored."""
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(composers_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+
+    src1 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id,
+        title="src1", body="a", tags=["src-a-tag", "shared"],
+    )
+    src2 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id,
+        title="src2", body="b", tags=["src-b-tag", "shared"],
+    )
+
+    token = use_session_factory(factory)
+    try:
+        resp = await composers_mod.memory_compose(
+            MemComposeRequest(
+                source_ids=[src1, src2],
+                target=MemComposeTarget(
+                    kind=MemoryKind.fact, title="t", body="b",
+                    tags=["target-tag"],
+                ),
+                mode="merge",
+                tag_policy="target",
+            ),
+            ctx=ctx,
+            settings=_settings(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    assert resp.tag_policy_applied == "target"
+    tags = await _fetch_tag_names_for(factory, resp.memory.id)
+    assert tags == ["target-tag"]
+
+
+@pytest.mark.asyncio
+async def test_tag_policy_union_only(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Explicit tag_policy='union': only source-tag union lands; target tags ignored."""
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(composers_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+
+    src1 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id,
+        title="src1", body="a", tags=["src-a-tag", "shared"],
+    )
+    src2 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id,
+        title="src2", body="b", tags=["src-b-tag", "shared"],
+    )
+
+    token = use_session_factory(factory)
+    try:
+        resp = await composers_mod.memory_compose(
+            MemComposeRequest(
+                source_ids=[src1, src2],
+                target=MemComposeTarget(
+                    kind=MemoryKind.fact, title="t", body="b",
+                    tags=["target-tag"],
+                ),
+                mode="promote",
+                tag_policy="union",
+            ),
+            ctx=ctx,
+            settings=_settings(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    assert resp.tag_policy_applied == "union"
+    tags = await _fetch_tag_names_for(factory, resp.memory.id)
+    assert tags == sorted(["src-a-tag", "src-b-tag", "shared"])
+
+
+@pytest.mark.asyncio
+async def test_tag_policy_target_plus_union_explicit_promote(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Explicit tag_policy='target_plus_union' on promote mode (default is 'target').
+
+    Validates the per-mode default can be overridden in the non-default direction.
+    """
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(composers_mod, "session_scope", routed_session_scope)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+
+    src1 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id,
+        title="src1", body="a", tags=["src-a-tag"],
+    )
+    src2 = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id,
+        title="src2", body="b", tags=["src-b-tag"],
+    )
+
+    token = use_session_factory(factory)
+    try:
+        resp = await composers_mod.memory_compose(
+            MemComposeRequest(
+                source_ids=[src1, src2],
+                target=MemComposeTarget(
+                    kind=MemoryKind.fact, title="t", body="b",
+                    tags=["target-tag"],
+                ),
+                mode="promote",
+                tag_policy="target_plus_union",
+            ),
+            ctx=ctx,
+            settings=_settings(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    assert resp.tag_policy_applied == "target_plus_union"
+    tags = await _fetch_tag_names_for(factory, resp.memory.id)
+    assert tags == sorted(["src-a-tag", "src-b-tag", "target-tag"])
+
+
+@pytest.mark.asyncio
+async def test_concurrent_identical_request_race(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Two concurrent identical compose calls → exactly one mutation; both succeed.
+
+    The FOR UPDATE lock on source memories serializes the two calls: A acquires
+    lock, inserts merged + commits, releases. B acquires lock, sees the
+    persisted dedupe_key on lookup, and returns via the replay path. Validates
+    the idempotency contract holds under concurrency.
+    """
+    import asyncio
+
+    monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
+    monkeypatch.setattr(composers_mod, "session_scope", routed_session_scope)
+
+    factory_1, factory_2 = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory_1)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+
+    src1 = await _write_source(factory_1, env_id=env_id, agent_id=agent_id, title="src1", body="a")
+    src2 = await _write_source(factory_1, env_id=env_id, agent_id=agent_id, title="src2", body="b")
+
+    request = MemComposeRequest(
+        source_ids=[src1, src2],
+        target=MemComposeTarget(kind=MemoryKind.fact, title="t", body="b"),
+        mode="promote",
+    )
+
+    async def call_compose(factory):
+        token = use_session_factory(factory)
+        try:
+            return await composers_mod.memory_compose(
+                request, ctx=ctx, settings=_settings(),
+            )
+        finally:
+            reset_session_factory(token)
+
+    results = await asyncio.gather(
+        call_compose(factory_1),
+        call_compose(factory_2),
+        return_exceptions=True,
+    )
+
+    # Both must succeed (no exceptions).
+    assert all(not isinstance(r, Exception) for r in results), (
+        f"unexpected exceptions: {results}"
+    )
+
+    # Both point at the same memory id.
+    assert results[0].memory.id == results[1].memory.id
+
+    # Exactly one was the real mutation; the other was a replay.
+    replay_flags = [r.idempotency_replay for r in results]
+    assert sorted(replay_flags) == [False, True]
+
+    # Exactly one memory landed in the DB.
+    async with factory_1() as session:
+        from sqlalchemy import func
+        n = int((await session.execute(
+            select(func.count()).select_from(Memory).where(
+                Memory.env_id == env_id,
+                Memory.compose_dedupe_key.is_not(None),
+            )
+        )).scalar_one())
+        assert n == 1
