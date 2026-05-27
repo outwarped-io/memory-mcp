@@ -87,7 +87,9 @@ _LINEAGE_VELOCITY_WHITELIST = (
     "summarized_from",
     "promoted_from",
     "derives_from",
-    "split_from",
+    # ``split_from`` was forward-listed here before Migration 0021 but
+    # was removed from the popularity whitelist (rows of that relation
+    # connect to a retired parent and must not contribute to velocity).
     "derived_from",
 )
 

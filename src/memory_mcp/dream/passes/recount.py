@@ -154,9 +154,14 @@ _LINEAGE_WHITELIST: frozenset[str] = frozenset(
     {
         LineageRelation.summarized_from.value,
         LineageRelation.promoted_from.value,
-        # Forward-listed for Phase 3; not yet in the enum / CHECK.
+        # Forward-listed; ``derives_from`` is a 0017-era speculative entry
+        # not yet in the CHECK constraint or any concrete operation.
+        # ``derived_from`` is Phase 3's derive-mode relation and bumps
+        # legitimately. ``split_from`` (Phase 3 split-mode) was previously
+        # forward-listed here but Migration 0021 removed it from the
+        # load-bearing whitelist (rows of that relation must not bump
+        # ``reference_count_lineage`` — the parent is retired).
         "derives_from",
-        "split_from",
         "derived_from",
     }
 )

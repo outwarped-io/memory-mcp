@@ -108,6 +108,12 @@ class LineageRelation(StrEnum):
     copied_from = "copied_from"
     moved_from = "moved_from"
     supersedes = "supersedes"
+    # Phase 3 (mem_decompose) — added in Migration 0021. ``split_from``
+    # connects a derive/split child to its source; ``derived_from`` is
+    # the non-destructive sibling that bumps the source's
+    # ``reference_count_lineage``.
+    split_from = "split_from"
+    derived_from = "derived_from"
 
 
 class TaskStatus(StrEnum):
