@@ -210,6 +210,84 @@ docker compose -f docker-compose.yml -f docker-compose.observability.yml --profi
 
 Tunables: `MCP_METRICS_REFRESH_INTERVAL_SECONDS` (default 60) controls how often the expensive distribution refresh runs — independent of Prometheus scrape interval.
 
+## Compose (v0.15.0 — Phase 2)
+
+`mem_compose` is a **caller-driven N→1 aggregation** tool: pick 2–20 sibling memories in one env, fold them into a single new memory, and write a lineage trail linking the new row back to its sources. It pairs with the dream-worker's automatic dedup pipeline — that pipeline proposes; `mem_compose` lets agents and humans **act directly** with no proposal envelope.
+
+### Two modes
+
+| Mode | Source state after | Lineage relation | Tag-policy default |
+|---|---|---|---|
+| `promote` *(default — non-destructive)* | sources stay `active` | `promoted_from` | `target` (target tags only) |
+| `merge` *(destructive)* | sources go to `superseded` | `supersedes` | `target_plus_union` (target ∪ union of source tags) |
+
+`promote` is the safe default — sources remain queryable; the new memory points back at them. `merge` is irreversible (sources are tombstoned in the outbox so Qdrant drops their vectors); use it when sources are genuine duplicates or pre-merge drafts.
+
+### Quick example
+
+```python
+from memory_mcp_schemas.compose import MemComposeRequest, MemComposeTarget
+from memory_mcp.db.types import MemoryKind
+
+resp = await client.compose(MemComposeRequest(
+    source_ids=[src1_id, src2_id, src3_id],
+    target=MemComposeTarget(
+        kind=MemoryKind.fact,
+        title="What we learned about Cosmos throttling",
+        body="Three observations from the throttling investigation …",
+        tags=["topic:cosmos", "component:management"],
+    ),
+    mode="promote",
+))
+
+print(resp.memory.id)              # UUID of the new memory
+print(resp.idempotency_replay)     # False on first call; True on replay
+print(resp.tag_policy_applied)     # "target"
+```
+
+### Idempotency contract
+
+`mem_compose` derives a deterministic **dedupe key** from `{schema_version, operation, env_id, mode, sorted(source_ids), target_kind, sha256(title+body), sorted(target_tags)}`. The key is stored in a partial-unique index on `memories(env_id, compose_dedupe_key)`. A second call with the same envelope returns the original memory with `idempotency_replay=True` — **no new rows, no audit entries, no popularity bumps**.
+
+- Callers can override the derived key with an explicit `idempotency_key` (≤128 chars) — useful when the same logical compose must dedupe across different source orderings.
+- Changing **any** request field (mode, source set, target body, tags, kind) changes the dedupe key. Reusing a caller-supplied `idempotency_key` with different sources or a different mode raises `InvalidInputError` rather than silently echoing a stale response.
+
+### Lineage traversal
+
+Walk the lineage with `mem_lineage(memory_id=resp.memory.id, direction='back')`. The graph is Postgres-only — Neo4j does not project lineage edges in v1. For an entity-anchored view of the merged memory, use `mem_neighbors`.
+
+### Popularity caveat
+
+The merged memory **starts at `reference_count=0`**. Compose does *not* transfer the sources' inbound citations (`rel_link` rows, embedded `{{memory:<uuid>}}` references in playbooks, task citations). Sources retain their full popularity profile; the new memory accrues its own from this point forward. Lineage edges are intentionally excluded from `reference_count_*` accounting — they describe how the memory got here, not who depends on it.
+
+Citation rewrite / lazy resolution is **deferred to v1.5**. If the merged memory needs to inherit citations, the recommended pattern is to `mem_archive` or `mem_retire` the sources after compose so consumers naturally migrate.
+
+### Audit shape
+
+Each compose call writes:
+
+- On the merged memory: one `op='create'` row + one `op='mem_compose:{mode}'` row.
+- On each source (only when `mode='merge'`): one `op='supersede'` row.
+- No audit rows for `mode='promote'` sources (they stay active and untouched in the body).
+
+Outbox shape mirrors the audit:
+
+- `mode='promote'` → 1 `upsert` for the merged memory; 0 events for sources.
+- `mode='merge'` → 1 `upsert` for the merged memory; N `tombstone` events for sources (one per source).
+- Lineage rows never produce outbox events — they're Postgres-local.
+
+### Validation contract
+
+- **2 ≤ source_ids ≤ 20** (schema-enforced; duplicates rejected).
+- All sources must live in the **same env** (cross-env compose is rejected with `InvalidInputError`).
+- Sources must be **visible to the caller's attached envs** (raw-UUID access from outside the attached set raises `NotFoundError`).
+- Sources must be in `active` or `stale` status — `retired` / `superseded` / `proposed` / `archived` sources raise `InvalidTransitionError`.
+- `mode='merge'` requires **all sources to share `kind`**, and the target's `kind` must match (`InvalidInputError` otherwise).
+- `mode='promote'` allows mixed-kind sources — the target's `kind` is free.
+- `expected_versions` (optional) is a per-source optimistic-lock check; mismatch raises `VersionConflictError`.
+
+See `tests/integration/test_compose_transaction.py` for the full behavioral matrix (25 cases — smoke, accounting, validation, tag-policy, race).
+
 ## Architecture
 
 ```
@@ -571,7 +649,7 @@ memory-mcp/
 
 For ready-to-paste agent instructions, see the [system prompt cookbook](./docs/system-prompts.md).
 
-Memory: `mem_write`, `mem_get`, `mem_get_many`, `adr_export` *(v0.7.0)*, `mem_update`, `mem_archive`, `mem_retire`, `mem_supersede`, `mem_journal`, `mem_digest` *(v0.6.0)*, `mem_resume` *(v0.6.0)*, `mem_search`, `mem_auto_context` *(v0.6.0)*, `mem_neighbors` *(Sprint B)*, `mem_related` *(Sprint B)*, `mem_lineage` *(Sprint B)*, `mem_sources_browse` *(Sprint B)*, `mem_browse` *(Sprint A)*, `mem_facets` *(Sprint A)*, `mem_context_pack` *(v0.7.0 F7 v2)*, `playbook_invoke` *(v0.7.0)*.
+Memory: `mem_write`, `mem_get`, `mem_get_many`, `adr_export` *(v0.7.0)*, `mem_update`, `mem_archive`, `mem_retire`, `mem_supersede`, `mem_compose` *(v0.15.0)*, `mem_journal`, `mem_digest` *(v0.6.0)*, `mem_resume` *(v0.6.0)*, `mem_search`, `mem_auto_context` *(v0.6.0)*, `mem_neighbors` *(Sprint B)*, `mem_related` *(Sprint B)*, `mem_lineage` *(Sprint B)*, `mem_sources_browse` *(Sprint B)*, `mem_browse` *(Sprint A)*, `mem_facets` *(Sprint A)*, `mem_context_pack` *(v0.7.0 F7 v2)*, `playbook_invoke` *(v0.7.0)*.
 Entities: `ent_upsert`, `ent_resolve`, `ent_merge`, `ent_neighbors` *(Phase 2.1)*, `ent_browse` *(Sprint A)*.
 Relations: `rel_link`, `rel_browse` *(Sprint A)*.
 Environments: `env_create_`, `env_list_`, `env_get_`, `env_attach_`, `env_detach_`.

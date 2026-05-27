@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Added — Phase 2 `mem_compose` (N→1, manual)
+
+- **`mem_compose` MCP tool** — caller-driven N→1 aggregation. 2–20 sources in one env, two modes (`promote` non-destructive default; `merge` destructive). Atomic transaction: lock → dedupe-key check → validate → insert merged memory → write lineage rows → audit + outbox events → optional source retirement (merge only). Mirrors the dream-worker's `_accept_merge` / `_accept_promotion` lineage shape but bypasses the proposal envelope so agents and humans can compose directly.
+- **`MemComposeRequest` / `MemComposeTarget` / `MemComposeResponse`** schemas in `memory_mcp_schemas.compose`. Strict envelope: `source_ids: list[UUID]` with `min_length=2`, `max_length=20`, dedupe + subset validation on `expected_versions`. Per-mode tag-policy defaults (`promote→target`, `merge→target_plus_union`); explicit override via `tag_policy ∈ {"target", "union", "target_plus_union"}`. `None` means mode-default; `[]` means "no target tags but policy still folds sources".
+- **Migration `0020_compose_dedupe_key`** — adds `memories.compose_dedupe_key TEXT NULL` + partial unique index `memories_compose_dedupe_unique (env_id, compose_dedupe_key) WHERE compose_dedupe_key IS NOT NULL`. Forward-only (alembic head: `0020`).
+- **Idempotency contract** — deterministic dedupe key derived from `{schema_version, operation, env_id, mode, sorted(source_ids), target.kind, sha256(title+body), sorted(target.tags)}` → SHA-256 → 32 hex chars. Stored on `memories.compose_dedupe_key`. Replay returns the original memory with `idempotency_replay=True`; no new rows, no audit entries, no popularity bumps. Caller-supplied `idempotency_key` (≤128 chars) overrides the derived hash. Reusing a caller key with a different mode / source set raises `InvalidInputError`.
+- **Lineage rows** — `mode='promote'` emits `promoted_from` (child=merged, parent=source); `mode='merge'` emits `supersedes` (whitelist-excluded from `reference_count_lineage` — sources do NOT gain inbound-lineage credit on the merge path; matches dream-worker semantics).
+- **Audit shape** — merged memory: `op='create'` + `op='mem_compose:{mode}'`. Sources on `mode='merge'`: one `op='supersede'` each. Sources on `mode='promote'`: untouched.
+- **Outbox shape** — merged memory: 1 `upsert`. Sources on `mode='merge'`: N `tombstone`. Sources on `mode='promote'`: 0 events. Lineage rows: 0 outbox events (Postgres-only invariant preserved).
+- **README `## Compose (v0.15.0 — Phase 2)`** — new section covering two-mode model, idempotency contract, popularity caveat, audit / outbox shape, validation contract. Tools (v1) line updated to include `mem_compose`.
+
+### Validation matrix
+
+`InvalidInputError` raised for: cross-env sources, env-mismatch on `request.env_id`, mode=merge with mixed source kinds, mode=merge with `target.kind != source.kind`, caller-key reuse with different scope. `InvalidTransitionError(src=status, dst='composed')` for retired / superseded / proposed / archived sources. `VersionConflictError` for stale `expected_versions`. `NotFoundError` for sources not visible in caller's `attached_env_ids`. Schema-layer Pydantic rejects `len<2 / >20`, duplicate IDs, `expected_versions ⊄ source_ids`, both `env_id`+`env_name`, `idempotency_key>128`.
+
+### Popularity / citation caveat
+
+The merged memory **starts at `reference_count=0`**. Compose does **not** transfer the sources' inbound citations (`rel_link`, embedded `{{memory:<uuid>}}` references, task citations). Sources retain their full popularity profile. Lineage edges are intentionally excluded from `reference_count_*` (they describe how the memory got here, not who depends on it). Citation rewrite / lazy resolution deferred to v1.5; recommended pattern: `mem_archive` or `mem_retire` sources after compose so consumers naturally migrate.
+
+### Tests
+
+- Unit: 17 dedupe-key + schema cases.
+- Integration: 25 cases across `tests/integration/test_compose_transaction.py` (8 smoke + 6 accounting + 11 validation/tag-policy/race matrix).
+
+### Internal
+
+- `_lock_memories` extracted from `dream/api` to `memories` (B3a). Shared by compose and dream-accept paths.
+- `composers.py` is the new home for compose logic (~700 LOC). `dream/api._accept_merge` / `_accept_promotion` to be refactored on top of `composers._compose_in_session` in a follow-up.
+- Fixed latent bug in `composers.py`: `InvalidTransitionError` was called with single positional message arg, but the class signature is `(src, dst)`. Smoke tests never exercised the 4 envelope-validation paths so the bug was latent until B-finish-2 wrote them. Fixed: envelope checks now raise `InvalidInputError`; status check uses proper `InvalidTransitionError(src=status, dst='composed')`.
+
 ## [0.14.1] — 2026-05-19 — Popularity Phase 1e (authority weighting)
 
 ### Added
