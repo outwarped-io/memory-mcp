@@ -288,6 +288,29 @@ Outbox shape mirrors the audit:
 
 See `tests/integration/test_compose_transaction.py` for the full behavioral matrix (25 cases — smoke, accounting, validation, tag-policy, race).
 
+### Auto-wire (Phase 4, OFF by default)
+
+When `autowire_enabled=True`, every successful `mem_compose` call **may** insert up to K `related_to_popular` edges from the newly-composed memory to the most-relevant popular neighbors in the same env. The pass runs in two stages: a read-only **Stage A** (top-by-salience PG fetch → lineage-ancestor exclusion → off-thread body embed → Qdrant similarity → combined `salience × sim` ranking) executes before the compose transaction opens; a small in-transaction **Stage B** inserts the edges with `ON CONFLICT (src_node_id, dst_node_id, type) DO NOTHING`, emits one audit row per edge, and enqueues the projection outbox events. The new edges appear in `auto_wired: list[UUID]` on `MemComposeResponse`.
+
+Knobs (all under `Settings`):
+
+| Knob | Default | Range | Purpose |
+|---|---|---|---|
+| `autowire_enabled` | `False` | bool | Master switch. OFF in v0.15.0. |
+| `autowire_top_k` | `3` | `1..10` | Max edges emitted per compose. |
+| `autowire_sim_threshold` | `0.70` | `0.0..1.0` | Provisional — calibration pending. |
+| `autowire_candidate_limit` | `20` | `>= top_k`, `1..200` | Postgres pre-pull size for top-by-salience. |
+
+Important semantics:
+
+- **`related_to_popular` is excluded from popularity-counter triggers** (migrations 0017 + 0021). Adding the edge does NOT bump the dst's `reference_count_rel_link`. The same predicate is excluded from `mem_top` velocity windows + the dream recount pass. Auto-wire is a navigation aid, never a popularity vote.
+- **Skip filter** — auto-wire skips memories with `kind=playbook`, any tag starting with `directive:active`, or empty/whitespace body. Applied both pre-compute (Stage A) and defensively at insert (Stage B).
+- **Replay is state-current, not operation-exact** — a second identical compose call replays via dedupe-key and reconstructs `auto_wired` from the live `relations` table. If a `rel_link` call between the same nodes manually added a `related_to_popular` edge later, replay will surface it too.
+- **All failures degrade silently** — embedder failure, vector-store failure, graph-node resolution failure, insert race: the compose call still succeeds; auto-wire returns `[]`.
+- **Decompose auto-wire is deferred to v0.16**. `MemDecomposeResponse.auto_wired` exists on the schema but is always `[]` in v0.15.0 — the flat `list[UUID]` shape cannot represent per-child mapping for N children × K edges. v0.16 will add an additive `auto_wired_by_child: dict[UUID, list[UUID]] | None` field.
+
+See `tests/integration/test_autowire_compose.py` for the 6 end-to-end cases (OFF regression, Stage B direct insert, ON CONFLICT semantics, replay reconstruction, compose-hook ON path, replay returns state-current).
+
 ## Decompose (v0.15.0 — Phase 3)
 
 `mem_decompose` is the **caller-driven 1→N counterpart** to `mem_compose`: pick one source memory in one env, fan it out into 2–20 children, and write a lineage trail linking each child back to the source. It's the tool for splitting a long observation into atomic facts, deriving sub-procedures from a runbook, or breaking a decision into the smaller decisions it implies.
