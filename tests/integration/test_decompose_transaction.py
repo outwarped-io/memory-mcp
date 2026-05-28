@@ -62,7 +62,12 @@ from memory_mcp.db.types import (
     MemoryStatus,
     OutboxOp,
 )
-from memory_mcp.errors import InvalidInputError
+from memory_mcp.errors import (
+    InvalidInputError,
+    InvalidTransitionError,
+    NotFoundError,
+    VersionConflictError,
+)
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import MemoryWriteRequest, memory_write
 from memory_mcp_schemas.decompose import MemDecomposeChild, MemDecomposeRequest
@@ -535,3 +540,501 @@ async def test_decompose_playbook_child_rejected() -> None:
             ],
             mode="derive",
         )
+
+
+# ---------------------------------------------------------------------------
+# C9 — Matrix tests (validation, RBAC, version, race, whitelist, audit shape)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_too_few_children() -> None:
+    """min_length=2 — single child rejected at the schema layer."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="at least 2 items"):
+        MemDecomposeRequest(
+            source_id=uuid4(),
+            children=[_child("solo", "alpha")],
+            mode="derive",
+        )
+
+
+@pytest.mark.asyncio
+async def test_too_many_children() -> None:
+    """max_length=20 — 21st child rejected at the schema layer."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="at most 20 items"):
+        MemDecomposeRequest(
+            source_id=uuid4(),
+            children=[_child(f"c{i}", f"body{i}") for i in range(21)],
+            mode="derive",
+        )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_child_canonical_hash(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Two children with identical canonical-JSON content rejected pre-lock."""
+    _patch_session_scope(monkeypatch)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+    src_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
+    )
+
+    token = use_session_factory(factory)
+    try:
+        with pytest.raises(InvalidInputError, match="duplicate child content"):
+            await decomposers_mod.memory_decompose(
+                MemDecomposeRequest(
+                    source_id=src_id,
+                    children=[
+                        _child("dup", "same body"),
+                        _child("dup", "same body"),
+                    ],
+                    mode="derive",
+                ),
+                ctx=ctx,
+                settings=_settings(),
+            )
+    finally:
+        reset_session_factory(token)
+
+
+@pytest.mark.asyncio
+async def test_decision_meta_on_non_decision_child(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """decision_meta on kind=fact rejected at _validate_children."""
+    _patch_session_scope(monkeypatch)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+    src_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
+    )
+
+    bad_child = MemDecomposeChild(
+        kind=MemoryKind.fact,
+        title="bad",
+        body="b",
+        decision_meta={
+            "status": "accepted",
+            "rationale": "anything",
+            "constraints": ["c"],
+            "consequences": ["k"],
+            "superseded_by": None,
+        },
+    )
+
+    token = use_session_factory(factory)
+    try:
+        with pytest.raises(InvalidInputError, match="decision_meta only valid for kind=decision"):
+            await decomposers_mod.memory_decompose(
+                MemDecomposeRequest(
+                    source_id=src_id,
+                    children=[bad_child, _child("ok", "good")],
+                    mode="derive",
+                ),
+                ctx=ctx,
+                settings=_settings(),
+            )
+    finally:
+        reset_session_factory(token)
+
+
+@pytest.mark.asyncio
+async def test_decision_meta_on_decision_child_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """decision_meta on kind=decision passes _validate_children + deep validation."""
+    _patch_session_scope(monkeypatch)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+    src_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
+    )
+
+    good_child = MemDecomposeChild(
+        kind=MemoryKind.decision,
+        title="adr",
+        body="we chose X",
+        decision_meta={
+            "status": "accepted",
+            "rationale": "X is the simplest path",
+            "constraints": ["budget"],
+            "consequences": ["faster"],
+            "superseded_by": None,
+        },
+    )
+
+    token = use_session_factory(factory)
+    try:
+        resp = await decomposers_mod.memory_decompose(
+            MemDecomposeRequest(
+                source_id=src_id,
+                children=[good_child, _child("fact", "supporting fact")],
+                mode="derive",
+            ),
+            ctx=ctx,
+            settings=_settings(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    assert len(resp.children) == 2
+    assert resp.children[0].kind == "decision"
+
+
+@pytest.mark.asyncio
+async def test_source_not_in_attached_env(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Source visible only in env X; caller has env Y attached → NotFoundError."""
+    _patch_session_scope(monkeypatch)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    src_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
+    )
+    # New env the caller has access to instead.
+    async with factory() as session:
+        other_env = Environment(
+            name=f"decompose-other-{uuid4()}",
+            kind="test",
+            default_embedding_model_id="test-embedding",
+        )
+        session.add(other_env)
+        await session.commit()
+        other_env_id = other_env.id
+
+    ctx_wrong = AgentContext(agent_id=agent_id, attached_env_ids=[other_env_id])
+
+    token = use_session_factory(factory)
+    try:
+        with pytest.raises(NotFoundError):
+            await decomposers_mod.memory_decompose(
+                MemDecomposeRequest(
+                    source_id=src_id,
+                    children=[_child("a", "alpha"), _child("b", "beta")],
+                    mode="derive",
+                ),
+                ctx=ctx_wrong,
+                settings=_settings(),
+            )
+    finally:
+        reset_session_factory(token)
+
+
+@pytest.mark.asyncio
+async def test_source_retired_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Retired source cannot be decomposed on first write (InvalidTransitionError)."""
+    from sqlalchemy import update as sa_update
+
+    _patch_session_scope(monkeypatch)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+    src_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
+    )
+
+    async with factory() as session:
+        await session.execute(
+            sa_update(Memory)
+            .where(Memory.id == src_id)
+            .values(status=MemoryStatus.retired.value)
+        )
+        await session.commit()
+
+    token = use_session_factory(factory)
+    try:
+        with pytest.raises(InvalidTransitionError) as exc_info:
+            await decomposers_mod.memory_decompose(
+                MemDecomposeRequest(
+                    source_id=src_id,
+                    children=[_child("a", "alpha"), _child("b", "beta")],
+                    mode="derive",
+                ),
+                ctx=ctx,
+                settings=_settings(),
+            )
+    finally:
+        reset_session_factory(token)
+    assert exc_info.value.src == "retired"
+    assert exc_info.value.dst == "decomposed"
+
+
+@pytest.mark.asyncio
+async def test_expected_version_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Wrong expected_version on source → VersionConflictError."""
+    _patch_session_scope(monkeypatch)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+    src_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
+    )
+
+    token = use_session_factory(factory)
+    try:
+        with pytest.raises(VersionConflictError) as exc_info:
+            await decomposers_mod.memory_decompose(
+                MemDecomposeRequest(
+                    source_id=src_id,
+                    children=[_child("a", "alpha"), _child("b", "beta")],
+                    mode="derive",
+                    expected_version=99,
+                ),
+                ctx=ctx,
+                settings=_settings(),
+            )
+    finally:
+        reset_session_factory(token)
+    assert exc_info.value.expected == 99
+    assert exc_info.value.actual == 1
+
+
+@pytest.mark.asyncio
+async def test_mixed_kind_children_split_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Mixed-kind children (fact + procedure) allowed in both modes (D.5 confirmed)."""
+    _patch_session_scope(monkeypatch)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+    src_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id,
+        title="proc", body="multi-step procedure body",
+        kind=MemoryKind.procedure,
+    )
+
+    token = use_session_factory(factory)
+    try:
+        resp = await decomposers_mod.memory_decompose(
+            MemDecomposeRequest(
+                source_id=src_id,
+                children=[
+                    _child("step", "a procedural fragment", kind=MemoryKind.procedure),
+                    _child("fact", "an atomic fact", kind=MemoryKind.fact),
+                ],
+                mode="split",
+            ),
+            ctx=ctx,
+            settings=_settings(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    assert resp.mode == "split"
+    kinds = sorted(c.kind for c in resp.children)
+    assert kinds == ["fact", "procedure"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_identical_decompose_race(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Two concurrent identical decomposes → one mutation, one replay.
+
+    Source FOR UPDATE lock serializes them; the loser sees the persisted
+    dedupe_key in decompose_operations and returns via the replay path.
+    Validates the C6 race-loss arbiter end-to-end.
+    """
+    import asyncio
+
+    _patch_session_scope(monkeypatch)
+    factory_1, factory_2 = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory_1)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+    src_id = await _write_source(
+        factory_1, env_id=env_id, agent_id=agent_id, title="s", body="origin"
+    )
+
+    request = MemDecomposeRequest(
+        source_id=src_id,
+        children=[_child("a", "alpha"), _child("b", "beta")],
+        mode="derive",
+    )
+
+    async def call_decompose(factory):
+        token = use_session_factory(factory)
+        try:
+            return await decomposers_mod.memory_decompose(
+                request, ctx=ctx, settings=_settings(),
+            )
+        finally:
+            reset_session_factory(token)
+
+    results = await asyncio.gather(
+        call_decompose(factory_1),
+        call_decompose(factory_2),
+        return_exceptions=True,
+    )
+
+    assert all(not isinstance(r, Exception) for r in results), (
+        f"unexpected exceptions: {results}"
+    )
+    assert results[0].operation_id == results[1].operation_id
+    replay_flags = sorted(r.idempotency_replay for r in results)
+    assert replay_flags == [False, True]
+
+    async with factory_1() as session:
+        from sqlalchemy import func
+        n = int((await session.execute(
+            select(func.count()).select_from(DecomposeOperation).where(
+                DecomposeOperation.source_id == src_id,
+            )
+        )).scalar_one())
+        assert n == 1
+
+
+@pytest.mark.asyncio
+async def test_split_lineage_does_not_bump_reference_count_lineage(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """E.11 regression: split_from is excluded from popularity whitelist.
+
+    Insert a raw ``split_from`` MemoryLineage row; parent's
+    ``reference_count_lineage`` stays unchanged. Then insert a
+    ``derived_from`` row; counter increments by 1. Locks in the
+    trigger-whitelist semantic shipped by migration 0021.
+    """
+    _patch_session_scope(monkeypatch)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    src_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
+    )
+    c1_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="c1", body="child1"
+    )
+    c2_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="c2", body="child2"
+    )
+
+    async with factory() as session:
+        session.add(MemoryLineage(
+            parent_memory_id=src_id,
+            child_memory_id=c1_id,
+            relation=LineageRelation.split_from.value,
+        ))
+        await session.commit()
+    src_after_split = await _fetch_memory(factory, src_id)
+    assert int(src_after_split.reference_count_lineage or 0) == 0
+
+    async with factory() as session:
+        session.add(MemoryLineage(
+            parent_memory_id=src_id,
+            child_memory_id=c2_id,
+            relation=LineageRelation.derived_from.value,
+        ))
+        await session.commit()
+    src_after_derive = await _fetch_memory(factory, src_id)
+    assert int(src_after_derive.reference_count_lineage or 0) == 1
+
+
+@pytest.mark.asyncio
+async def test_audit_log_shape_split(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Split: per-child create + 1 mem_decompose:split + 1 retire on source."""
+    _patch_session_scope(monkeypatch)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+    src_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
+    )
+
+    token = use_session_factory(factory)
+    try:
+        resp = await decomposers_mod.memory_decompose(
+            MemDecomposeRequest(
+                source_id=src_id,
+                children=[_child("a", "alpha"), _child("b", "beta")],
+                mode="split",
+            ),
+            ctx=ctx,
+            settings=_settings(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    for child in resp.children:
+        n_create = await _count_audits(factory, child.id, op_like="create")
+        assert n_create == 1
+
+    n_decompose = await _count_audits(factory, src_id, op_like="mem_decompose:split")
+    assert n_decompose == 1
+    n_retire = await _count_audits(factory, src_id, op_like="retire")
+    assert n_retire == 1
+
+
+@pytest.mark.asyncio
+async def test_audit_log_shape_derive(
+    monkeypatch: pytest.MonkeyPatch,
+    postgres_session_factories: SessionPairFactory,
+    clean_db: None,
+) -> None:
+    """Derive: per-child create + 1 mem_decompose:derive on source; NO retire."""
+    _patch_session_scope(monkeypatch)
+    factory, _ = postgres_session_factories()
+    env_id, agent_id = await _setup_env_and_agent(factory)
+    ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
+    src_id = await _write_source(
+        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
+    )
+
+    token = use_session_factory(factory)
+    try:
+        resp = await decomposers_mod.memory_decompose(
+            MemDecomposeRequest(
+                source_id=src_id,
+                children=[_child("a", "alpha"), _child("b", "beta")],
+                mode="derive",
+            ),
+            ctx=ctx,
+            settings=_settings(),
+        )
+    finally:
+        reset_session_factory(token)
+
+    for child in resp.children:
+        n_create = await _count_audits(factory, child.id, op_like="create")
+        assert n_create == 1
+
+    n_decompose = await _count_audits(factory, src_id, op_like="mem_decompose:derive")
+    assert n_decompose == 1
+    n_retire = await _count_audits(factory, src_id, op_like="retire")
+    assert n_retire == 0
