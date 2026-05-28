@@ -101,25 +101,6 @@ def _canonical_child_payload(child: MemDecomposeChild) -> dict[str, Any]:
     }
 
 
-def _canonical_child_payload_full(child: MemDecomposeChild) -> dict[str, Any]:
-    """Full identity + policy payload for the request fingerprint.
-
-    Adds the fields the dedupe-key intentionally drops:
-    ``trigger_description`` and ``expires_at``. Two requests that share a
-    dedupe-key but differ in fingerprint mean the caller reused
-    ``idempotency_key`` (or hit a sha256 collision — astronomically
-    unlikely) with a different scope, and the server raises
-    ``InvalidInputError`` rather than silently substituting different
-    content on replay.
-    """
-    payload = _canonical_child_payload(child)
-    payload["trigger_description"] = child.trigger_description
-    payload["expires_at"] = (
-        child.expires_at.isoformat() if child.expires_at is not None else None
-    )
-    return payload
-
-
 def _hash_canonical_child(child: MemDecomposeChild) -> str:
     """Stable per-child sha256-hex used to sort children for dedupe-key."""
     canonical = json.dumps(
@@ -195,35 +176,39 @@ def _compute_request_fingerprint(
     *,
     env_id: UUID,
 ) -> str:
-    """Always-canonical sha256 of the full request envelope (32 hex).
+    """Always-canonical sha256 of the request scope (32 hex).
 
-    Distinct from :func:`_compute_decompose_dedupe_key`:
+    Used to detect ``idempotency_key`` reuse with a different operation
+    scope. The fingerprint is stored on
+    ``decompose_operations.request_fingerprint``; the C6 transaction
+    body looks up the operation row by dedupe-key, then compares the
+    incoming fingerprint to the stored row. On mismatch:
+    ``InvalidInputError("idempotency_key reused with different scope")``.
 
-    * The dedupe key respects ``idempotency_key`` (returns it verbatim);
-      the fingerprint does NOT — it always reflects the actual request
-      scope.
-    * Stored on ``decompose_operations.request_fingerprint``. The C6
-      transaction body compares the incoming fingerprint to the stored
-      row; on mismatch the call raises
-      ``InvalidInputError("idempotency_key reused with different scope")``
-      so callers who reuse a key with a different source / different
-      children / different mode are detected rather than receiving a
-      silently-substituted replay.
+    Distinct from :func:`_compute_decompose_dedupe_key` in exactly one
+    way: the fingerprint **always** sha256-computes, even when
+    ``idempotency_key`` is set on the request. The dedupe-key returns
+    the caller-supplied key verbatim in that case; the fingerprint
+    canonicalises the scope so the two values together support
+    "caller-supplied lookup token + server-verified scope hash".
 
-    Payload differs from the dedupe-key payload by:
+    The canonical payload is **structurally identical** to the
+    dedupe-key payload (sorted children by canonical hash, no
+    ``expected_version``, no per-child ``trigger_description`` /
+    ``expires_at``, no ``idempotency_key``) so that retry-insensitive
+    changes do not trigger a false-positive scope mismatch:
 
-    * ``operation`` is ``"mem_decompose_fp"`` (domain separator so the
-      key and fingerprint hash spaces don't accidentally collide).
-    * ``expected_version`` is included.
-    * Each child is hashed via
-      :func:`_canonical_child_payload_full`, which restores the
-      ``trigger_description`` and ``expires_at`` fields excluded from
-      the dedupe key.
-    * Children list is NOT re-sorted at fingerprint time. The request
-      order matters for the fingerprint (a caller resubmitting children
-      in a different order is a different request envelope; the dedupe
-      key absorbs that re-ordering deliberately, but the fingerprint
-      should not).
+    * A retry that omits ``expected_version`` (or supplies a different
+      value) hashes the same — ``expected_version`` is a precondition,
+      not part of operation identity.
+    * A retry that re-orders identical children hashes the same —
+      children are sorted by canonical hash before hashing.
+    * A retry that changes ``trigger_description`` or ``expires_at``
+      on a child hashes the same — those are descriptive only.
+
+    The fingerprint differs from the dedupe-key hash by the
+    ``operation`` domain-separator only (``"mem_decompose_fp"`` vs
+    ``"mem_decompose"``); both 32-hex sha256 prefixes.
     """
     payload: dict[str, Any] = {
         "schema_version": _DEDUPE_KEY_SCHEMA_VERSION,
@@ -231,8 +216,12 @@ def _compute_request_fingerprint(
         "env_id": str(env_id),
         "mode": request.mode,
         "source_id": str(request.source_id),
-        "expected_version": request.expected_version,
-        "children": [_canonical_child_payload_full(c) for c in request.children],
+        "children": sorted(
+            (_canonical_child_payload(c) for c in request.children),
+            key=lambda d: hashlib.sha256(
+                json.dumps(d, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+            ).hexdigest(),
+        ),
     }
     canonical = json.dumps(
         payload,

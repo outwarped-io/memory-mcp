@@ -326,8 +326,10 @@ def test_decompose_fp_changes_with_source_id() -> None:
     assert fp1 != fp2
 
 
-def test_decompose_fp_changes_with_expected_version() -> None:
-    """The KEY distinction from the dedupe-key: fingerprint IS sensitive."""
+def test_decompose_fp_invariant_with_expected_version() -> None:
+    """Fingerprint mirrors dedupe-key identity: ``expected_version`` is
+    a precondition, NOT part of operation scope. A retry that omits or
+    changes the precondition must NOT trigger a scope-mismatch error."""
     src = _source_id()
     env = _env_id()
     children = [_child(body="a"), _child(body="b")]
@@ -339,10 +341,16 @@ def test_decompose_fp_changes_with_expected_version() -> None:
         _req(source_id=src, children=list(children), expected_version=5),
         env_id=env,
     )
-    assert fp_none != fp_set
+    fp_other = _compute_request_fingerprint(
+        _req(source_id=src, children=list(children), expected_version=42),
+        env_id=env,
+    )
+    assert fp_none == fp_set == fp_other
 
 
-def test_decompose_fp_changes_with_trigger_description() -> None:
+def test_decompose_fp_invariant_with_trigger_description() -> None:
+    """``trigger_description`` is descriptive (matches dedupe-key
+    exclusion). A retry that adds/changes it must not scope-mismatch."""
     src = _source_id()
     env = _env_id()
     fp_plain = _compute_request_fingerprint(
@@ -356,10 +364,12 @@ def test_decompose_fp_changes_with_trigger_description() -> None:
         ),
         env_id=env,
     )
-    assert fp_plain != fp_trig
+    assert fp_plain == fp_trig
 
 
-def test_decompose_fp_changes_with_expires_at() -> None:
+def test_decompose_fp_invariant_with_expires_at() -> None:
+    """``expires_at`` is policy, not identity (matches dedupe-key
+    exclusion). Retry must not scope-mismatch on policy churn."""
     src = _source_id()
     env = _env_id()
     future = dt.datetime(2099, 1, 1, tzinfo=dt.timezone.utc)
@@ -374,7 +384,25 @@ def test_decompose_fp_changes_with_expires_at() -> None:
         ),
         env_id=env,
     )
-    assert fp_plain != fp_exp
+    assert fp_plain == fp_exp
+
+
+def test_decompose_fp_invariant_with_child_order() -> None:
+    """C8 RD red flag #1: fingerprint must canonicalise children order
+    so a retry that swaps children does NOT trigger scope mismatch."""
+    src = _source_id()
+    env = _env_id()
+    c1 = _child(body="alpha", tags=["a"])
+    c2 = _child(body="beta", tags=["b"])
+    fp_ab = _compute_request_fingerprint(
+        _req(source_id=src, children=[c1, c2]),
+        env_id=env,
+    )
+    fp_ba = _compute_request_fingerprint(
+        _req(source_id=src, children=[c2, c1]),
+        env_id=env,
+    )
+    assert fp_ab == fp_ba
 
 
 def test_decompose_fp_ignores_idempotency_key() -> None:
