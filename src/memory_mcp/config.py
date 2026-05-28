@@ -18,7 +18,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -406,6 +406,54 @@ class Settings(BaseSettings):
     # (one COUNT GROUP BY across env_id, kind, summarizer_kind) so
     # 60s is fine. Set to 0 to disable the refresher entirely.
     dream_metrics_refresh_seconds: int = Field(default=60, ge=0)
+
+    # ---- Phase 4 (v0.15.0) — compose auto-wire ---------------------------
+    # Master switch for the ``related_to_popular`` auto-wire pass invoked
+    # by ``mem_compose``. When OFF (default), compose returns
+    # ``auto_wired=[]`` and emits no relations. When ON, after a successful
+    # compose the pass embeds the new memory's body, queries Qdrant for
+    # near-neighbours among the env's most-salient active memories,
+    # filters out intra-lineage candidates + ``playbook`` / ``directive:active``
+    # skip-list, and inserts up to ``autowire_top_k`` ``related_to_popular``
+    # relations (one-way, no reciprocal). The trigger guard in migration
+    # 0017 + recount / velocity exclusions prevent the predicate from
+    # feeding back into popularity counters. ``mem_decompose`` auto-wire
+    # is deferred to v0.16 (per-child schema gap).
+    autowire_enabled: bool = Field(default=False)
+    # Cap on auto-wire edges emitted per compose. Bounds outbox /
+    # Neo4j projection pressure; also bounds the cognitive load of
+    # "why did this memory get N edges?" debugging.
+    autowire_top_k: int = Field(default=3, ge=1, le=10)
+    # Minimum cosine similarity (after embedder normalisation) between
+    # the new memory's body vector and a candidate's vector for the
+    # candidate to be eligible. Calibration pending — 0.70 is a
+    # provisional floor; tighten once telemetry surfaces. Safe to ship
+    # at 0.70 because ``autowire_enabled`` defaults OFF.
+    autowire_sim_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
+    # Postgres-side cap on the candidate pre-pull (top-by-salience).
+    # Must be ``>= autowire_top_k`` (cross-knob invariant enforced by
+    # ``_autowire_invariants``). Larger values give the similarity
+    # filter more candidates to rank but increase the embedding /
+    # Qdrant fan-out per compose. 20 covers typical envs without
+    # over-fetching.
+    autowire_candidate_limit: int = Field(default=20, ge=1, le=200)
+
+    @model_validator(mode="after")
+    def _autowire_invariants(self) -> "Settings":
+        """Enforce cross-knob invariants on the ``autowire_*`` group.
+
+        ``autowire_candidate_limit`` MUST be ``>= autowire_top_k`` —
+        otherwise the candidate pre-pull cannot saturate ``top_k`` even
+        on a perfect-similarity neighbourhood and the pass silently
+        under-emits. Caught at config load so misconfiguration is loud.
+        """
+        if self.autowire_candidate_limit < self.autowire_top_k:
+            raise ValueError(
+                "autowire_candidate_limit "
+                f"({self.autowire_candidate_limit}) must be >= "
+                f"autowire_top_k ({self.autowire_top_k})"
+            )
+        return self
 
 
 @lru_cache(maxsize=1)
