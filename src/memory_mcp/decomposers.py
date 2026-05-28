@@ -613,7 +613,7 @@ async def _decompose_in_session(
         only — ``split_from`` is excluded from the whitelist by
         design (E.11) since the source is about to retire.
     15. If ``mode='split'``: single coalesced UPDATE on source
-        (status, version, retired_at), version-guarded; refresh.
+        (status, version), version-guarded; refresh.
         Status-flip trigger decrements counters for source's
         pre-existing whitelisted outgoing lineage — that is the
         documented behavior (RD yellow #6).
@@ -858,7 +858,6 @@ async def _decompose_in_session(
             .values(
                 status=MemoryStatus.retired.value,
                 version=source.version + 1,
-                retired_at=func.now(),
                 updated_at=func.now(),
             )
         )
