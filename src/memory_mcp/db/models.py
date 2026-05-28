@@ -609,6 +609,84 @@ class MemoryLineage(Base):
 
 
 # ---------------------------------------------------------------------------
+# decompose_operations (v0.15.0 Phase 3, migration 0021)
+# ---------------------------------------------------------------------------
+
+class DecomposeOperation(Base):
+    """Substrate-level idempotency record for ``mem_decompose``.
+
+    Mirrors ``migrations/versions/0021_decompose_operations.py`` exactly. One
+    row per successful decomposition; the ``(env_id, dedupe_key)`` unique
+    index arbitrates concurrent identical requests (the loser catches
+    ``IntegrityError`` matching ``ix_decompose_operations_dedupe`` and
+    replays via this table — see :mod:`memory_mcp.decomposers`).
+
+    ``request_fingerprint`` is the always-canonical sha256 of the request
+    envelope (independent of ``idempotency_key``) so callers who reuse the
+    same ``idempotency_key`` with a different scope (different source,
+    different children, different mode) are detected and rejected with
+    ``InvalidInputError`` rather than silently receiving the original
+    children.
+
+    ``child_ids`` preserves insertion order so the replay path can
+    reconstruct the response children list deterministically without a
+    secondary sort on lineage timestamps (which may all be equal inside a
+    single transaction).
+    """
+
+    __tablename__ = "decompose_operations"
+    __table_args__ = (
+        CheckConstraint(
+            "mode IN ('split', 'derive')",
+            name="decompose_operations_mode_check",
+        ),
+        Index(
+            "ix_decompose_operations_dedupe",
+            "env_id",
+            "dedupe_key",
+            unique=True,
+        ),
+        Index(
+            "ix_decompose_operations_source",
+            "source_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    env_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("environments.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("memories.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    mode: Mapped[str] = mapped_column(Text, nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(Text, nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    child_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)),
+        nullable=False,
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    created_by_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("agents.id"),
+        nullable=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # outbox / outbox_delivery / projection_state
 # ---------------------------------------------------------------------------
 
