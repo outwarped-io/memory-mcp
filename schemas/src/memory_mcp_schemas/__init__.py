@@ -24,8 +24,9 @@ Public modules:
 * :mod:`memory_mcp_schemas.dream`        — dream worker proposals
 * :mod:`memory_mcp_schemas.stats`        — v0.10 stats snapshot
 * :mod:`memory_mcp_schemas.compose`      — v0.15 mem_compose (N→1)
+* :mod:`memory_mcp_schemas.decompose`    — v0.15 mem_decompose (1→N)
 """
 
 from __future__ import annotations
 
-__version__ = "0.15.0a1"
+__version__ = "0.15.0a2"

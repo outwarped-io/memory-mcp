@@ -162,6 +162,11 @@ from memory_mcp.composers import (
     MemComposeResponse,
     memory_compose,
 )
+from memory_mcp.decomposers import (
+    MemDecomposeRequest,
+    MemDecomposeResponse,
+    memory_decompose,
+)
 from memory_mcp.memories import (
     MemoryHardDeleteRequest,
     MemoryHardDeleteResponse,
@@ -719,6 +724,63 @@ def build_mcp_server(
             attached_env_names=attached_env_names,
         )
         out: MemComposeResponse = await memory_compose(request, ctx=ctx)
+        return _dump(out)
+
+    @mcp.tool()
+    @_wrap
+    async def mem_decompose(
+        request: MemDecomposeRequest,
+        agent_id: UUID | None = None,
+        attached_env_ids: list[UUID] | None = None,
+        attached_env_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Decompose one source memory into N≥2 children (Phase 3, v0.15.0).
+
+        Two modes:
+
+        * ``derive`` (default, non-destructive) — source stays ``active``;
+          each child cites it via ``derived_from``. Used for atomic-fact
+          extraction or splitting a coarse observation into evidence
+          leaves without losing the original.
+        * ``split`` (destructive) — source transitions to ``retired``;
+          each child cites it via ``split_from``. Used when the source
+          was the wrong granularity from the start and should disappear
+          from search after the decomposition.
+
+        Idempotent via dedupe key: same ``{mode, source_id, children}``
+        replays the same children with ``idempotency_replay=true`` and
+        performs no mutation. Caller may override the dedupe key with
+        ``request.idempotency_key``.
+
+        Popularity caveat (v1): ``split_from`` is intentionally NOT in
+        the load-bearing popularity whitelist (migration 0021) — a
+        retired source should not accrue analytics from its split. New
+        children start at ``reference_count=0`` regardless of mode.
+        Citation transfer (rewriting incoming edges from the source to
+        the children) is deferred to v1.5.
+
+        Example:
+            {
+              "request": {
+                "source_id": "00000000-0000-0000-0000-000000000001",
+                "children": [
+                  {"kind": "fact",
+                   "title": "Stamp A reached steady state",
+                   "body": "Stamp A finished bake at 14:02 UTC."},
+                  {"kind": "fact",
+                   "title": "Stamp B reached steady state",
+                   "body": "Stamp B finished bake at 14:07 UTC."}
+                ],
+                "mode": "derive"
+              }
+            }
+        """
+        ctx = await _resolve_ctx(
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
+        )
+        out: MemDecomposeResponse = await memory_decompose(request, ctx=ctx)
         return _dump(out)
 
     @mcp.tool()
