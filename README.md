@@ -288,6 +288,87 @@ Outbox shape mirrors the audit:
 
 See `tests/integration/test_compose_transaction.py` for the full behavioral matrix (25 cases — smoke, accounting, validation, tag-policy, race).
 
+## Decompose (v0.15.0 — Phase 3)
+
+`mem_decompose` is the **caller-driven 1→N counterpart** to `mem_compose`: pick one source memory in one env, fan it out into 2–20 children, and write a lineage trail linking each child back to the source. It's the tool for splitting a long observation into atomic facts, deriving sub-procedures from a runbook, or breaking a decision into the smaller decisions it implies.
+
+### Two modes
+
+| Mode | Source state after | Lineage relation | Popularity bump |
+|---|---|---|---|
+| `derive` *(default — non-destructive)* | source stays `active` | `derived_from` | source's `reference_count_lineage` += N (whitelisted) |
+| `split` *(destructive)* | source goes to `retired` (`version += 1`) | `split_from` | source's `reference_count_lineage` unchanged (whitelist **excludes** `split_from`) |
+
+`derive` is the safe default — the source remains queryable and the agent can keep citing it. `split` is irreversible (source is tombstoned in the outbox so Qdrant drops its vector); use it when the source genuinely *becomes* its children — you don't want both queryable side-by-side.
+
+The whitelist asymmetry is deliberate: with `derive`, the source is the conceptual originator of N atomic derivatives and the popularity bump reflects that. With `split`, the source is being retired — bumping a retired memory's counter is purely forensic, pollutes analytics on accidental reactivation, and creates a feedback loop with `mem_top` if the source ever returns to `active`. See `tests/integration/test_decompose_transaction.py::test_split_lineage_does_not_bump_reference_count_lineage` for the regression test.
+
+### Quick example
+
+```python
+from memory_mcp_schemas.decompose import MemDecomposeChild, MemDecomposeRequest
+from memory_mcp.db.types import MemoryKind
+
+resp = await client.decompose(MemDecomposeRequest(
+    source_id=runbook_id,
+    children=[
+        MemDecomposeChild(kind=MemoryKind.procedure, title="Detect", body="Watch for 429s in …"),
+        MemDecomposeChild(kind=MemoryKind.procedure, title="Mitigate", body="Failover to …"),
+        MemDecomposeChild(kind=MemoryKind.procedure, title="Recover", body="Replay events …"),
+    ],
+    mode="derive",
+))
+
+print([c.id for c in resp.children])    # 3 new memory UUIDs
+print(resp.source.status)               # 'active' — derive doesn't retire
+print(resp.operation_id)                # UUID of the decompose_operations row
+print(resp.idempotency_replay)          # False on first call; True on replay
+```
+
+### Idempotency contract
+
+Decompose uses a dedicated `decompose_operations` table (not a column on the source) so a single source can be decomposed multiple times without collisions. The dedupe key is derived from `{schema_version, operation, env_id, mode, source_id, sorted(canonical_json(children))}` and stored alongside a stricter **request fingerprint** that includes every field — including `expected_version`, per-child `trigger_description`, per-child `expires_at`.
+
+The unique index `(env_id, dedupe_key)` is the race winner-loser arbiter. Concurrent identical calls serialize via the source's `FOR UPDATE` lock — the loser sees the persisted operation row, validates the request fingerprint matches, and returns the replay path with `idempotency_replay=True`.
+
+- Callers can override the derived key with an explicit `idempotency_key` (≤128 chars). The fingerprint is *always* canonical, so reusing a caller-supplied key with a different source / mode / children-set raises `InvalidInputError("idempotency_key reused with different scope")` rather than silently echoing a stale response.
+- Replay returns the *original* children's UUIDs even if any child has since been `mem_update`d or retired. Idempotency is about the transactional outcome (which child ids were created), not the living content.
+
+### Lineage traversal
+
+Walk forward from the source with `mem_lineage(memory_id=source_id, direction='forward')` to see all children. Walk back from a child with `mem_lineage(memory_id=child_id, direction='back')` to find the source. The lineage graph is Postgres-only — Neo4j does not project lineage edges in v1.
+
+### Provenance
+
+Each child carries a `MemorySource` row with `source_type='agent'` and `source_ref=str(operation_id)`. The `MemorySourceType` enum does not currently include a `mem_decompose` value, so the operation-id is used as the back-pointer. To surface "this memory came from decompose op X" in a UI, query `decompose_operations` by id directly.
+
+### Audit shape
+
+Each decompose call writes:
+
+- On each child: one `op='create'` row with `extra_after={decompose_mode, decompose_source, decompose_operation_id}`.
+- On the source: one `op='mem_decompose:{mode}'` aggregate row with `extra_after={child_ids, dedupe_key, operation_id, decompose_mode}`.
+- On the source (only when `mode='split'`): an additional `op='retire'` row.
+
+Outbox shape:
+
+- `mode='derive'` → N `upsert` events (one per child); 0 events for the source.
+- `mode='split'` → N `upsert` events for children + 1 `tombstone` for the source.
+- Lineage rows and the `decompose_operations` row never produce outbox events — they're Postgres-local.
+
+### Validation contract
+
+- **2 ≤ children ≤ 20** (schema-enforced).
+- Each child's content must be **unique** by canonical-JSON hash (`kind + title + body + tags + metadata + decision_meta + confidence + salience + pinned`); duplicates raise `InvalidInputError`.
+- **`kind=playbook` rejected** per child (playbook needs a `steps` field that `MemDecomposeChild` does not expose). Schema-layer 422.
+- `decision_meta` valid **only** on `kind=decision` children; the deep validation (against env policy via `validate_decision_meta`) runs once the session is open.
+- **Mixed-kind children are allowed** in either mode (D.5 confirmed) — decompose is heterogeneous by nature.
+- Source must exist, be **visible to the caller's attached envs** (raw-UUID access from outside raises `NotFoundError`), and be in `active` or `stale` status on first write (replay survives later retirement per the dedupe-before-state-validation rule).
+- Source must **not** be `kind=playbook` (playbook sources carry `steps` that children can't represent).
+- `expected_version` (optional) is an optimistic-lock check on the source; mismatch raises `VersionConflictError`.
+
+See `tests/integration/test_decompose_transaction.py` for the full behavioral matrix (21 cases — smoke, validation, RBAC, race, whitelist, audit).
+
 ## Architecture
 
 ```
@@ -649,7 +730,7 @@ memory-mcp/
 
 For ready-to-paste agent instructions, see the [system prompt cookbook](./docs/system-prompts.md).
 
-Memory: `mem_write`, `mem_get`, `mem_get_many`, `adr_export` *(v0.7.0)*, `mem_update`, `mem_archive`, `mem_retire`, `mem_supersede`, `mem_compose` *(v0.15.0)*, `mem_journal`, `mem_digest` *(v0.6.0)*, `mem_resume` *(v0.6.0)*, `mem_search`, `mem_auto_context` *(v0.6.0)*, `mem_neighbors` *(Sprint B)*, `mem_related` *(Sprint B)*, `mem_lineage` *(Sprint B)*, `mem_sources_browse` *(Sprint B)*, `mem_browse` *(Sprint A)*, `mem_facets` *(Sprint A)*, `mem_context_pack` *(v0.7.0 F7 v2)*, `playbook_invoke` *(v0.7.0)*.
+Memory: `mem_write`, `mem_get`, `mem_get_many`, `adr_export` *(v0.7.0)*, `mem_update`, `mem_archive`, `mem_retire`, `mem_supersede`, `mem_compose` *(v0.15.0)*, `mem_decompose` *(v0.15.0)*, `mem_journal`, `mem_digest` *(v0.6.0)*, `mem_resume` *(v0.6.0)*, `mem_search`, `mem_auto_context` *(v0.6.0)*, `mem_neighbors` *(Sprint B)*, `mem_related` *(Sprint B)*, `mem_lineage` *(Sprint B)*, `mem_sources_browse` *(Sprint B)*, `mem_browse` *(Sprint A)*, `mem_facets` *(Sprint A)*, `mem_context_pack` *(v0.7.0 F7 v2)*, `playbook_invoke` *(v0.7.0)*.
 Entities: `ent_upsert`, `ent_resolve`, `ent_merge`, `ent_neighbors` *(Phase 2.1)*, `ent_browse` *(Sprint A)*.
 Relations: `rel_link`, `rel_browse` *(Sprint A)*.
 Environments: `env_create_`, `env_list_`, `env_get_`, `env_attach_`, `env_detach_`.
