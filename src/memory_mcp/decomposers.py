@@ -30,7 +30,15 @@ from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
-from memory_mcp.errors import MemoryMCPError
+from memory_mcp.db.models import Memory
+from memory_mcp.db.types import MemoryKind, MemoryStatus
+from memory_mcp.errors import (
+    InvalidInputError,
+    InvalidTransitionError,
+    NotFoundError,
+    VersionConflictError,
+    MemoryMCPError,
+)
 from memory_mcp.identity import AgentContext
 from memory_mcp_schemas.decompose import (
     DecomposeLineageRow,
@@ -257,6 +265,140 @@ def _is_decompose_dedupe_error(exc: IntegrityError) -> bool:
     if diag_constraint == "ix_decompose_operations_dedupe":
         return True
     return "ix_decompose_operations_dedupe" in str(exc)
+
+
+# ---------------------------------------------------------------------------
+# Validators (C5)
+# ---------------------------------------------------------------------------
+
+
+# Source statuses that can be legally decomposed. Mirrors compose's
+# acceptable-source set; ``active`` and ``stale`` only. ``proposed`` is
+# excluded because pre-acceptance content shouldn't be split/derived (the
+# accept/reject path handles those). ``archived`` / ``retired`` /
+# ``superseded`` are excluded because they're already out of the active
+# graph — decomposing them produces orphan lineage.
+_VALID_SOURCE_STATUSES_FOR_DECOMPOSE: frozenset[MemoryStatus] = frozenset(
+    {MemoryStatus.active, MemoryStatus.stale}
+)
+
+
+def _validate_children(request: MemDecomposeRequest) -> None:
+    """Pre-lock envelope validation on the children list.
+
+    Runs before the source is locked so cheap caller errors fail fast
+    without holding a row lock. The Pydantic schema already enforces:
+
+    * cardinality ``2 ≤ len(children) ≤ 20``
+    * ``kind != playbook`` (per-field validator)
+    * ``idempotency_key`` length ≤ 128
+    * each child's ``body`` non-empty, ``title`` ≤ 400 chars
+    * each child's ``salience`` and ``confidence`` ∈ ``[0.0, 1.0]``
+
+    This function adds the cross-child / cross-field checks the schema
+    can't express:
+
+    * **No duplicate children** (per C1.2 B.3) — two children with the
+      same canonical-JSON content (kind, title, body, tags, metadata,
+      decision_meta, confidence, salience, pinned) would land as
+      indistinguishable rows after the transaction; reject before lock.
+      Comparison uses :func:`_canonical_child_payload` so the rule
+      matches what the dedupe-key already considers identity-bearing.
+    * **``decision_meta`` only valid on ``kind=decision`` children** —
+      a fact / observation / procedure / etc. carrying decision_meta is
+      malformed (the field has no consumer). Schema can't gate this
+      because decision_meta is on every child kind for compatibility
+      with ``MemoryWriteRequest``; gate it here.
+
+    Children carrying ``decision_meta`` on ``kind=decision`` are
+    accepted at this stage; the deep validation
+    (``validate_decision_meta`` against env policy) runs in
+    ``_decompose_in_session`` once the session is available (mirrors
+    :func:`memory_mcp.memories._validate_decision_meta_for_kind`).
+    """
+    seen_hashes: set[str] = set()
+    for idx, child in enumerate(request.children):
+        if child.decision_meta is not None and child.kind != MemoryKind.decision:
+            raise InvalidInputError(
+                f"decision_meta only valid for kind=decision "
+                f"(children[{idx}].kind={child.kind.value!r})"
+            )
+        canonical_hash = _hash_canonical_child(child)
+        if canonical_hash in seen_hashes:
+            raise InvalidInputError(
+                f"duplicate child content at children[{idx}] "
+                f"(canonical hash matches an earlier child)"
+            )
+        seen_hashes.add(canonical_hash)
+
+
+def _validate_source(
+    source: Memory,
+    request: MemDecomposeRequest,
+    ctx: AgentContext,
+    *,
+    is_replay: bool,
+) -> None:
+    """Post-lock validation on the source memory.
+
+    Called **after** ``_lock_memories([source_id])`` and **after** the
+    operation-table lookup has decided whether this call is a first-time
+    write or a replay. Lifecycle and version checks are skipped on
+    replay so a caller that successfully decomposed an active source
+    yesterday can still replay today even after the source has been
+    retired by another path (per C1.5 RD A.2):
+
+    * **Env visibility check** — enforced on BOTH paths. Even on
+      replay, the caller must be able to see the source in one of their
+      attached envs; otherwise an external observer with no env grant
+      could fish for operation-row ids by retrying with arbitrary
+      ``idempotency_key`` values. Uses ``_ensure_env_visible``-style
+      logic inline so this module doesn't import memories.py just for
+      one helper.
+    * **Source kind ≠ playbook** — enforced on BOTH paths. Playbook
+      sources have a ``steps`` field that decompose children can't
+      carry; allowing them would silently drop ``steps`` on every
+      derive/split.
+    * **Source status ∈ {active, stale}** — enforced ONLY on first
+      write. On replay the source may now be retired / archived /
+      superseded; the replay correctly returns the children that were
+      created during the original transaction.
+    * **``expected_version`` match** — enforced ONLY on first write
+      (same reasoning: the precondition only gates the mutating call).
+
+    The ``is_replay`` flag is passed in from the transaction body so
+    the lifecycle/version checks can be uniformly skipped. The visibility
+    and kind checks always run — those are *identity* invariants, not
+    *transitional* ones.
+    """
+    if ctx.attached_env_ids and source.env_id not in ctx.attached_env_ids:
+        raise NotFoundError(
+            f"memory {source.id} not visible in attached envs",
+            memory_id=str(source.id),
+        )
+
+    if source.kind == MemoryKind.playbook.value:
+        raise InvalidInputError(
+            f"cannot decompose a playbook source (source={source.id}); "
+            "playbook memories carry a ``steps`` field that "
+            "MemDecomposeChild does not expose"
+        )
+
+    if is_replay:
+        return
+
+    source_status = MemoryStatus(source.status)
+    if source_status not in _VALID_SOURCE_STATUSES_FOR_DECOMPOSE:
+        raise InvalidTransitionError(
+            src=source_status.value,
+            dst="decomposed",
+        )
+
+    if request.expected_version is not None and request.expected_version != source.version:
+        raise VersionConflictError(
+            expected=request.expected_version,
+            actual=source.version,
+        )
 
 
 # ---------------------------------------------------------------------------
