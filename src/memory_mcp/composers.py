@@ -187,11 +187,68 @@ async def memory_compose(
     for the contract. The function dispatches to a private in-session
     helper so the dream worker can later call the same path without the
     outer ``session_scope``.
+
+    Phase 4 — when ``settings.autowire_enabled`` is true, runs a
+    read-only Stage-A candidate fetch *before* opening the transaction
+    so the embedder + Qdrant round-trips don't extend the lock-hold
+    window. Stage B inserts the resulting edges inside the txn just
+    before the response builder.
     """
     settings = settings or get_settings()
+
+    # Stage A — read-only pre-fetch (outside the write transaction).
+    # Errors degrade silently to "no candidates"; auto-wire is a
+    # best-effort feature and never blocks compose.
+    autowire_candidates: list[tuple[UUID, float]] = []
+    if settings.autowire_enabled:
+        try:
+            autowire_candidates = await _autowire_stage_a(
+                request=request, settings=settings,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("autowire: Stage A failed (%s); skipping", exc)
+            autowire_candidates = []
+
     async with session_scope() as s:
         return await _compose_in_session(
             s, request=request, ctx=ctx, settings=settings,
+            autowire_candidates=autowire_candidates,
+        )
+
+
+async def _autowire_stage_a(
+    *,
+    request: MemComposeRequest,
+    settings: Settings,
+) -> list[tuple[UUID, float]]:
+    """Open a short read-only session and call :func:`autowire_fetch_candidates`.
+
+    Resolves ``env_id`` from the first source memory. Skips when source
+    set spans multiple envs (the in-txn validator will reject the
+    compose call anyway).
+    """
+    from memory_mcp.autowire import autowire_fetch_candidates
+
+    async with session_scope() as s:
+        rows = (await s.execute(
+            select(Memory.id, Memory.env_id).where(
+                Memory.id.in_(list(request.source_ids))
+            )
+        )).all()
+        if not rows:
+            return []
+        envs = {row[1] for row in rows}
+        if len(envs) != 1:
+            return []
+        env_id = next(iter(envs))
+        return await autowire_fetch_candidates(
+            s=s,
+            env_id=env_id,
+            source_ids=list(request.source_ids),
+            body=request.target.body,
+            new_kind=request.target.kind,
+            new_tags=request.target.tags,
+            settings=settings,
         )
 
 
@@ -392,6 +449,7 @@ async def _build_response(
     idempotency_replay: bool,
     tag_policy_applied: ComposeTagPolicy,
     dedupe_key: str,
+    auto_wired: list[UUID] | None = None,
 ) -> MemComposeResponse:
     tag_names = await _load_tag_names(s, memory.id)
     return MemComposeResponse(
@@ -400,7 +458,7 @@ async def _build_response(
         source_ids=source_ids,
         lineage_rows=lineage_rows,
         retired_source_ids=retired_source_ids,
-        auto_wired=[],
+        auto_wired=list(auto_wired or []),
         idempotency_replay=idempotency_replay,
         tag_policy_applied=tag_policy_applied,
         dedupe_key=dedupe_key,
@@ -418,6 +476,7 @@ async def _compose_in_session(
     request: MemComposeRequest,
     ctx: AgentContext,
     settings: Settings,
+    autowire_candidates: list[tuple[UUID, float]] | None = None,
 ) -> MemComposeResponse:
     """Atomic compose transaction.
 
@@ -464,6 +523,8 @@ async def _compose_in_session(
                 s, existing=existing, request_mode=request.mode,
             )
         )
+        from memory_mcp.autowire import reconstruct_auto_wired
+        replay_auto = await reconstruct_auto_wired(s=s, memory_id=existing.id)
         return await _build_response(
             s,
             memory=existing,
@@ -474,6 +535,7 @@ async def _compose_in_session(
             idempotency_replay=True,
             tag_policy_applied=_resolve_tag_policy(request),
             dedupe_key=dedupe_key,
+            auto_wired=replay_auto,
         )
 
     # Step 5 — Validate envelope (state + RBAC + kind invariants).
@@ -598,6 +660,8 @@ async def _compose_in_session(
                 s, existing=existing, request_mode=request.mode,
             )
         )
+        from memory_mcp.autowire import reconstruct_auto_wired
+        race_auto = await reconstruct_auto_wired(s=s, memory_id=existing.id)
         return await _build_response(
             s,
             memory=existing,
@@ -608,6 +672,7 @@ async def _compose_in_session(
             idempotency_replay=True,
             tag_policy_applied=policy,
             dedupe_key=dedupe_key,
+            auto_wired=race_auto,
         )
 
     # Step 8 — Apply tag policy (effective_tags is already sorted).
@@ -755,6 +820,34 @@ async def _compose_in_session(
         settings=settings,
     )
 
+    # Step 13.5 — Phase 4 auto-wire (OFF by default). Inserts up to
+    # ``settings.autowire_top_k`` ``related_to_popular`` edges from the
+    # new memory to its top semantic neighbours. Candidates were
+    # pre-computed Stage-A in ``memory_compose`` to keep embedder /
+    # Qdrant round-trips outside the lock-hold window. Errors degrade
+    # silently — auto-wire never blocks compose.
+    auto_wired_ids: list[UUID] = []
+    if settings.autowire_enabled and autowire_candidates:
+        from memory_mcp.autowire import autowire_compose_target
+        try:
+            auto_wired_ids = await autowire_compose_target(
+                s=s,
+                new_memory_id=merged.id,
+                new_memory_kind=request.target.kind,
+                new_memory_tags=effective_tags,
+                new_memory_body=request.target.body,
+                new_memory_env_id=env_id,
+                candidates=autowire_candidates,
+                ctx=ctx,
+                settings=settings,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "autowire: Stage B failed for memory %s (%s); compose unaffected",
+                merged.id, exc,
+            )
+            auto_wired_ids = []
+
     # Step 14 — Build the response. session_scope() commits on exit.
     return await _build_response(
         s,
@@ -766,4 +859,5 @@ async def _compose_in_session(
         idempotency_replay=False,
         tag_policy_applied=policy,
         dedupe_key=dedupe_key,
+        auto_wired=auto_wired_ids,
     )
