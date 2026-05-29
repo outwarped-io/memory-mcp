@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-05-29
+
+Major release adding three new memory primitives — `mem_compose` (N→1 manual aggregation, Phase 2), `mem_decompose` (1→N manual fan-out, Phase 3), and `mem_compose` auto-wire to popular neighbors via the new `related_to_popular` predicate (Phase 4, OFF by default). Builds on v0.14.x popularity foundations (`reference_count`, `reference_velocity`, `mem_top`, decay reference-floor). Schemas package bumped to 0.15.0.
+
 ### Added — Phase 4 auto-wire (compose-only, OFF by default)
 
 - **`related_to_popular` predicate** — new auto-wire edge type emitted by `mem_compose` when `autowire_enabled=True`. Snapshot-in-time directional edge from the newly-composed memory to the top-K most-relevant popular neighbors in the same env. Bounded fan-out (K cap), one-way (no reciprocal popular→new edges to prevent link-farm feedback), and **excluded from popularity-counter triggers** (migrations 0017 + 0021 already skip the predicate in `memories_bump_on_relation_change` INSERT + DELETE branches). Same exclusion applies to `mem_top` velocity windows and the dream recount pass — auto-wire is a navigation aid, never a popularity vote.
