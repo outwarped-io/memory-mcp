@@ -24,6 +24,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from typing import Any
 
 from fastapi import FastAPI
@@ -49,9 +50,17 @@ def _is_loopback(host: str) -> bool:
     return host in _LOOPBACK_HOSTS
 
 
+def _package_version() -> str | None:
+    """Return memory-mcp's installed package version, or ``None`` for editable / dev installs."""
+    try:
+        return _pkg_version("memory-mcp")
+    except PackageNotFoundError:
+        return None
+
+
 def _healthz_payload(settings: Settings) -> dict[str, object]:
     unsafe = not _is_loopback(settings.mcp_http_host)
-    return {
+    payload: dict[str, object] = {
         "status": "ok",
         "local_only": True,
         "auth": "disabled",
@@ -62,6 +71,10 @@ def _healthz_payload(settings: Settings) -> dict[str, object]:
             "rest": {"healthz": "/healthz", "readyz": "/readyz"},
         },
     }
+    ver = _package_version()
+    if ver is not None:
+        payload["version"] = ver
+    return payload
 
 
 async def _probe_postgres() -> dict[str, Any]:

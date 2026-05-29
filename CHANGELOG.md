@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-05-29
+
+### Fixed
+
+- **`initialize.serverInfo.version` now reports memory-mcp's package version** instead of the MCP SDK fallback (`pkg_version("mcp")`, which was surfacing `"1.27.1"`). `FastMCP.__init__` does not expose `version=` as a kwarg, so the underlying `Server` falls through to `pkg_version("mcp")` when none is passed. Worked around by overriding `mcp._mcp_server.version = pkg_version("memory-mcp")` directly after `FastMCP(...)` construction in `src/memory_mcp/mcp_app.py`, guarded with `try/except PackageNotFoundError` for editable / dev installs. Lets MCP clients discover the deployed server version through the standard `initialize` handshake without a memory-mcp-specific tool. Upstream cleanup deferred — see roadmap (`memory-mcp-fastmcp-version-kwarg`).
+
+### Added
+
+- **`/healthz` payload now includes `"version"`** (memory-mcp package version) so ops who hit HTTP directly — without speaking MCP — can confirm the deployed release. Field is omitted on editable / dev installs where the package isn't pip-visible.
+- **Tests** — `test_mcp_server_info_reports_package_version_not_sdk` and `test_healthz_includes_package_version` in `tests/unit/test_server_smoke.py`. Both guard against the SDK-fallback regression.
+
 ## [0.15.0] — 2026-05-29
 
 Major release adding three new memory primitives — `mem_compose` (N→1 manual aggregation, Phase 2), `mem_decompose` (1→N manual fan-out, Phase 3), and `mem_compose` auto-wire to popular neighbors via the new `related_to_popular` predicate (Phase 4, OFF by default). Builds on v0.14.x popularity foundations (`reference_count`, `reference_velocity`, `mem_top`, decay reference-floor). Schemas package bumped to 0.15.0.

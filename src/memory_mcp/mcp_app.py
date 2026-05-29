@@ -41,6 +41,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from functools import wraps
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from typing import Any
 from uuid import UUID
 
@@ -396,6 +397,16 @@ def build_mcp_server(
         log_level="INFO",
         stateless_http=True,
     )
+
+    # Override the default serverInfo.version (which falls through to the
+    # MCP SDK version when FastMCP doesn't accept a `version=` kwarg) with
+    # memory-mcp's own package version, so `initialize` reports it correctly.
+    try:
+        mcp._mcp_server.version = _pkg_version("memory-mcp")
+    except PackageNotFoundError:
+        # Editable / dev install where the package isn't pip-visible — leave
+        # the SDK default in place rather than crashing app startup.
+        pass
 
     # ---- Memory CRUD ------------------------------------------------------
 

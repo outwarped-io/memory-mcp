@@ -102,3 +102,64 @@ def test_mcp_tool_registry_contains_v1_tools() -> None:
     missing = expected - names
     assert not missing, f"missing tools: {sorted(missing)} (got {sorted(names)})"
 
+
+def test_mcp_server_info_reports_package_version_not_sdk() -> None:
+    """``initialize.serverInfo.version`` must be the memory-mcp package version,
+    not the MCP SDK version fallback (``pkg_version('mcp')``).
+
+    Regression guard for the FastMCP wrapper not exposing ``version=`` as a
+    constructor kwarg — fixed by overriding ``_mcp_server.version`` after
+    construction. See ``src/memory_mcp/mcp_app.py:build_mcp_server``.
+    """
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as pkg_version
+
+    from memory_mcp.mcp_app import build_mcp_server
+
+    try:
+        expected = pkg_version("memory-mcp")
+    except PackageNotFoundError:
+        # Editable / dev install where the package isn't pip-visible.
+        # In that case the override is a no-op; the SDK default stays.
+        # Still assert that the server is constructible and carries a version.
+        mcp = build_mcp_server()
+        assert mcp._mcp_server.version  # SDK default is non-empty
+        return
+
+    mcp = build_mcp_server()
+    actual = mcp._mcp_server.version
+    assert actual == expected, (
+        f"serverInfo.version should report memory-mcp package version "
+        f"({expected!r}); got {actual!r} (SDK fallback would be the value "
+        f"of pkg_version('mcp'))."
+    )
+    # Defensive: SDK version is also installed in this venv, so make sure
+    # we're not accidentally aligned with it.
+    sdk_version = pkg_version("mcp")
+    assert actual != sdk_version or expected == sdk_version, (
+        f"serverInfo.version {actual!r} matches the MCP SDK version "
+        f"{sdk_version!r} — the override likely isn't wired."
+    )
+
+
+def test_healthz_includes_package_version() -> None:
+    """``/healthz`` payload must include ``version`` so ops can probe the
+    deployed memory-mcp release without speaking MCP. Best-effort: skipped
+    cleanly on editable / dev installs where the package isn't pip-visible."""
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as pkg_version
+
+    try:
+        expected = pkg_version("memory-mcp")
+    except PackageNotFoundError:
+        # No package metadata available — the helper returns None and the
+        # field is omitted. Verify the omission rather than assert presence.
+        with TestClient(build_app()) as client:
+            body = client.get("/healthz").json()
+        assert "version" not in body
+        return
+
+    with TestClient(build_app()) as client:
+        body = client.get("/healthz").json()
+    assert body.get("version") == expected
+
