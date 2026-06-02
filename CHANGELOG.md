@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-06-02
+
 ### Added — Phase 4 v0.16 decompose auto-wire
 
 - **Per-child `related_to_popular` auto-wire on `mem_decompose`** — deferred from v0.15.0 (D-defer). When both `autowire_enabled=True` and `autowire_decompose_enabled=True`, each decompose call wires up to `autowire_decompose_per_child_top_k` `related_to_popular` edges *per child* to popular neighbors in the same env. One shared PG candidate pull + one shared lineage-ancestor CTE seeded with `[source_id]` + **one batched embedder call** for all N children's bodies + **N parallel Qdrant searches** via `asyncio.gather`, per-child top-K filter, then a global `autowire_decompose_total_cap` downsample. Per-child Stage B inserts are wrapped in savepoints so one child's failure leaves siblings' edges intact. OFF by default — operators must opt in twice (master + per-decompose).
