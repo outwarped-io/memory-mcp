@@ -306,3 +306,77 @@ def test_decompose_lineage_row_rejects_promoted_from() -> None:
             child_memory_id=uuid4(),
             relation="promoted_from",
         )
+
+
+# ---------------------------------------------------------------------------
+# v0.16 — per-child auto-wire mapping (Stage H1)
+# ---------------------------------------------------------------------------
+
+
+def test_decompose_response_auto_wired_by_child_defaults_to_none() -> None:
+    """Default is ``None`` so callers can distinguish feature OFF
+    (None) from feature ON-but-empty (``{}`` or ``{child: []}``)."""
+    resp = MemDecomposeResponse(
+        source=_make_memory_response(),
+        children=[_make_memory_response(), _make_memory_response()],
+        mode="derive",
+        lineage_rows=[],
+        dedupe_key="d" * 32,
+        operation_id=uuid4(),
+    )
+    assert resp.auto_wired_by_child is None
+    assert resp.auto_wired == []
+
+
+def test_decompose_response_auto_wired_by_child_accepts_empty_dict() -> None:
+    """Feature ON, no children produced candidates → ``{}``."""
+    resp = MemDecomposeResponse(
+        source=_make_memory_response(),
+        children=[_make_memory_response(), _make_memory_response()],
+        mode="derive",
+        lineage_rows=[],
+        auto_wired_by_child={},
+        dedupe_key="d" * 32,
+        operation_id=uuid4(),
+    )
+    assert resp.auto_wired_by_child == {}
+
+
+def test_decompose_response_auto_wired_by_child_accepts_populated_mapping() -> None:
+    child_a = uuid4()
+    child_b = uuid4()
+    dst_1 = uuid4()
+    dst_2 = uuid4()
+    dst_3 = uuid4()
+    payload = {
+        child_a: [dst_1, dst_2],
+        child_b: [dst_3],
+    }
+    resp = MemDecomposeResponse(
+        source=_make_memory_response(),
+        children=[_make_memory_response(), _make_memory_response()],
+        mode="derive",
+        lineage_rows=[],
+        auto_wired=[dst_1, dst_2, dst_3],
+        auto_wired_by_child=payload,
+        dedupe_key="d" * 32,
+        operation_id=uuid4(),
+    )
+    assert resp.auto_wired_by_child == payload
+    revived = MemDecomposeResponse.model_validate(resp.model_dump())
+    assert revived.auto_wired_by_child == payload
+    assert set(revived.auto_wired) == {dst_1, dst_2, dst_3}
+
+
+def test_decompose_response_auto_wired_by_child_rejects_non_uuid_keys() -> None:
+    """Strict-validate UUID keys so misuse surfaces at the boundary."""
+    with pytest.raises(ValidationError):
+        MemDecomposeResponse(
+            source=_make_memory_response(),
+            children=[_make_memory_response(), _make_memory_response()],
+            mode="derive",
+            lineage_rows=[],
+            auto_wired_by_child={"not-a-uuid": [uuid4()]},
+            dedupe_key="d" * 32,
+            operation_id=uuid4(),
+        )

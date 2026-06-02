@@ -211,9 +211,35 @@ class MemDecomposeResponse(BaseModel):
     auto_wired: list[UUID] = Field(
         default_factory=list,
         description=(
-            "Populated only when Phase 4 auto-wire is enabled. Memory "
-            "ids the server linked via ``rel_link`` in the same "
-            "transaction. Always empty in v0.15.0 Phase 3."
+            "Flat union of all auto-wired dst memory ids across every "
+            "child. Empty when the feature is disabled or every child's "
+            "candidate fan-out was empty. For per-child mapping see "
+            "``auto_wired_by_child`` (v0.16+). Kept as a flat list for "
+            "backward-compatibility with v0.15.x callers."
+        ),
+    )
+    auto_wired_by_child: dict[UUID, list[UUID]] | None = Field(
+        default=None,
+        description=(
+            "v0.16+ per-child auto-wire mapping. Three semantic states:\n"
+            "\n"
+            "* ``None`` — feature OFF for this call (master switch or "
+            "decompose-specific switch disabled, or Stage A failure "
+            "degraded the batch).\n"
+            "* ``{}`` or ``{child_id: []}`` — feature ON but no child "
+            "produced candidates above threshold.\n"
+            "* ``{child_id: [dst_id, ...]}`` — populated mapping. The "
+            "per-child list contains the actually-inserted dst memory "
+            "ids; ``ON CONFLICT DO NOTHING`` may have absorbed duplicate "
+            "edges from concurrent operations.\n"
+            "\n"
+            "Replay reconstructs from current ``relations`` table state "
+            "(matches ``mem_compose``'s state-current semantic) — a "
+            "manual ``rel_link(type='related_to_popular')`` issued after "
+            "the original decompose WILL surface here on replay. The "
+            "flat ``auto_wired`` field is always the deduplicated union "
+            "of ``auto_wired_by_child.values()`` when this field is "
+            "populated."
         ),
     )
     idempotency_replay: bool = Field(
