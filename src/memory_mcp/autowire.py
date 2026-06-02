@@ -32,9 +32,18 @@ velocity windows (``top.py:260, 277``). Auto-wired edges therefore never
 amplify the popularity score of their dst memory — see Stage D §D-pre
 for the regression coverage.
 
-Decompose auto-wire is deferred to v0.16 because
-``MemDecomposeResponse.auto_wired: list[UUID]`` cannot disambiguate
-per-child mapping; widening the schema is a breaking change.
+Decompose auto-wire shipped in v0.16 via
+:func:`autowire_fetch_candidates_decompose` (batched per-child Stage A:
+shared PG candidate pull, shared lineage CTE, batched
+``embed_texts([body_i for i in surviving])`` call, parallel
+``asyncio.gather`` of N Qdrant searches) plus the existing
+:func:`autowire_compose_target` invoked once per child inside the
+decompose transaction. State-current replay uses
+:func:`reconstruct_auto_wired_by_child`. See README ``## Decompose
+### Auto-wire`` for the per-child semantic model and the three
+operator knobs (``autowire_decompose_enabled`` /
+``autowire_decompose_per_child_top_k`` /
+``autowire_decompose_total_cap``).
 """
 
 from __future__ import annotations
@@ -81,8 +90,10 @@ _SKIP_TAG_PREFIX = "directive:active"
 __all__ = [
     "AUTO_WIRE_PREDICATE",
     "autowire_fetch_candidates",
+    "autowire_fetch_candidates_decompose",
     "autowire_compose_target",
     "reconstruct_auto_wired",
+    "reconstruct_auto_wired_by_child",
 ]
 
 
@@ -547,4 +558,305 @@ async def reconstruct_auto_wired(
         if isinstance(val, str):
             val = UUID(val)
         out.append(val)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# v0.16 — Decompose batched Stage A
+# ---------------------------------------------------------------------------
+
+
+async def autowire_fetch_candidates_decompose(
+    *,
+    s: AsyncSession,
+    env_id: UUID,
+    source_id: UUID,
+    children: list[dict[str, Any]],
+    settings: Settings | None = None,
+    embedder: Embedder | None = None,
+    vector_store: Any | None = None,
+) -> dict[int, list[tuple[UUID, float]]]:
+    """Read-only per-child Stage A with shared PG + lineage work.
+
+    Parameters
+    ----------
+    s :
+        Read-only session (caller opens / closes; this function does not
+        commit). Pre-txn; outside the decompose write lock window.
+    env_id :
+        Env of the decompose source. Children inherit this env.
+    source_id :
+        The lone decompose source. Used as the lineage-CTE seed.
+    children :
+        Per-child spec dicts. Required keys: ``index`` (int, 0-based
+        position in the request order), ``body`` (str), ``kind``
+        (:class:`MemoryKind`), ``tags`` (list[str], possibly empty).
+    settings, embedder, vector_store :
+        Test-injection seams; default to process-wide settings + a
+        freshly-built local embedder + a default Qdrant store.
+
+    Returns
+    -------
+    dict[int, list[tuple[UUID, float]]]
+        Mapping from each child's ``index`` to its ordered list of
+        ``(dst_memory_id, combined_score)`` candidates. All children
+        present in the result dict (no implicit omissions); children
+        skipped at A1 carry ``[]``. Empty dict ``{}`` ONLY on top-level
+        Stage-A failure (feature disabled, embedder dead, etc.) — the
+        caller treats that as "feature on but degraded" and surfaces it
+        as ``{child_id: [] for c in children}`` in the response.
+
+    Algorithm
+    ---------
+    * A1 — per-child skip filter (kind / tag / empty body). Skipped
+      children → ``[]`` entry.
+    * A2 — pull ``candidate_limit`` top-by-salience candidates from PG
+      (ONE query, shared across all surviving children).
+    * A3 — recursive lineage-ancestor CTE seeded with ``[source_id]``
+      (ONE call, shared exclusion set).
+    * A4 — batched embed: surviving children's bodies → ONE
+      ``embed_texts([body_i for i in surviving])`` call. Failure →
+      ``{}`` (top-level degrade).
+    * A5 — parallel Qdrant via ``asyncio.gather``: one search per
+      surviving child. Per-child failure → empty list for that child;
+      total failure → degrade to ``{}``.
+    * A6 — per-child combine + rank + take
+      ``autowire_decompose_per_child_top_k``.
+    * A7 — global cap downsample: if
+      ``sum(len(v) for v in result.values()) > total_cap``, flatten
+      ``(child_idx, dst_id, combined_score)``, sort by score desc,
+      take first ``total_cap``, regroup per-child.
+    """
+    settings = settings or get_settings()
+
+    if not settings.autowire_enabled or not settings.autowire_decompose_enabled:
+        return {}
+
+    if not children:
+        return {}
+
+    per_child_k = int(settings.autowire_decompose_per_child_top_k)
+    total_cap = int(settings.autowire_decompose_total_cap)
+    candidate_limit = int(settings.autowire_candidate_limit)
+    sim_threshold = float(settings.autowire_sim_threshold)
+
+    # A1 — per-child skip filter. Each child either survives (-> Stage A4
+    # batched embed) or is recorded with `[]`.
+    surviving: list[dict[str, Any]] = []
+    result: dict[int, list[tuple[UUID, float]]] = {}
+    for child in children:
+        idx = int(child["index"])
+        if _should_skip_target(
+            kind=child["kind"], tags=child.get("tags") or [], body=child["body"]
+        ):
+            result[idx] = []
+        else:
+            surviving.append(child)
+    if not surviving:
+        return result
+
+    # A2 — shared PG candidate pull (top-by-salience active memories).
+    skip_kind_values = list(_SKIP_KINDS)
+    rows = (
+        await s.execute(
+            select(Memory.id, Memory.salience).where(
+                Memory.env_id == env_id,
+                Memory.status == "active",
+                Memory.kind.not_in(skip_kind_values),
+            ).order_by(
+                Memory.salience.desc(),
+                Memory.created_at.desc(),
+                Memory.id.desc(),
+            ).limit(candidate_limit)
+        )
+    ).all()
+    if not rows:
+        for child in surviving:
+            result[int(child["index"])] = []
+        return result
+
+    pg_candidates: dict[UUID, float] = {row[0]: float(row[1] or 0.0) for row in rows}
+    # Always exclude the source itself.
+    pg_candidates.pop(source_id, None)
+
+    # A3 — shared lineage-ancestor exclusion CTE.
+    ancestors = await _collect_lineage_ancestors(s, [source_id])
+    for ancestor_id in ancestors:
+        pg_candidates.pop(ancestor_id, None)
+    if not pg_candidates:
+        for child in surviving:
+            result[int(child["index"])] = []
+        return result
+
+    # A4 — batched embed (ONE call for all surviving children).
+    embedder = embedder or get_embedder(settings)
+    bodies = [str(child["body"]) for child in surviving]
+    try:
+        loop = asyncio.get_running_loop()
+        vectors = await loop.run_in_executor(None, embedder.embed_texts, bodies)
+    except EmbeddingModelMismatchError as exc:
+        log.warning("autowire.decompose: embedding model mismatch (%s); skipping", exc)
+        return {}
+    except Exception as exc:  # noqa: BLE001 — degrade silently
+        log.warning("autowire.decompose: embedder failure (%s); skipping", exc)
+        return {}
+    if not vectors or len(vectors) != len(surviving):
+        log.warning(
+            "autowire.decompose: embedder returned %d vectors for %d children; skipping",
+            len(vectors) if vectors else 0, len(surviving),
+        )
+        return {}
+
+    # A5 — parallel Qdrant searches. Per-child failure → that child's
+    # entry is `[]`; total store-level failure → top-level degrade.
+    vector_store = vector_store or _default_vector_store()
+    qdrant_limit = max(candidate_limit, per_child_k * 2)
+
+    async def _search_one(qvec: list[float]) -> list[Any] | BaseException:
+        try:
+            return await vector_store.search(
+                env_id=env_id,
+                query_vector=qvec,
+                limit=qdrant_limit,
+                filters={"status": ["active"]},
+                vector_name="body",
+            )
+        except Exception as exc:  # noqa: BLE001
+            return exc
+
+    search_results = await asyncio.gather(
+        *[_search_one(qvec) for qvec in vectors]
+    )
+
+    # Detect total Qdrant outage: every child got an exception.
+    if all(isinstance(r, BaseException) for r in search_results):
+        log.warning(
+            "autowire.decompose: all %d Qdrant searches failed; skipping",
+            len(search_results),
+        )
+        return {}
+
+    # A6 — per-child combine + rank + take K.
+    per_child_results: list[tuple[int, list[tuple[UUID, float]]]] = []
+    for child, search_result in zip(surviving, search_results):
+        idx = int(child["index"])
+        if isinstance(search_result, BaseException):
+            log.warning(
+                "autowire.decompose: Qdrant failure for child %d (%s); empty",
+                idx, search_result,
+            )
+            per_child_results.append((idx, []))
+            continue
+
+        sim_scores: dict[UUID, float] = {}
+        for hit in search_result or []:
+            try:
+                mid = UUID(str(hit["id"]))
+                score = float(hit["score"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            if score >= sim_threshold:
+                if score > sim_scores.get(mid, float("-inf")):
+                    sim_scores[mid] = score
+
+        combined: list[tuple[UUID, float]] = []
+        for mid, salience in pg_candidates.items():
+            sim = sim_scores.get(mid)
+            if sim is None:
+                continue
+            combined.append((mid, salience * sim))
+
+        combined.sort(key=lambda x: (-x[1], -int(x[0].int)))
+        per_child_results.append((idx, combined[:per_child_k]))
+
+    # A7 — global cap downsample.
+    total = sum(len(lst) for _, lst in per_child_results)
+    if total <= total_cap:
+        for idx, lst in per_child_results:
+            result[idx] = lst
+        return result
+
+    # Flatten + sort + take first total_cap; regroup per-child.
+    flat: list[tuple[int, UUID, float]] = []
+    for idx, lst in per_child_results:
+        for dst_id, score in lst:
+            flat.append((idx, dst_id, score))
+    # Stable order: (combined_score DESC, dst_id DESC, child_idx ASC).
+    flat.sort(key=lambda t: (-t[2], -int(t[1].int), t[0]))
+    kept = flat[:total_cap]
+
+    regrouped: dict[int, list[tuple[UUID, float]]] = {
+        idx: [] for idx, _ in per_child_results
+    }
+    for idx, dst_id, score in kept:
+        regrouped[idx].append((dst_id, score))
+
+    # Re-sort each child's list by (score DESC, dst_id DESC) so per-child
+    # order remains deterministic even after global downsampling.
+    for idx in regrouped:
+        regrouped[idx].sort(key=lambda x: (-x[1], -int(x[0].int)))
+
+    # Merge regrouped into result (skip-filtered entries already in
+    # result; surviving entries land here).
+    for idx, lst in regrouped.items():
+        result[idx] = lst
+
+    log.debug(
+        "autowire.decompose candidates: surviving=%d total_pre_cap=%d total_post_cap=%d",
+        len(surviving), total, sum(len(v) for v in regrouped.values()),
+    )
+    return result
+
+
+async def reconstruct_auto_wired_by_child(
+    *,
+    s: AsyncSession,
+    child_ids: list[UUID],
+) -> dict[UUID, list[UUID]]:
+    """Replay-side state-current reconstruction of per-child auto-wire.
+
+    One batched query joins ``relations`` to ``graph_nodes`` twice to
+    extract ``(src_child_memory_id, dst_memory_id)`` rows for the
+    ``related_to_popular`` predicate where ``src`` belongs to any of
+    ``child_ids``. Returns a ``{child_id: [dst_id, ...]}`` mapping
+    containing entries ONLY for children with at least one edge; the
+    decompose response builder fills missing children with ``[]`` so
+    every child is represented.
+
+    State-current semantics — see :func:`reconstruct_auto_wired` and the
+    ``MemDecomposeResponse.auto_wired_by_child`` field docstring. A
+    manual ``rel_link(type='related_to_popular')`` issued after the
+    original decompose will surface on replay.
+    """
+    if not child_ids:
+        return {}
+
+    query = text(
+        """
+        SELECT gn_src.memory_id, gn_dst.memory_id
+          FROM relations r
+          JOIN graph_nodes gn_src ON r.src_node_id = gn_src.id
+          JOIN graph_nodes gn_dst ON r.dst_node_id = gn_dst.id
+         WHERE gn_src.memory_id = ANY(CAST(:child_ids AS uuid[]))
+           AND r.type = :rel_type
+         ORDER BY gn_src.memory_id ASC, gn_dst.id ASC
+        """
+    )
+    result = await s.execute(
+        query.bindparams(
+            child_ids=[str(u) for u in child_ids],
+            rel_type=AUTO_WIRE_PREDICATE,
+        )
+    )
+    out: dict[UUID, list[UUID]] = {}
+    for row in result.all():
+        src_val = row[0]
+        dst_val = row[1]
+        if src_val is None or dst_val is None:
+            continue
+        if isinstance(src_val, str):
+            src_val = UUID(src_val)
+        if isinstance(dst_val, str):
+            dst_val = UUID(dst_val)
+        out.setdefault(src_val, []).append(dst_val)
     return out
