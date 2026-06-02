@@ -211,35 +211,41 @@ class MemDecomposeResponse(BaseModel):
     auto_wired: list[UUID] = Field(
         default_factory=list,
         description=(
-            "Flat union of all auto-wired dst memory ids across every "
-            "child. Empty when the feature is disabled or every child's "
-            "candidate fan-out was empty. For per-child mapping see "
-            "``auto_wired_by_child`` (v0.16+). Kept as a flat list for "
+            "Flat ordered-unique union of all auto-wired dst memory "
+            "ids across every child. Built by iterating children in "
+            "insertion order and de-duplicating dst ids on first "
+            "occurrence. Empty when the feature is disabled or every "
+            "child's candidate fan-out was empty. For per-child mapping "
+            "see ``auto_wired_by_child``. Kept as a flat list for "
             "backward-compatibility with v0.15.x callers."
         ),
     )
     auto_wired_by_child: dict[UUID, list[UUID]] | None = Field(
         default=None,
         description=(
-            "v0.16+ per-child auto-wire mapping. Three semantic states:\n"
+            "v0.16+ per-child auto-wire mapping.\n"
             "\n"
-            "* ``None`` — feature OFF for this call (master switch or "
-            "decompose-specific switch disabled, or Stage A failure "
-            "degraded the batch).\n"
-            "* ``{}`` or ``{child_id: []}`` — feature ON but no child "
-            "produced candidates above threshold.\n"
+            "* ``None`` — feature OFF on **first write only** (master "
+            "switch or per-decompose switch disabled). Replay NEVER "
+            "returns ``None`` — replay always populates as a per-child "
+            "dict reflecting current relations state.\n"
+            "* ``{child_id: []}`` — feature ON but that child had no "
+            "edges. Covers: candidate fan-out empty above threshold, "
+            "Stage-A failure (degraded silently to per-child empties), "
+            "Stage-B per-child savepoint rollback on insert failure, OR "
+            "replay of a row that had no wired edges.\n"
             "* ``{child_id: [dst_id, ...]}`` — populated mapping. The "
             "per-child list contains the actually-inserted dst memory "
-            "ids; ``ON CONFLICT DO NOTHING`` may have absorbed duplicate "
-            "edges from concurrent operations.\n"
+            "ids in deterministic order; ``ON CONFLICT DO NOTHING`` may "
+            "have absorbed duplicate edges from concurrent operations.\n"
             "\n"
             "Replay reconstructs from current ``relations`` table state "
             "(matches ``mem_compose``'s state-current semantic) — a "
-            "manual ``rel_link(type='related_to_popular')`` issued after "
-            "the original decompose WILL surface here on replay. The "
-            "flat ``auto_wired`` field is always the deduplicated union "
-            "of ``auto_wired_by_child.values()`` when this field is "
-            "populated."
+            "manual ``rel_link(type='related_to_popular')`` issued from "
+            "any child after the original decompose WILL surface here on "
+            "replay. The flat ``auto_wired`` field is always the "
+            "ordered-unique union of ``auto_wired_by_child.values()`` "
+            "when this field is populated."
         ),
     )
     idempotency_replay: bool = Field(

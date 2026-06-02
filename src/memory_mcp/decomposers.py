@@ -517,6 +517,78 @@ async def _reconstruct_replay_from_operation(
 # ---------------------------------------------------------------------------
 
 
+async def _resolve_auto_wired_for_replay(
+    s: AsyncSession,
+    *,
+    child_ids: list[UUID],
+) -> dict[UUID, list[UUID]]:
+    """Replay shim that always returns a per-child dict.
+
+    Wraps :func:`memory_mcp.autowire.reconstruct_auto_wired_by_child`
+    so missing children (no edges) get explicit ``[]`` entries — the
+    schema contract says replay never returns ``None`` and never omits
+    children with zero edges.
+    """
+    from memory_mcp.autowire import reconstruct_auto_wired_by_child
+
+    raw = await reconstruct_auto_wired_by_child(s=s, child_ids=child_ids)
+    return {cid: raw.get(cid, []) for cid in child_ids}
+
+
+async def _autowire_stage_a_decompose(
+    *,
+    request: MemDecomposeRequest,
+    settings: Settings,
+) -> dict[int, list[tuple[UUID, float]]]:
+    """Pre-txn auto-wire candidate fetch.
+
+    Gates on BOTH ``settings.autowire_enabled`` AND
+    ``settings.autowire_decompose_enabled`` (H6 RD NB1). Opens a SHORT
+    read-only session, resolves the source's ``env_id``, and delegates
+    to :func:`memory_mcp.autowire.autowire_fetch_candidates_decompose`.
+    Errors degrade silently to ``{}`` so auto-wire never blocks
+    decompose.
+
+    Returns a child-index → ``[(dst_id, combined_score), ...]`` dict
+    (or ``{}`` on disabled / failure).
+    """
+    if not settings.autowire_enabled or not settings.autowire_decompose_enabled:
+        return {}
+    try:
+        from memory_mcp.autowire import autowire_fetch_candidates_decompose
+
+        async with session_scope() as s:
+            row = (
+                await s.execute(
+                    select(Memory.env_id).where(Memory.id == request.source_id)
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return {}
+            env_id = row
+            children_specs = [
+                {
+                    "index": i,
+                    "body": c.body,
+                    "kind": c.kind,
+                    "tags": list(c.tags or []),
+                }
+                for i, c in enumerate(request.children)
+            ]
+            return await autowire_fetch_candidates_decompose(
+                s=s,
+                env_id=env_id,
+                source_id=request.source_id,
+                children=children_specs,
+                settings=settings,
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "autowire: decompose Stage A failed (%s); skipping", exc
+        )
+        return {}
+
+
 async def _build_response(
     s: AsyncSession,
     *,
@@ -527,6 +599,7 @@ async def _build_response(
     operation_id: UUID,
     dedupe_key: str,
     idempotency_replay: bool,
+    auto_wired_by_child: dict[UUID, list[UUID]] | None = None,
 ) -> MemDecomposeResponse:
     """Materialize the MCP response.
 
@@ -535,18 +608,40 @@ async def _build_response(
     appeared in the original request (the transaction body inserts
     them in request order without canonical-hash re-sorting; see C8
     RF#2 resolution in plan.md).
+
+    ``auto_wired_by_child`` semantics (H4, post-H6 RD):
+
+    * ``None`` — Phase 4 auto-wire feature OFF on first write (master
+      switch or per-decompose switch disabled). Replay NEVER passes
+      ``None`` — :func:`reconstruct_auto_wired_by_child` always returns
+      a per-child dict reflecting current state.
+    * dict — per-child mapping. Flat ``auto_wired`` is computed as the
+      **ordered unique** iteration of values (children in insertion
+      order, then per-child dst order, de-duplicating dsts that appear
+      under multiple children — H6 RD blocking #2).
     """
     source_tags = await _load_tag_names(s, source.id)
     children_resp = []
     for child in children:
         child_tags = await _load_tag_names(s, child.id)
         children_resp.append(_to_response(child, child_tags))
+
+    flat_auto_wired: list[UUID] = []
+    if auto_wired_by_child is not None:
+        seen: set[UUID] = set()
+        for child in children:
+            for dst in auto_wired_by_child.get(child.id, []):
+                if dst not in seen:
+                    seen.add(dst)
+                    flat_auto_wired.append(dst)
+
     return MemDecomposeResponse(
         source=_to_response(source, source_tags),
         children=children_resp,
         mode=mode,
         lineage_rows=lineage_rows,
-        auto_wired=[],
+        auto_wired=flat_auto_wired,
+        auto_wired_by_child=auto_wired_by_child,
         idempotency_replay=idempotency_replay,
         dedupe_key=dedupe_key,
         operation_id=operation_id,
@@ -564,6 +659,7 @@ async def _decompose_in_session(
     request: MemDecomposeRequest,
     ctx: AgentContext,
     settings: Settings,
+    autowire_candidates_by_idx: dict[int, list[tuple[UUID, float]]] | None = None,
 ) -> MemDecomposeResponse:
     """Atomic decompose transaction.
 
@@ -665,6 +761,9 @@ async def _decompose_in_session(
                 s, operation_row=existing_op, ctx=ctx,
             )
         )
+        replay_auto_wired = await _resolve_auto_wired_for_replay(
+            s, child_ids=list(existing_op.child_ids),
+        )
         return await _build_response(
             s,
             source=source_replay,
@@ -674,6 +773,7 @@ async def _decompose_in_session(
             operation_id=existing_op.id,
             dedupe_key=dedupe_key,
             idempotency_replay=True,
+            auto_wired_by_child=replay_auto_wired,
         )
 
     # Step 6 — first-write source validation.
@@ -751,6 +851,9 @@ async def _decompose_in_session(
                 s, operation_row=winner, ctx=ctx,
             )
         )
+        replay_auto_wired = await _resolve_auto_wired_for_replay(
+            s, child_ids=list(winner.child_ids),
+        )
         return await _build_response(
             s,
             source=source_replay,
@@ -760,6 +863,7 @@ async def _decompose_in_session(
             operation_id=winner.id,
             dedupe_key=dedupe_key,
             idempotency_replay=True,
+            auto_wired_by_child=replay_auto_wired,
         )
 
     # We claimed the dedupe slot. From here on, every mutation is in
@@ -950,6 +1054,55 @@ async def _decompose_in_session(
             settings=settings,
         )
 
+    # Step 17.5 — Phase 4 per-child auto-wire (v0.16, OFF by default).
+    #
+    # Gated on BOTH master + per-decompose flags (H6 RD NB1) — neither
+    # flag alone triggers Stage B. Each child's wire-in runs inside its
+    # own savepoint (H6 RD blocking #3) so any failure mid-sequence
+    # (graph-node resolution, INSERT ON CONFLICT, audit, outbox) rolls
+    # back only that child's partial state; outer txn keeps committing.
+    #
+    # If feature is OFF we pass ``None`` to ``_build_response`` so
+    # callers see ``auto_wired_by_child=None`` (first-write OFF state).
+    # If feature is ON we always populate a per-child dict, even when
+    # Stage A returned ``{}`` (top-level failure or universal skip):
+    # callers can distinguish "OFF" (None) from "ON-but-no-edges"
+    # (``{child_id: []}``). Replay never reaches this branch — replay
+    # builds its own dict via ``_resolve_auto_wired_for_replay``.
+    auto_wired_by_child: dict[UUID, list[UUID]] | None = None
+    if settings.autowire_enabled and settings.autowire_decompose_enabled:
+        from memory_mcp.autowire import autowire_compose_target
+
+        candidates_by_idx = autowire_candidates_by_idx or {}
+        auto_wired_by_child = {}
+        for idx, child in enumerate(children):
+            per_child = candidates_by_idx.get(idx) or []
+            if not per_child:
+                auto_wired_by_child[child.id] = []
+                continue
+            try:
+                async with s.begin_nested():
+                    wired = await autowire_compose_target(
+                        s=s,
+                        new_memory_id=child.id,
+                        new_memory_kind=child.kind,
+                        new_memory_tags=child_tag_names[idx],
+                        new_memory_body=child.body,
+                        new_memory_env_id=env_id,
+                        candidates=per_child,
+                        ctx=ctx,
+                        settings=settings,
+                    )
+                auto_wired_by_child[child.id] = list(wired)
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "autowire: decompose Stage B failed for child %s (%s); "
+                    "savepoint rolled back, child entry left empty",
+                    child.id,
+                    exc,
+                )
+                auto_wired_by_child[child.id] = []
+
     # Step 18 — build response. session_scope() commits on exit.
     return await _build_response(
         s,
@@ -960,6 +1113,7 @@ async def _decompose_in_session(
         operation_id=operation_id,
         dedupe_key=dedupe_key,
         idempotency_replay=False,
+        auto_wired_by_child=auto_wired_by_child,
     )
 
 
@@ -980,9 +1134,22 @@ async def memory_decompose(
     :class:`MemDecomposeResponse` for the contract. Dispatches to a
     private in-session helper so the dream worker can eventually call
     the same path without the outer ``session_scope``.
+
+    Stage A (Phase 4 auto-wire candidate fetch) runs **pre-txn** —
+    embedder + Qdrant round-trips stay outside the lock-hold window.
+    Errors degrade silently to ``{}`` so auto-wire never blocks
+    decompose. Gated on both ``autowire_enabled`` and
+    ``autowire_decompose_enabled``.
     """
     settings = settings or get_settings()
+    autowire_candidates_by_idx = await _autowire_stage_a_decompose(
+        request=request, settings=settings,
+    )
     async with session_scope() as s:
         return await _decompose_in_session(
-            s, request=request, ctx=ctx, settings=settings,
+            s,
+            request=request,
+            ctx=ctx,
+            settings=settings,
+            autowire_candidates_by_idx=autowire_candidates_by_idx,
         )
