@@ -307,7 +307,7 @@ Important semantics:
 - **Skip filter** — auto-wire skips memories with `kind=playbook`, any tag starting with `directive:active`, or empty/whitespace body. Applied both pre-compute (Stage A) and defensively at insert (Stage B).
 - **Replay is state-current, not operation-exact** — a second identical compose call replays via dedupe-key and reconstructs `auto_wired` from the live `relations` table. If a `rel_link` call between the same nodes manually added a `related_to_popular` edge later, replay will surface it too.
 - **All failures degrade silently** — embedder failure, vector-store failure, graph-node resolution failure, insert race: the compose call still succeeds; auto-wire returns `[]`.
-- **Decompose auto-wire is deferred to v0.16**. `MemDecomposeResponse.auto_wired` exists on the schema but is always `[]` in v0.15.0 — the flat `list[UUID]` shape cannot represent per-child mapping for N children × K edges. v0.16 will add an additive `auto_wired_by_child: dict[UUID, list[UUID]] | None` field.
+- **Decompose auto-wire shipped in v0.16** via the additive `auto_wired_by_child: dict[UUID, list[UUID]] | None` field on `MemDecomposeResponse` and the per-tool `autowire_decompose_enabled` knob. See `## Decompose ### Auto-wire (v0.16, OFF by default)` below.
 
 See `tests/integration/test_autowire_compose.py` for the 6 end-to-end cases (OFF regression, Stage B direct insert, ON CONFLICT semantics, replay reconstruction, compose-hook ON path, replay returns state-current).
 
@@ -391,6 +391,44 @@ Outbox shape:
 - `expected_version` (optional) is an optimistic-lock check on the source; mismatch raises `VersionConflictError`.
 
 See `tests/integration/test_decompose_transaction.py` for the full behavioral matrix (21 cases — smoke, validation, RBAC, race, whitelist, audit).
+
+### Auto-wire (v0.16, OFF by default)
+
+When **both** `autowire_enabled=True` **and** `autowire_decompose_enabled=True`, each successful `mem_decompose` call **may** wire up to `autowire_decompose_per_child_top_k` `related_to_popular` edges **per child** to the most-relevant popular neighbors in the same env. The decompose auto-wire flow mirrors the v0.15.0 compose auto-wire but runs **per child**: one shared PG candidate pull + one shared lineage-ancestor CTE seeded with `[source_id]`, **one batched embedder call** for all N children's bodies, **N parallel Qdrant searches** via `asyncio.gather`, per-child top-K + a global total-cap downsample, then per-child Stage B inserts wrapped in savepoints so one child's failure does not leak partial side effects to a sibling.
+
+The per-child mapping lives in a new additive response field:
+
+```python
+class MemDecomposeResponse:
+    auto_wired: list[UUID]                              # flat union (deduped, ordered by child insertion + per-child order)
+    auto_wired_by_child: dict[UUID, list[UUID]] | None  # v0.16+ per-child mapping
+```
+
+Knobs (under `Settings`):
+
+| Knob | Default | Range | Purpose |
+|---|---|---|---|
+| `autowire_decompose_enabled` | `False` | bool | Per-tool switch. **Requires `autowire_enabled=True`** (cross-knob invariant). |
+| `autowire_decompose_per_child_top_k` | `3` | `1..10` (`<= autowire_candidate_limit`) | Max edges emitted per child. |
+| `autowire_decompose_total_cap` | `30` | `1..100` (`>= per_child_top_k`) | Global ceiling. When `sum(per-child results) > total_cap`, results are flattened by `combined_score`, sorted desc, top-N kept, regrouped per-child. |
+
+Important semantics:
+
+- **Three-state `auto_wired_by_child`**:
+  - `None` → feature OFF on **first write** (master or per-decompose switch disabled). **Never** returned on replay — replay always reflects current state.
+  - `{child_id: []}` for every child → feature was ON but no edges resulted (empty candidates, Stage-A failure, or Stage-B savepoint rollback). Also the shape returned on replay of an operation originally written with the feature OFF.
+  - Populated mapping → wired edges. Each child id maps to its `list[UUID]` of dst memory ids.
+- **State-current replay** — `mem_decompose` replays via the `decompose_operations` dedupe key; the auto-wired edge set is reconstructed from the live `relations` table via `reconstruct_auto_wired_by_child`. Same caveat as compose: a manual `rel_link(type='related_to_popular')` between a child and another memory after the original decompose call will surface in replay.
+- **Sibling exclusion is NOT performed** — children's candidate pool is queried pre-txn from the existing memory set, so just-inserted siblings cannot appear in their pool. A separate auto-wire edge between siblings, if it ever shows up, is a separate operation (state-current replay would surface it).
+- **Per-child skip rules apply independently** — kind=playbook, tag `directive:active`, empty/whitespace body cause that one child's slot to be `[]`. The other children proceed normally.
+- **Lineage exclusion is shared** — the recursive ancestor CTE rooted at `[source_id]` is computed once and applied to every child's candidate set. Ancestors of the source are not auto-wire-able for any child.
+- **Stage-A failure → batch-empty, but feature-ON shape** — embedder or vector-store outage causes all children to receive `[]` (not `None`). The decompose call still commits.
+- **Stage-B failure is per-child** — each child's relation INSERTs run inside `async with s.begin_nested()`. One child raising rolls back only that child's relations; the sibling's edges commit cleanly. The failing child gets `[]`.
+- **Flat `auto_wired` is ordered-unique** — iterate children in insertion order, then each child's dst list, adding unseen UUIDs only. Duplicates across children (two children → same popular dst) appear exactly once in the flat list.
+- **`related_to_popular` is still excluded from popularity counters** (migrations 0017 + 0021). Per-child fan-out does not multiply the popularity-counter feedback loop because the predicate is excluded from the trigger whitelist.
+- **Outbox ordering** — for any child that produced wired edges, the child-memory `upsert` outbox row has a strictly smaller `event_id` than its relation outbox rows (`Outbox.event_id` is a monotonic BigInteger PK).
+
+See `tests/integration/test_autowire_decompose.py` for the 8 end-to-end cases (OFF baseline, per-decompose-off, happy path, ordered-unique flat list, replay-state-current, replay-of-off, per-child Stage-B failure isolation, outbox ordering).
 
 ## Architecture
 

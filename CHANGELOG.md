@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added — Phase 4 v0.16 decompose auto-wire
+
+- **Per-child `related_to_popular` auto-wire on `mem_decompose`** — deferred from v0.15.0 (D-defer). When both `autowire_enabled=True` and `autowire_decompose_enabled=True`, each decompose call wires up to `autowire_decompose_per_child_top_k` `related_to_popular` edges *per child* to popular neighbors in the same env. One shared PG candidate pull + one shared lineage-ancestor CTE seeded with `[source_id]` + **one batched embedder call** for all N children's bodies + **N parallel Qdrant searches** via `asyncio.gather`, per-child top-K filter, then a global `autowire_decompose_total_cap` downsample. Per-child Stage B inserts are wrapped in savepoints so one child's failure leaves siblings' edges intact. OFF by default — operators must opt in twice (master + per-decompose).
+- **`MemDecomposeResponse.auto_wired_by_child: dict[UUID, list[UUID]] | None`** (v0.16 schema additive) — per-child mapping. Three states: `None` (feature OFF on first write — never returned on replay), `{child_id: []}` per child (feature ON, no edges — empty candidates, Stage-A failure, Stage-B rollback, or replay-of-OFF), populated mapping (wired edges). Existing flat `auto_wired: list[UUID]` is preserved and is now the ordered-unique deduplicated union across all children. Backward-compatible — clients that ignore the new field see the same flat list as before.
+- **Three new `Settings` knobs**: `autowire_decompose_enabled` (`False`), `autowire_decompose_per_child_top_k` (`3`, `1..10`), `autowire_decompose_total_cap` (`30`, `1..100`). Cross-knob invariants: `autowire_decompose_enabled` requires `autowire_enabled`; `autowire_decompose_total_cap >= autowire_decompose_per_child_top_k`; `autowire_candidate_limit >= autowire_decompose_per_child_top_k`.
+- **State-current replay** — `mem_decompose` replays via the `decompose_operations` dedupe key; the auto-wired edge set is reconstructed from the live `relations` table via the new `reconstruct_auto_wired_by_child` query. Replay **always** populates `auto_wired_by_child` as a per-child dict (with `[]` for any child missing edges). Matches the v0.15.0 compose state-current replay semantic: a manual `rel_link(type='related_to_popular')` between a child and another memory after the original decompose call surfaces in replay too.
+- **8 new integration tests** in `tests/integration/test_autowire_decompose.py` covering the H5.3 baseline + the 6 H6 rubber-duck gaps (OFF baseline, per-decompose-off gate, happy path per-child fan-out, ordered-unique flat list, replay-state-current per-child dict, replay-of-OFF-original, per-child Stage-B savepoint isolation, outbox event-id ordering). 21 unit tests in `tests/unit/test_autowire_decompose.py` cover Stage A skip filters, embedder batching, cap downsampling, threshold cutoff, and degradation paths.
+
+### Notes
+
+- **No schema migration.** Auto-wire on decompose reuses the existing `relations` table, the existing `related_to_popular` predicate (still excluded from popularity counters per migrations 0017 + 0021), and the v0.15.0 compose-autowire primitives. No DB changes; only Python code + Settings additions.
+- **Decompose auto-wire on dream-driven decompose passes is out of scope** — the dream worker's pass is a separate concern; per-child fan-out on dream output would land alongside dream-decompose passes if/when those ship.
+
 ## [0.15.1] — 2026-05-29
 
 ### Fixed
