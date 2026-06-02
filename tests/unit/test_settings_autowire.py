@@ -182,3 +182,128 @@ def test_autowire_candidate_limit_equal_to_top_k_allowed() -> None:
         s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert s.autowire_top_k == 5
     assert s.autowire_candidate_limit == 5
+
+
+# ---- v0.16 decompose knobs --------------------------------------------------
+
+
+def test_decompose_autowire_defaults_disabled() -> None:
+    """Decompose auto-wire OFF by default (independent of master switch);
+    fan-out is N× compose risk so operators must opt in explicitly."""
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.autowire_decompose_enabled is False
+    assert s.autowire_decompose_per_child_top_k == 3
+    assert s.autowire_decompose_total_cap == 30
+
+
+def test_decompose_autowire_env_overrides() -> None:
+    with mock.patch.dict(
+        os.environ,
+        {
+            "AUTOWIRE_ENABLED": "true",
+            "AUTOWIRE_DECOMPOSE_ENABLED": "true",
+            "AUTOWIRE_DECOMPOSE_PER_CHILD_TOP_K": "5",
+            "AUTOWIRE_DECOMPOSE_TOTAL_CAP": "50",
+        },
+        clear=False,
+    ):
+        s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.autowire_decompose_enabled is True
+    assert s.autowire_decompose_per_child_top_k == 5
+    assert s.autowire_decompose_total_cap == 50
+
+
+def test_decompose_per_child_top_k_range_validators() -> None:
+    """``per_child_top_k`` must be in 1..10 (mirrors compose top_k)."""
+    with (
+        mock.patch.dict(
+            os.environ,
+            {"AUTOWIRE_DECOMPOSE_PER_CHILD_TOP_K": "0"},
+            clear=False,
+        ),
+        pytest.raises(ValueError),
+    ):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    with (
+        mock.patch.dict(
+            os.environ,
+            {"AUTOWIRE_DECOMPOSE_PER_CHILD_TOP_K": "11"},
+            clear=False,
+        ),
+        pytest.raises(ValueError),
+    ):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_decompose_total_cap_range_validators() -> None:
+    """``total_cap`` must be in 1..100 (bounds worst-case 20×10 = 200)."""
+    with (
+        mock.patch.dict(
+            os.environ,
+            {"AUTOWIRE_DECOMPOSE_TOTAL_CAP": "0"},
+            clear=False,
+        ),
+        pytest.raises(ValueError),
+    ):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+    with (
+        mock.patch.dict(
+            os.environ,
+            {"AUTOWIRE_DECOMPOSE_TOTAL_CAP": "101"},
+            clear=False,
+        ),
+        pytest.raises(ValueError),
+    ):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_decompose_enabled_requires_master_switch() -> None:
+    """``autowire_decompose_enabled`` without master ``autowire_enabled``
+    is misconfiguration. Master OFF disables ALL auto-wire."""
+    with (
+        mock.patch.dict(
+            os.environ,
+            {
+                "AUTOWIRE_ENABLED": "false",
+                "AUTOWIRE_DECOMPOSE_ENABLED": "true",
+            },
+            clear=False,
+        ),
+        pytest.raises(ValueError, match="requires autowire_enabled"),
+    ):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_decompose_total_cap_must_be_at_least_per_child_top_k() -> None:
+    """Global cap below per-child cap is incoherent — every child
+    would silently clip before per-child K is applied."""
+    with (
+        mock.patch.dict(
+            os.environ,
+            {
+                "AUTOWIRE_DECOMPOSE_PER_CHILD_TOP_K": "5",
+                "AUTOWIRE_DECOMPOSE_TOTAL_CAP": "3",
+            },
+            clear=False,
+        ),
+        pytest.raises(ValueError, match="total_cap"),
+    ):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_decompose_candidate_limit_must_accommodate_per_child_top_k() -> None:
+    """Shared candidate pre-pull serves all children; if it can't even
+    saturate per-child K, the pass silently under-emits."""
+    with (
+        mock.patch.dict(
+            os.environ,
+            {
+                "AUTOWIRE_TOP_K": "1",
+                "AUTOWIRE_CANDIDATE_LIMIT": "2",
+                "AUTOWIRE_DECOMPOSE_PER_CHILD_TOP_K": "5",
+            },
+            clear=False,
+        ),
+        pytest.raises(ValueError, match="candidate_limit"),
+    ):
+        Settings(_env_file=None)  # type: ignore[call-arg]

@@ -438,20 +438,78 @@ class Settings(BaseSettings):
     # over-fetching.
     autowire_candidate_limit: int = Field(default=20, ge=1, le=200)
 
+    # ---- Phase 4 (v0.16) — decompose auto-wire ---------------------------
+    # Independent enable-flag for ``mem_decompose`` per-child auto-wire.
+    # OFF by default. Requires ``autowire_enabled=True`` (master switch);
+    # operators must opt in to both because decompose fan-out is N× the
+    # compose risk profile.
+    autowire_decompose_enabled: bool = Field(default=False)
+    # Per-child cap on auto-wire edges. Mirrors ``autowire_top_k`` for
+    # compose. Worst-case fan-out before global cap: 20 children × 10
+    # candidates = 200 edges per decompose.
+    autowire_decompose_per_child_top_k: int = Field(default=3, ge=1, le=10)
+    # Global cap on total auto-wire edges per decompose. Bounds worst
+    # case fan-out across all children. When the sum of per-child
+    # results exceeds this cap, the autowire pass flattens
+    # ``(child_idx, dst_id, combined_score)`` triples, sorts by score
+    # desc, takes the first ``total_cap``, and regroups per-child.
+    autowire_decompose_total_cap: int = Field(default=30, ge=1, le=100)
+
     @model_validator(mode="after")
     def _autowire_invariants(self) -> "Settings":
         """Enforce cross-knob invariants on the ``autowire_*`` group.
 
-        ``autowire_candidate_limit`` MUST be ``>= autowire_top_k`` —
-        otherwise the candidate pre-pull cannot saturate ``top_k`` even
-        on a perfect-similarity neighbourhood and the pass silently
-        under-emits. Caught at config load so misconfiguration is loud.
+        Compose:
+        * ``autowire_candidate_limit`` MUST be ``>= autowire_top_k`` —
+          otherwise the candidate pre-pull cannot saturate ``top_k`` even
+          on a perfect-similarity neighbourhood and the pass silently
+          under-emits.
+
+        Decompose (v0.16):
+        * ``autowire_decompose_enabled`` requires master ``autowire_enabled``.
+          Master OFF disables ALL auto-wire including decompose.
+        * ``autowire_decompose_total_cap`` MUST be
+          ``>= autowire_decompose_per_child_top_k`` — global cap below
+          per-child cap is incoherent (would silently clip every child
+          before per-child K is applied).
+        * ``autowire_candidate_limit`` MUST also be
+          ``>= autowire_decompose_per_child_top_k`` — the shared
+          candidate pre-pull is reused across all children, so it must
+          accommodate the per-child K just like it accommodates compose's
+          top_k.
+
+        All invariants caught at config load so misconfiguration is loud.
         """
         if self.autowire_candidate_limit < self.autowire_top_k:
             raise ValueError(
                 "autowire_candidate_limit "
                 f"({self.autowire_candidate_limit}) must be >= "
                 f"autowire_top_k ({self.autowire_top_k})"
+            )
+        if self.autowire_decompose_enabled and not self.autowire_enabled:
+            raise ValueError(
+                "autowire_decompose_enabled requires autowire_enabled "
+                "(master switch); enable both or neither"
+            )
+        if (
+            self.autowire_decompose_total_cap
+            < self.autowire_decompose_per_child_top_k
+        ):
+            raise ValueError(
+                "autowire_decompose_total_cap "
+                f"({self.autowire_decompose_total_cap}) must be >= "
+                "autowire_decompose_per_child_top_k "
+                f"({self.autowire_decompose_per_child_top_k})"
+            )
+        if (
+            self.autowire_candidate_limit
+            < self.autowire_decompose_per_child_top_k
+        ):
+            raise ValueError(
+                "autowire_candidate_limit "
+                f"({self.autowire_candidate_limit}) must be >= "
+                "autowire_decompose_per_child_top_k "
+                f"({self.autowire_decompose_per_child_top_k})"
             )
         return self
 
