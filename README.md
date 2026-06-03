@@ -430,6 +430,69 @@ Important semantics:
 
 See `tests/integration/test_autowire_decompose.py` for the 8 end-to-end cases (OFF baseline, per-decompose-off, happy path, ordered-unique flat list, replay-state-current, replay-of-off, per-child Stage-B failure isolation, outbox ordering).
 
+## Inbox / Drop-Box (v0.17.0 — Phase 5)
+
+Three new tools turn memory-mcp into a **user-orchestrated** inter-agent message-passing substrate. Agents don't subscribe or listen autonomously — the user copy-pastes a short reference between agents to route messages. The reference is the central UX primitive.
+
+### Reference format
+
+Every channel has a stable copy-pasteable URL:
+
+```
+mem-inbox://<env-name>/<channel-slug>
+```
+
+Example: `mem-inbox://workspace/quiet-otter`. The slug is the channel entity's `canonical_name` (kebab-case, ≤64 chars). Auto-generated slugs use a curated `<adjective>-<noun>` wordlist for pronounceability when the caller omits `name`. References are **server-formatted**; clients pass response strings back verbatim.
+
+### Three user-orchestrated flows
+
+**UC1 — recipient opens an inbox.** User asks Agent A to *"open an inbox"*. Agent A calls `mem_inbox_open(env_name="workspace")` → response carries `reference="mem-inbox://workspace/quiet-otter"`. User copies the reference to Agent B with *"send me notes here"*. Agent B calls `mem_inbox_send(to="mem-inbox://workspace/quiet-otter", body=...)`. Later, user asks Agent A to *"check the inbox"* → Agent A calls `mem_inbox(to=<ref>)`.
+
+**UC2 — sender shares an instruction.** User asks Agent A to *"share this with another agent: …"*. Agent A calls `mem_inbox_open` then `mem_inbox_send`, echoes the reference back. User pastes reference into Agent B's chat *"read this"*. Agent B calls `mem_inbox(to=<ref>)`.
+
+**UC3 — established channel.** Both agents and the user already know the reference. User says *"pass to mem-inbox://workspace/quiet-otter: please update the build pipeline"*. Agent A calls `mem_inbox_send(to=<ref>, body=…)` directly. User to Agent B: *"check mem-inbox://workspace/quiet-otter"* → Agent B calls `mem_inbox(to=<ref>)`.
+
+### Tool surface
+
+| Tool | Wraps | Purpose |
+|---|---|---|
+| `mem_inbox_open(env_id/env_name, *, name?, title?, idempotent=False)` | `entity_upsert(kind="channel")` | Creates a channel entity. Returns the formatted reference. Auto-generates slug when `name` omitted. |
+| `mem_inbox_send(to, body, *, env_id/env_name?, title?, expires_at?, display_from?)` | `memory_write(kind=message)` | Sends a message to the channel. Default 7-day TTL (cap 90d). **Rejects** non-existent slugs — explicit `mem_inbox_open` required first (prevents typo-driven channel proliferation). |
+| `mem_inbox(to, *, env_id/env_name?, cursor?, limit=20, include_expired=False, order="desc")` | internal SQL | Reads messages from the channel. Internal SQL (not `mem_browse` — its `tags` filter is OR semantics; inbox needs AND between `kind='message'` and the entity link). Returns newest-first by default. |
+
+### Reference parsing
+
+Both `mem_inbox_send` and `mem_inbox` accept either form on `to`:
+
+* URL form (`mem-inbox://<env>/<slug>`) — env resolved from URL. If caller also passes `env_id` or `env_name`, both must match or the call raises `InvalidInputError` (UC2 invariant — prevents silent cross-env writes).
+* Bare slug — `env_id` or `env_name` arg required.
+
+### Schema additions
+
+* **`MemoryKind.message`** — distinct from `event` so messages don't pollute timeline reads or factual digests.
+* **`EntityKind.channel`** — distinct from `agent` so channels are visibly multi-reader endpoints, not identities.
+* **`inbox` fast-filter tag** — single fixed tag; recipient is in `entity_links`, not the tag.
+* **`display_from` metadata** (display-only) — server always records `created_by_agent_id`; `display_from` is for human-readable attribution and is never anonymization.
+
+### Cross-cutting `expires_at` filter
+
+v0.17 also tightens the default-read contract: **expired memories are now excluded from all default reads** (`mem_search`, `mem_browse`, `mem_resume`, `mem_context_pack`, `mem_auto_context`, `mem_facets`, `mem_top`, `mem_inbox`). Backward-compatible — memories without `expires_at` are unaffected. Pass `include_expired=True` on any of these read paths to surface expired rows for audit / forensic flows.
+
+### ARC vs memory-mcp inbox
+
+memory-mcp inbox and `agent-relay-chat` (ARC) are **not interchangeable**. Pick by intent:
+
+| Use **ARC** for | Use **memory-mcp inbox** for |
+|---|---|
+| Conversation, questions, replies | Durable handoff notes / instructions |
+| Real-time-ish coordination | Searchable operational memory with TTL |
+| Channel chat history | Drop-box updates that survive ARC's per-session UUID gap |
+| Explicit ack semantics | Recipient-addressed memory artifacts with lineage |
+
+memory-mcp inbox does NOT carry reply threading, ack substrate, channel admin, listen/subscribe, or real-time push — those live in ARC.
+
+See `tests/integration/test_inbox.py` (6 integration cases covering the three UC flows end-to-end + the `_resolve_env_refs` await regression) and `tests/integration/test_expires_at_filter.py` (8 cross-cutting filter cases).
+
 ## Architecture
 
 ```

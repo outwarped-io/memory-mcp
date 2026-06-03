@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-06-03
+
+### Added — Phase 5 Inbox / Drop-Box
+
+- **Three new MCP tools** turn memory-mcp into a user-orchestrated inter-agent message-passing substrate:
+  - **`mem_inbox_open(env_id/env_name, *, name?, title?, idempotent=False)`** — creates a channel entity (`EntityKind.channel`). Auto-generates a kebab-case `<adjective>-<noun>` slug from a curated wordlist when `name` is omitted. Returns a copy-pasteable `mem-inbox://<env-name>/<slug>` reference.
+  - **`mem_inbox_send(to, body, *, env_id/env_name?, title?, expires_at?, display_from?)`** — sends a message (`MemoryKind.message`) anchored to the channel via `entity_links` + the fixed `inbox` tag. Default 7-day TTL (cap 90d). **Rejects** non-existent slugs — explicit `mem_inbox_open` required first (prevents typo-driven channel proliferation).
+  - **`mem_inbox(to, *, env_id/env_name?, cursor?, limit=20, include_expired=False, order="desc")`** — internal SQL query (not a `mem_browse` wrapper — `mem_browse.tags` is OR semantics and inbox needs AND between `kind='message'` and the entity link). Newest-first by default; opaque keyset cursor on `(created_at, id)` mirrors `mem_browse` shape.
+- **Reference primitive** — `mem-inbox://<env-name>/<channel-slug>`. Self-describing, unambiguous (env in the URL), pronounceable for voice dictation, stable (slug = entity `canonical_name`; survives session restarts and supersede UUID rotation). Server is the only producer of well-formed references; clients pass response strings back verbatim.
+- **`MemoryKind.message`** + **`EntityKind.channel`** enum values (Phase A — migration `0022`). Reusing `event` would pollute timelines; reusing `agent` would collapse channel-vs-identity semantics.
+- **`display_from` metadata** — display-only attribution string. Server-side `created_by_agent_id` is ALWAYS recorded; `display_from` is never anonymization, only readability.
+- **UC2 env-mismatch invariant** — when `to` carries URL form AND caller also passes `env_id`/`env_name`, both must resolve to the same env; mismatch raises `InvalidInputError` rather than silent cross-env write.
+
+### Changed — Cross-cutting `expires_at` default-filter (BEHAVIOR-CHANGING DEFAULT-TIGHTENING)
+
+- **Expired memories are now excluded from all default read paths.** Affects `mem_search` (lex + semantic + auto-context), `mem_browse`, `mem_resume`, `mem_context_pack`, `mem_facets`, `mem_top`, `mem_digest`, and `mem_inbox`. Filter shape: `(expires_at IS NULL OR expires_at > now())`.
+- **Backward-compatible** — any memory without `expires_at` (the overwhelming majority pre-v0.17) is unaffected. Only memories that **opt into** an expiry get hidden from default reads.
+- **New `include_expired: bool = False` flag** added to `MemBrowseRequest`, `MemSearchRequest`, `MemTopRequest` for audit / forensic flows that need to surface expired rows.
+- Centralized helpers in new `src/memory_mcp/_filters.py` (`exclude_expired_raw_sql()` / `exclude_expired_clause()`) threaded through 9 read paths so future tightenings have a single edit point.
+
+### Tests
+
+- **8 new integration cases** in `tests/integration/test_expires_at_filter.py` covering the cross-cutting default-filter across all affected read paths. FTS-design lesson: tests use a shared `"needle"` discriminator word in both row bodies so `websearch_to_tsquery`'s AND semantics match both, isolating the non-FTS filter behavior under test.
+- **6 new integration cases** in `tests/integration/test_inbox.py` covering all three UC flows end-to-end + the `_resolve_env_refs` await regression that originally surfaced during Phase C.
+- **Unit coverage** for the inbox pure-function helpers (slug generation, reference parsing/formatting, env-mismatch detection) and for `include_expired` schema fields.
+
+### Migration
+
+- **`0022_message_kind.py`** — adds `'message'` to the `MemoryKind` Postgres enum and `'channel'` to the `EntityKind` Postgres enum. Idempotent via `ADD VALUE IF NOT EXISTS`.
+
+### Notes
+
+- **No new lineage edges or popularity-counter changes** — messages don't participate in `reference_count_lineage`. Channel entities don't bump any counter on message arrival.
+- **memory-mcp inbox is not a chat substrate** — pick `agent-relay-chat` (ARC) for conversation, threading, real-time-ish coordination. Inbox is for durable handoff notes / instructions with TTL.
+- **Out of scope for v0.17**: reply threading, ack substrate (per-reader read-receipts), channel admin (join / leave / member-list), listen/subscribe, real-time push, server-side anonymous authorship erasure, cross-env inboxes, push notifications, encrypted messages.
+
 ## [0.16.0] — 2026-06-02
 
 ### Added — Phase 4 v0.16 decompose auto-wire
