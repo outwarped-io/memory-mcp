@@ -2506,7 +2506,7 @@ def build_mcp_server(
         out: EnvMigrateResponse = await migrate_env(request, ctx=ctx)
         return _dump(out)
 
-    log.info("mcp transport: registered %d tools", 60)
+    log.info("mcp transport: registered %d tools", 65)
     _install_validation_hints(mcp)
     return mcp
 
