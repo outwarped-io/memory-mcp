@@ -377,7 +377,7 @@ async def mem_inbox_open(
     ``request.name`` is omitted; retries on collision (bounded).
     """
     # Resolve env first so we can collision-check generated slugs.
-    request = _resolve_env_refs(request)
+    request = await _resolve_env_refs(request)
     env_id, env_name = await _resolve_inbox_env(
         to_env_name=None,
         request_env_id=request.env_id,
@@ -477,7 +477,7 @@ async def mem_inbox_send(
     Rejects non-existent slugs — explicit :func:`mem_inbox_open` is
     required first. This prevents typo-driven channel proliferation.
     """
-    request = _resolve_env_refs(request)
+    request = await _resolve_env_refs(request)
     to_env_name, slug = parse_reference(request.to)
     env_id, env_name = await _resolve_inbox_env(
         to_env_name=to_env_name,
@@ -572,7 +572,7 @@ async def mem_inbox(
     entity. Newest first by default; opaque keyset cursor on
     ``(created_at, id)``.
     """
-    request = _resolve_env_refs(request)
+    request = await _resolve_env_refs(request)
     to_env_name, slug = parse_reference(request.to)
     env_id, env_name = await _resolve_inbox_env(
         to_env_name=to_env_name,
