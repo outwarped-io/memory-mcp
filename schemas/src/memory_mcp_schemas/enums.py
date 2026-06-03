@@ -24,6 +24,7 @@ class MemoryKind(StrEnum):
     journal_entry = "journal_entry"
     session_digest = "session_digest"
     snippet = "snippet"
+    message = "message"
 
 
 class MemoryStatus(StrEnum):

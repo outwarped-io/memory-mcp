@@ -42,7 +42,7 @@ import datetime as dt
 import logging
 import re
 import unicodedata
-from typing import Any, Literal
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -88,7 +88,16 @@ from memory_mcp_schemas.entities import (
 
 log = logging.getLogger(__name__)
 
+# v0.17 — inter-agent inbox uses entities of this kind as the durable
+# addressing target for inbox messages. ``entity.kind`` is a free-form
+# ``text`` column (no DB CHECK constraint), so this constant is a
+# Python-side convention only — no migration needed. The inbox tools
+# (``mem_inbox_open``/``send``/``mem_inbox``) compare against this value
+# when resolving references of the form ``mem-inbox://<env>/<slug>``.
+CHANNEL_ENTITY_KIND: Final[str] = "channel"
+
 __all__ = [
+    "CHANNEL_ENTITY_KIND",
     "EntityBrowseRequest",
     "EntityBrowseResponse",
     "EntityMergeRequest",
