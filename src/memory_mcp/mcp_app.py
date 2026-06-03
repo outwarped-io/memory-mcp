@@ -435,7 +435,7 @@ def build_mcp_server(
                 "kind": "fact",
                 "title": "deploy summary",
                 "body": "Deployment completed with no known regressions.",
-                "env_name": "cdp",
+                "env_name": "project-a",
                 "tags": ["source:adhoc", "topic:deploy"]
               }
             }
@@ -841,7 +841,7 @@ def build_mcp_server(
 
         Example:
             {
-              "request": {"env_name": "workspace", "title": "RLS handoff"}
+              "request": {"env_name": "personal", "title": "RLS handoff"}
             }
         """
         ctx = await _resolve_ctx(
@@ -1010,7 +1010,7 @@ def build_mcp_server(
             {
               "request": {
                 "content": "Checked deployment health; no alerts firing.",
-                "env_name": "cdp",
+                "env_name": "project-a",
                 "tags": ["source:journal", "topic:deploy"]
               }
             }
@@ -1035,7 +1035,7 @@ def build_mcp_server(
 
         Example:
             {
-              "env_name": "cdp",
+              "env_name": "project-a",
               "since_ts": "2026-01-01T00:00:00Z"
             }
         """
@@ -1064,7 +1064,7 @@ def build_mcp_server(
 
         Example:
             {
-              "env_name": "cdp",
+              "env_name": "project-a",
               "journal_tail": 5
             }
         """
@@ -1095,7 +1095,7 @@ def build_mcp_server(
             {
               "request": {
                 "query": "outgoing deploy",
-                "env_names": ["cdp"],
+                "env_names": ["project-a"],
                 "expansion": "broad",
                 "limit": 5
               }
@@ -1192,7 +1192,7 @@ def build_mcp_server(
             {
               "request": {
                 "memory_id": "00000000-0000-0000-0000-000000000001",
-                "env_name": "cdp",
+                "env_name": "project-a",
                 "hops": 1,
                 "edge_types": ["derives_from"],
                 "fallback": true,
@@ -1226,7 +1226,7 @@ def build_mcp_server(
             {
               "request": {
                 "memory_id": "00000000-0000-0000-0000-000000000001",
-                "env_name": "cdp",
+                "env_name": "project-a",
                 "relation": "semantic",
                 "min_score": 0.5,
                 "fallback": true,
@@ -1258,7 +1258,7 @@ def build_mcp_server(
             {
               "request": {
                 "memory_id": "00000000-0000-0000-0000-000000000001",
-                "env_name": "cdp-archive",
+                "env_name": "project-archive",
                 "direction": "both",
                 "max_depth": 3
               }
@@ -1284,7 +1284,7 @@ def build_mcp_server(
         Example:
             {
               "request": {
-                "env_names": ["cdp"],
+                "env_names": ["project-a"],
                 "memory_ids": ["00000000-0000-0000-0000-000000000001"],
                 "source_types": ["agent"],
                 "hydrate_memories": false,
@@ -1314,7 +1314,7 @@ def build_mcp_server(
         Example:
             {
               "request": {
-                "env_names": ["cdp"],
+                "env_names": ["project-a"],
                 "kinds": ["fact"],
                 "tags": ["topic:deploy"],
                 "limit": 5
@@ -1347,7 +1347,7 @@ def build_mcp_server(
         Example:
             {
               "request": {
-                "env_names": ["cdp"],
+                "env_names": ["project-a"],
                 "facets": ["kind", "status", "tag"],
                 "tag_limit": 10
               }
@@ -1379,10 +1379,10 @@ def build_mcp_server(
         Example:
             {
               "request": {
-                "env_names": ["cdp"],
+                "env_names": ["project-a"],
                 "by": "reference_count",
                 "kinds": ["fact", "procedure"],
-                "tags": ["repo:cdp-svc-agent"],
+                "tags": ["repo:org/service-a"],
                 "tag_match": "any",
                 "limit": 10
               }
@@ -1424,7 +1424,7 @@ def build_mcp_server(
         Example:
             {
               "request": {
-                "env_names": ["cdp"],
+                "env_names": ["project-a"],
                 "include_substrates": false,
                 "include_distributions": true
               }
@@ -1458,7 +1458,7 @@ def build_mcp_server(
                 "kind": "service",
                 "canonical_name": "management",
                 "aliases": ["mgmt"],
-                "env_name": "cdp"
+                "env_name": "project-a"
               }
             }
         """
@@ -1483,7 +1483,7 @@ def build_mcp_server(
             {
               "request": {
                 "name": "management",
-                "env_names": ["cdp"],
+                "env_names": ["project-a"],
                 "kinds": ["service"],
                 "limit": 5
               }
@@ -1606,7 +1606,7 @@ def build_mcp_server(
                 "src": {"kind": "memory", "id": "00000000-0000-0000-0000-000000000001"},
                 "dst": {"kind": "entity", "id": "00000000-0000-0000-0000-000000000601"},
                 "type": "mentions",
-                "env_name": "cdp"
+                "env_name": "project-a"
               }
             }
         """
@@ -1778,7 +1778,7 @@ def build_mcp_server(
 
         Example:
             {
-              "name": "cdp"
+              "name": "project-a"
             }
         """
         ctx = await _resolve_ctx(
@@ -1837,7 +1837,7 @@ def build_mcp_server(
             {
               "request": {
                 "env_id": "00000000-0000-0000-0000-000000000101",
-                "new_name": "cdp-archive"
+                "new_name": "project-archive"
               }
             }
 
@@ -1863,7 +1863,7 @@ def build_mcp_server(
 
         Example:
             {
-              "name": "cdp",
+              "name": "project-a",
               "session_id": "00000000-0000-0000-0000-000000000301"
             }
 
@@ -1892,7 +1892,7 @@ def build_mcp_server(
 
         Example:
             {
-              "name": "cdp",
+              "name": "project-a",
               "session_id": "00000000-0000-0000-0000-000000000301"
             }
         """
@@ -2274,7 +2274,7 @@ def build_mcp_server(
               "request": {
                 "env_id": "00000000-0000-0000-0000-000000000101",
                 "format": "archive",
-                "target_path": "exports/cdp-export",
+                "target_path": "exports/project-a-export",
                 "include_embeddings": true
               }
             }
@@ -2310,8 +2310,8 @@ def build_mcp_server(
         Example:
             {
               "request": {
-                "source_path": "exports/cdp-export.tar.gz",
-                "target_env_name": "cdp-import",
+                "source_path": "exports/project-a-export.tar.gz",
+                "target_env_name": "project-import",
                 "mode": "fail",
                 "dry_run": true
               }
@@ -2375,7 +2375,7 @@ def build_mcp_server(
               "request": {
                 "snapshot_id": "00000000-0000-0000-0000-000000000501",
                 "mode": "restore_to_new_env",
-                "new_env_name": "cdp-restored"
+                "new_env_name": "project-restored"
               }
             }
 
@@ -2431,7 +2431,7 @@ def build_mcp_server(
             {
               "request": {
                 "src_env_id": "00000000-0000-0000-0000-000000000101",
-                "new_name": "cdp-sandbox",
+                "new_name": "project-sandbox",
                 "include_embeddings": true
               }
             }

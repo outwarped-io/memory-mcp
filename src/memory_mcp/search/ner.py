@@ -9,7 +9,7 @@ v1 strategy — conservative, deterministic, no surprises:
 2. **Regex identifier extractor** as a fallback. Catches mixed-case
    identifiers (``ServiceA``), acronyms (``API``, ``SRE``), and
    hyphen/dot/slash-separated names (``service-a``, ``foo.bar``,
-   ``ms/cdp``). This guarantees graph search works even when the
+   ``org/project``). This guarantees graph search works even when the
    spaCy model is not installed.
 3. **Raw-query fallback** — if and only if the query has at most
    ``settings.graph_search_raw_query_max_tokens`` whitespace tokens,
@@ -69,7 +69,7 @@ _USEFUL_ENT_LABELS: frozenset[str] = frozenset({
 #   - camelCase with internal capital (serviceA).
 #   - all-uppercase 2+ letters (API, SRE) — the 2+ guard avoids "I", "A".
 #   - hyphen / dot / slash / underscore separated alphanumerics
-#     (service-a, foo.bar, ms/cdp, my_service).
+#     (service-a, foo.bar, org/project, my_service).
 _IDENTIFIER_RE = re.compile(
     r"""
     \b(

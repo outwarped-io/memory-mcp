@@ -26,7 +26,7 @@ from memory_mcp_client import MemoryClient
 
 client = MemoryClient(
     endpoint="http://127.0.0.1:8080/mcp/",
-    attached_env_names=["workspace"],  # or attached_env_ids=[UUID(...)]
+    attached_env_names=["scratch"],  # or attached_env_ids=[UUID(...)]
 )
 ```
 
@@ -44,7 +44,7 @@ for e in envs:
     print(e.id, e.name, e.kind, e.status)
 ```
 
-→ `[{id: ..., name: 'cdp', ...}, {id: ..., name: 'workspace', ...}, {id: ..., name: 'private', ...}]`
+→ `[{id: ..., name: 'project-a', ...}, {id: ..., name: 'scratch', ...}, {id: ..., name: 'personal', ...}]`
 
 Pick the env you care about. Everything below scopes to that env.
 
@@ -54,7 +54,7 @@ Before browsing rows, ask **what's in this env** in aggregate.
 
 ```python
 facets = await client.memories.facets(
-    env_names=["workspace"],
+    env_names=["scratch"],
     dimensions=["kind", "lifecycle", "tag", "source"],
 )
 print(facets.kind)       # {"fact": 412, "decision": 9, "procedure": 14, ...}
@@ -70,7 +70,7 @@ Now look at actual rows. `mem_browse` paginates by `(created_at | updated_at, id
 
 ```python
 page = await client.memories.browse(
-    env_names=["workspace"],
+    env_names=["scratch"],
     filter={"kinds": ["fact"], "tags_any": ["topic:docker"]},
     order_by="created_at",
     limit=20,
@@ -80,7 +80,7 @@ for row in page.rows:
 
 # Next page:
 next_page = await client.memories.browse(
-    env_names=["workspace"],
+    env_names=["scratch"],
     filter=page.filter,  # same filter, or pass cursor only
     cursor=page.next_cursor,
 )
@@ -145,7 +145,7 @@ Reuses the same `GraphStore` walker `ent_neighbors` is built on. Pass `consisten
 similar = await client.memories.related(
     memory_id=row.id,
     limit=10,
-    env_names=["workspace"],  # optional; cross-env semantic search
+    env_names=["scratch"],  # optional; cross-env semantic search
 )
 for s in similar.rows:
     print(f"{s.score:.3f}  {s.title}")
@@ -159,7 +159,7 @@ If the env has entities (people, repos, services, projects), list them:
 
 ```python
 ents = await client.entities.browse(
-    env_names=["workspace"],
+    env_names=["scratch"],
     kinds=["repo", "service"],
     limit=20,
 )
@@ -175,7 +175,7 @@ List relations directly. Useful for "who points at this entity?" or "what `evide
 
 ```python
 rels = await client.relations.browse(
-    env_names=["workspace"],
+    env_names=["scratch"],
     relation_types=["evidence_for"],
     limit=50,
 )

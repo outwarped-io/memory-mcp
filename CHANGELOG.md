@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.17.1] — 2026-06-03
+
+### Changed — Documentation public-readiness cleanup
+
+- **Neutral example identifiers throughout** — tool docstrings, NER docs, and `docs/exploration-tour.md` now use generic env names (`project-a`, `scratch`, `personal`) instead of workspace-specific names. Examples that referenced `repo:cdp-svc-agent` now use `repo:org/service-a`; NER doc comments use `org/project` instead of `ms/cdp`.
+- **README restructured** — README slimmed from 935 lines to ~275 lines covering install, LOCAL-ONLY warning, what/why, architecture, and quick start. Deep-dive content lifted into `docs/`:
+  - `docs/tools.md` — full MCP tool reference
+  - `docs/features.md` — Compose / Decompose / Inbox walkthroughs
+  - `docs/operations.md` — operator runbook (backup, restore, lifecycle)
+  - `docs/configuration.md` — environment variables
+  - `docs/observability.md` — Prometheus / Grafana
+  - `docs/python-client.md` — packaged client wrapper
+  - `docs/repo-layout.md` — directory map
+- **No API or schema changes.** Plugin manifest version bumped to `0.17.1` so `/plugin update` pulls the cleaned docs.
+
 ## [0.17.0] — 2026-06-03
 
 ### Added — Phase 5 Inbox / Drop-Box

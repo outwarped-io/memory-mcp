@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "memory-mcp"
-version = "0.17.0"
+version = "0.17.1"
 description = "Shared cross-session memory MCP server backed by Postgres + Qdrant + Neo4j"
 readme = "README.md"
 requires-python = ">=3.12"
