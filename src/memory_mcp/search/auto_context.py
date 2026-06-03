@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
+from memory_mcp._filters import exclude_expired_clause
 from memory_mcp.config import Settings
 from memory_mcp.db.models import Memory
 from memory_mcp.db.postgres import session_scope
@@ -53,7 +54,13 @@ async def memory_auto_context(
     scores = dict(ranked_ids)
     async with session_scope() as session:
         rows = (await session.execute(
-            select(Memory).where(Memory.id.in_(ids), Memory.env_id == env_id)
+            select(Memory).where(
+                Memory.id.in_(ids),
+                Memory.env_id == env_id,
+                # v0.17 — convenience surface always default-excludes
+                # expired memories. No opt-out.
+                exclude_expired_clause(),
+            )
         )).scalars().all()
     by_id = {m.id: m for m in rows}
 

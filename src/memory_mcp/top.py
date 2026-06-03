@@ -48,6 +48,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from memory_mcp import rbac
+from memory_mcp._filters import exclude_expired_clause
 from memory_mcp.config import Settings, get_settings
 from memory_mcp.db.models import (
     GraphNode,
@@ -123,9 +124,13 @@ def _apply_base_filters(
     kinds: Sequence[MemoryKind] | None,
     tags: Sequence[str] | None,
     tag_match: str,
+    include_expired: bool = False,
 ) -> Select[Any]:
     stmt = stmt.where(Memory.env_id.in_(list(env_ids)))
     stmt = stmt.where(Memory.status.in_(list(statuses)))
+    if not include_expired:
+        # v0.17 — opt-in expired exposure; default-hide.
+        stmt = stmt.where(exclude_expired_clause())
     if kinds:
         stmt = stmt.where(Memory.kind.in_([k.value for k in kinds]))
     if tags:
@@ -182,6 +187,7 @@ async def _count_total_examined(
     kinds: Sequence[MemoryKind] | None,
     tags: Sequence[str] | None,
     tag_match: str,
+    include_expired: bool = False,
 ) -> int:
     stmt: Select[Any] = select(func.count(Memory.id))
     stmt = _apply_base_filters(
@@ -191,6 +197,7 @@ async def _count_total_examined(
         kinds=kinds,
         tags=tags,
         tag_match=tag_match,
+        include_expired=include_expired,
     )
     return int((await session.execute(stmt)).scalar_one() or 0)
 
@@ -217,6 +224,7 @@ async def _rank_by_column(
     tag_match: str,
     by: str,
     limit: int,
+    include_expired: bool = False,
 ) -> tuple[list[Memory], list[float]]:
     """Salience / access_count / reference_count / reference_authority —
     all stored on memories. ``reference_authority`` additionally applies
@@ -233,6 +241,7 @@ async def _rank_by_column(
         kinds=kinds,
         tags=tags,
         tag_match=tag_match,
+        include_expired=include_expired,
     )
     if by == "reference_authority":
         stmt = stmt.where(metric_col > 0)
@@ -308,6 +317,7 @@ async def _rank_by_velocity(
     tag_match: str,
     window_days: int,
     limit: int,
+    include_expired: bool = False,
 ) -> tuple[list[Memory], list[float], dict[UUID, int]]:
     """Reference-velocity ranking — recent citation arrival rate."""
     now = dt.datetime.now(dt.UTC)
@@ -327,6 +337,7 @@ async def _rank_by_velocity(
         kinds=kinds,
         tags=tags,
         tag_match=tag_match,
+        include_expired=include_expired,
     )
     candidates = list((await session.execute(stmt)).scalars().all())
 
@@ -379,6 +390,7 @@ async def memory_top(
             kinds=req.kinds,
             tags=req.tags,
             tag_match=req.tag_match,
+            include_expired=req.include_expired,
         )
 
         velocity_lookup: dict[UUID, int] = {}
@@ -392,6 +404,7 @@ async def memory_top(
                 tag_match=req.tag_match,
                 window_days=req.velocity_window_days,
                 limit=req.limit,
+                include_expired=req.include_expired,
             )
         else:
             memories, metric_values = await _rank_by_column(
@@ -403,6 +416,7 @@ async def memory_top(
                 tag_match=req.tag_match,
                 by=req.by,
                 limit=req.limit,
+                include_expired=req.include_expired,
             )
 
         tags_by_id = await _hydrate_tags(session, [m.id for m in memories])

@@ -56,6 +56,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from memory_mcp import rbac
+from memory_mcp._filters import exclude_expired_clause
 from memory_mcp.config import Settings, get_settings
 from memory_mcp.db.models import Memory, MemoryTag, Tag
 from memory_mcp.db.postgres import session_scope
@@ -146,6 +147,7 @@ def _browse_filter_dict(req: MemBrowseRequest, env_ids: list[UUID]) -> dict[str,
         "updated_after": req.updated_after,
         "order_by": req.order_by,
         "descending": req.descending,
+        "include_expired": req.include_expired,
     }
 
 
@@ -163,9 +165,12 @@ def _apply_browse_filters(
     created_after: dt.datetime | None,
     created_before: dt.datetime | None,
     updated_after: dt.datetime | None,
+    include_expired: bool = False,
 ) -> Select[Any]:
     stmt = stmt.where(Memory.env_id.in_(list(env_ids)))
     stmt = stmt.where(Memory.status.in_(list(statuses)))
+    if not include_expired:
+        stmt = stmt.where(exclude_expired_clause())
     if kinds:
         stmt = stmt.where(Memory.kind.in_([k.value for k in kinds]))
     if created_after is not None:
@@ -301,6 +306,7 @@ async def memory_browse(
             created_after=req.created_after,
             created_before=req.created_before,
             updated_after=req.updated_after,
+            include_expired=req.include_expired,
         )
         stmt = _apply_browse_keyset(
             stmt,
@@ -353,11 +359,14 @@ def _facet_filter_clause(
     created_after: dt.datetime | None,
     created_before: dt.datetime | None,
     updated_after: dt.datetime | None,
+    include_expired: bool = False,
 ) -> Any:
     clauses = [
         Memory.env_id.in_(list(env_ids)),
         Memory.status.in_(list(statuses)),
     ]
+    if not include_expired:
+        clauses.append(exclude_expired_clause())
     if kinds:
         clauses.append(Memory.kind.in_([k.value for k in kinds]))
     if created_after is not None:
@@ -497,6 +506,7 @@ async def memory_facets(
         created_after=req.created_after,
         created_before=req.created_before,
         updated_after=req.updated_after,
+        include_expired=req.include_expired,
     )
 
     timeout_seconds = getattr(settings, "facet_query_timeout_seconds", 2.0)

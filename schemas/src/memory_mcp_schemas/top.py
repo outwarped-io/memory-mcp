@@ -61,6 +61,13 @@ class MemTopRequest(BaseModel):
     )
 
     limit: int = Field(default=10, ge=1, le=100)
+    include_expired: bool = Field(
+        default=False,
+        description=(
+            "v0.17 default-tightening. When False (default), memories whose "
+            "``expires_at`` has passed are excluded from ranking."
+        ),
+    )
 
 
 class MemTopItem(BaseModel):

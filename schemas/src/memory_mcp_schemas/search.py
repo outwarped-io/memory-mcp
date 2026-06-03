@@ -56,6 +56,17 @@ class MemorySearchRequest(BaseModel):
     include_stale: bool = False
     include_archived: bool = False
     include_retired: bool = False
+    include_expired: bool = Field(
+        default=False,
+        description=(
+            "v0.17 default-tightening. When False (default), memories whose "
+            "``expires_at`` has passed are excluded from results. Set True "
+            "to include them (admin/debug). Independent of the lifecycle "
+            "flags above and intentionally NOT part of the ``expansion`` "
+            "preset bundle — ``include_expired`` may be combined with any "
+            "``expansion`` value."
+        ),
+    )
     follow_superseded: bool = True
     consistency: ConsistencyMode = "default"
     ids: list[UUID] | None = None  # used by mode=id

@@ -47,6 +47,15 @@ class MemBrowseRequest(BaseModel):
 
     limit: int = Field(default=50, ge=1, le=500)
     cursor: str | None = Field(default=None, max_length=4096)
+    include_expired: bool = Field(
+        default=False,
+        description=(
+            "v0.17 default-tightening. When False (default), memories whose "
+            "``expires_at`` has passed are excluded from results. Included "
+            "in the cursor fingerprint, so paging across different flag "
+            "values raises ``cursor mismatch``."
+        ),
+    )
 
 
 class MemBrowseResponse(BaseModel):
@@ -88,6 +97,13 @@ class MemFacetsRequest(BaseModel):
 
     accuracy: Literal["exact", "approximate"] = "exact"
     max_rows: int = Field(default=100_000, ge=1_000)
+    include_expired: bool = Field(
+        default=False,
+        description=(
+            "v0.17 default-tightening. When False (default), memories whose "
+            "``expires_at`` has passed are excluded from facet counts."
+        ),
+    )
 
 
 class MemFacetsResponse(BaseModel):

@@ -49,9 +49,10 @@ import string
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from memory_mcp._filters import exclude_expired_clause
 from memory_mcp.db.models import Entity, GraphNode, Memory, MemoryTag, Relation, Tag
 from memory_mcp.db.postgres import session_scope
 from memory_mcp.entities import (
@@ -625,10 +626,7 @@ async def mem_inbox(
 
         # TTL filter — hide expired by default. ``NULL`` expires_at = never.
         if not request.include_expired:
-            stmt = stmt.where(
-                (Memory.expires_at.is_(None))
-                | (Memory.expires_at > text("now()"))
-            )
+            stmt = stmt.where(exclude_expired_clause())
 
         # Keyset cursor predicate.
         if cursor_created_at is not None and cursor_id is not None:

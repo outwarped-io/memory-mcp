@@ -13,6 +13,7 @@ from sqlalchemy import exists, func, literal, or_, select
 from sqlalchemy.orm import aliased
 
 from memory_mcp import rbac
+from memory_mcp._filters import exclude_expired_clause
 from memory_mcp.context_pack.budget import (
     MIN_TOKEN_BUDGET,
     calculate_section_caps,
@@ -181,6 +182,7 @@ async def _fetch_latest_digest(env_id: UUID) -> Any | None:
             select(Memory)
             .where(Memory.env_id == env_id, Memory.kind == _DIGEST_KIND)
             .where(Memory.status.in_(list(_VISIBLE_STATUSES)))
+            .where(exclude_expired_clause())
             .order_by(Memory.created_at.desc(), Memory.id.desc())
             .limit(1)
         )
@@ -193,6 +195,7 @@ async def _fetch_recent_journal(env_id: UUID, *, limit: int = 50) -> list[Any]:
             select(Memory)
             .where(Memory.env_id == env_id, Memory.kind.in_(sorted(_JOURNAL_KINDS)))
             .where(Memory.status.in_(list(_VISIBLE_STATUSES)))
+            .where(exclude_expired_clause())
             .order_by(Memory.created_at.desc(), Memory.id.desc())
             .limit(limit)
         )
@@ -235,6 +238,7 @@ async def _fetch_playbooks(
                     Memory.env_id == env_id,
                     Memory.kind == MemoryKind.playbook.value,
                     Memory.status.in_(list(_VISIBLE_STATUSES)),
+                    exclude_expired_clause(),
                     Memory.macro.is_not(None),
                     or_(*macro_conditions),
                 )
@@ -337,6 +341,7 @@ async def _fetch_decisions(
                 Memory.decision_meta.is_not(None),
                 Memory.decision_meta["status"].astext == "accepted",
                 Memory.status.in_(list(_VISIBLE_STATUSES)),
+                exclude_expired_clause(),
             )
             .order_by(Memory.salience.desc(), Memory.updated_at.desc(), Memory.id.desc())
             .limit(top_k)
@@ -360,6 +365,7 @@ async def _fetch_archival(
                 Memory.env_id == env_id,
                 Memory.kind.notin_([_DIGEST_KIND, *_JOURNAL_KINDS]),
                 Memory.status.in_(list(_VISIBLE_STATUSES)),
+                exclude_expired_clause(),
             )
             .order_by(Memory.salience.desc(), Memory.updated_at.desc(), Memory.id.desc())
             .limit(limit)
@@ -425,6 +431,7 @@ async def _fetch_memories_by_ids(env_id: UUID, memory_ids: list[UUID]) -> list[A
                 Memory.env_id == env_id,
                 Memory.id.in_(ordered_ids),
                 Memory.status.in_(list(_VISIBLE_STATUSES)),
+                exclude_expired_clause(),
             )
         )).scalars().all()
     by_id = {m.id: m for m in rows}

@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 
 from memory_mcp import rbac
+from memory_mcp._filters import exclude_expired_clause
 from memory_mcp.config import Settings, get_settings
 from memory_mcp.db.models import Entity, Memory
 from memory_mcp.db.postgres import session_scope
@@ -202,6 +203,7 @@ async def _load_digest_inputs(
                 select(Memory)
                 .where(Memory.env_id == env_id, Memory.kind == MemoryKind.session_digest.value)
                 .where(Memory.status != MemoryStatus.archived.value)
+                .where(exclude_expired_clause())
                 .order_by(Memory.created_at.desc(), Memory.id.desc())
                 .limit(1)
             )
@@ -215,6 +217,7 @@ async def _load_digest_inputs(
             select(Memory)
             .where(Memory.env_id == env_id)
             .where(Memory.status != MemoryStatus.archived.value)
+            .where(exclude_expired_clause())
             .where(Memory.kind.notin_([MemoryKind.session_digest.value, *_JOURNAL_KINDS]))
         )
         if since_ts is not None:
@@ -231,6 +234,7 @@ async def _load_digest_inputs(
             select(Memory)
             .where(Memory.env_id == env_id)
             .where(Memory.status != MemoryStatus.archived.value)
+            .where(exclude_expired_clause())
             .where(Memory.kind.in_(_JOURNAL_KINDS))
         )
         if journal_cutoff is not None:
@@ -250,6 +254,7 @@ async def _load_digest_inputs(
                     .select_from(Memory)
                     .where(Memory.env_id == env_id)
                     .where(Memory.status != MemoryStatus.archived.value)
+                    .where(exclude_expired_clause())
                 )
             ).scalar_one()
         )
@@ -266,6 +271,7 @@ async def _load_digest_inputs(
                 .where(Memory.env_id == env_id)
                 .where(Memory.kind.in_(_JOURNAL_KINDS))
                 .where(Memory.status != MemoryStatus.archived.value)
+                .where(exclude_expired_clause())
             )
         ).scalar_one()
 
@@ -290,6 +296,7 @@ async def _load_resume_inputs(
                 select(Memory)
                 .where(Memory.env_id == env_id, Memory.kind == MemoryKind.session_digest.value)
                 .where(Memory.status != MemoryStatus.archived.value)
+                .where(exclude_expired_clause())
                 .order_by(Memory.created_at.desc(), Memory.id.desc())
                 .limit(1)
             )
@@ -300,6 +307,7 @@ async def _load_resume_inputs(
             .where(Memory.env_id == env_id)
             .where(Memory.kind.in_(_JOURNAL_KINDS))
             .where(Memory.status != MemoryStatus.archived.value)
+            .where(exclude_expired_clause())
             .order_by(Memory.created_at.desc(), Memory.id.desc())
             .limit(journal_tail)
         )
@@ -312,6 +320,7 @@ async def _load_resume_inputs(
                     .select_from(Memory)
                     .where(Memory.env_id == env_id)
                     .where(Memory.status != MemoryStatus.archived.value)
+                    .where(exclude_expired_clause())
                 )
             ).scalar_one()
         )
@@ -328,6 +337,7 @@ async def _load_resume_inputs(
                 .where(Memory.env_id == env_id)
                 .where(Memory.kind.in_(_JOURNAL_KINDS))
                 .where(Memory.status != MemoryStatus.archived.value)
+                .where(exclude_expired_clause())
             )
         ).scalar_one()
 

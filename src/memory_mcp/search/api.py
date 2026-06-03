@@ -79,6 +79,7 @@ from memory_mcp.embeddings.base import Embedder, get_embedder
 from memory_mcp.errors import GraphBackendUnavailableError, InvalidInputError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import MemoryResponse, _to_response
+from memory_mcp._filters import is_expired
 from memory_mcp.search.graph import graph_search
 from memory_mcp.search.lex import lex_search
 from memory_mcp.search.ranking import (
@@ -360,6 +361,7 @@ def _passes_post_filters(
     created_after: dt.datetime | None,
     created_before: dt.datetime | None,
     updated_after: dt.datetime | None,
+    include_expired: bool = False,
 ) -> bool:
     if memory.status not in statuses:
         return False
@@ -371,7 +373,9 @@ def _passes_post_filters(
         return False
     if created_before and memory.created_at >= created_before:
         return False
-    return not (updated_after and memory.updated_at < updated_after)
+    if updated_after and memory.updated_at < updated_after:
+        return False
+    return include_expired or not is_expired(memory)
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +397,7 @@ async def _do_lex(
         created_before=req.created_before,
         updated_after=req.updated_after,
         limit=leg_limit,
+        include_expired=req.include_expired,
     )
 
 
@@ -860,6 +865,7 @@ async def _memory_search_pass(
                 created_after=req.created_after,
                 created_before=req.created_before,
                 updated_after=req.updated_after,
+                include_expired=req.include_expired,
             ):
                 del fused[mid]
 
@@ -949,6 +955,8 @@ async def _serve_by_ids(
                 continue
             m = memories.get(target)
             if m is None or m.status not in statuses:
+                continue
+            if not req.include_expired and is_expired(m):
                 continue
             seen_resolved.add(target)
             ordered.append(m)

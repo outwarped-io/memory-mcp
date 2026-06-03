@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import String
 
 from memory_mcp.search.ranking import RankedHit
+from memory_mcp._filters import exclude_expired_raw_sql
 
 
 async def lex_search(
@@ -47,6 +48,7 @@ async def lex_search(
     created_before: dt.datetime | None = None,
     updated_after: dt.datetime | None = None,
     limit: int = 50,
+    include_expired: bool = False,
 ) -> list[RankedHit]:
     """Postgres FTS retrieval. Returns 1-indexed ranked hits."""
     if not query.strip():
@@ -59,6 +61,8 @@ async def lex_search(
         "m.env_id = ANY(:env_ids)",
         "m.status = ANY(:statuses)",
     ]
+    if not include_expired:
+        where.append(exclude_expired_raw_sql("m"))
     params: dict[str, Any] = {
         "q_text": query,
         "env_ids": [str(e) for e in env_ids],
