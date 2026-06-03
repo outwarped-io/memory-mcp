@@ -168,6 +168,15 @@ from memory_mcp.decomposers import (
     MemDecomposeResponse,
     memory_decompose,
 )
+from memory_mcp import inbox as inbox_mod
+from memory_mcp.inbox import (
+    MemInboxOpenRequest,
+    MemInboxOpenResponse,
+    MemInboxRequest,
+    MemInboxResponse,
+    MemInboxSendRequest,
+    MemInboxSendResponse,
+)
 from memory_mcp.memories import (
     MemoryHardDeleteRequest,
     MemoryHardDeleteResponse,
@@ -792,6 +801,142 @@ def build_mcp_server(
             attached_env_names=attached_env_names,
         )
         out: MemDecomposeResponse = await memory_decompose(request, ctx=ctx)
+        return _dump(out)
+
+    @mcp.tool()
+    @_wrap
+    async def mem_inbox_open(
+        request: MemInboxOpenRequest,
+        agent_id: UUID | None = None,
+        attached_env_ids: list[UUID] | None = None,
+        attached_env_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Open (or fetch) an inter-agent inbox / drop-box channel (v0.17).
+
+        Creates a ``kind=channel`` entity in the target env and returns a
+        copy-pasteable ``reference`` string of the form
+        ``mem-inbox://<env-name>/<slug>``. The reference is the durable
+        handle the user moves between agents — it is self-describing,
+        env-qualified, and stable across sessions.
+
+        Slug behavior:
+
+        * ``name`` provided → used as the slug. With ``idempotent=False``
+          (default) a pre-existing slug returns
+          ``INBOX_CHANNEL_ALREADY_EXISTS``; with ``idempotent=True`` the
+          existing channel is returned and ``created=false``.
+        * ``name`` omitted → server generates a pronounceable
+          ``adjective-noun`` slug (e.g. ``quiet-otter``). Auto-generated
+          slugs are always created fresh.
+
+        User-orchestrated workflow examples:
+
+        * UC1 — *recipient-initiated*: user asks Agent A to open an inbox;
+          Agent A echoes the reference; user pastes it into Agent B which
+          sends via :func:`mem_inbox_send`.
+        * UC2 — *sender-initiated*: Agent A opens then sends in one
+          session, returns the reference for the user to share.
+        * UC3 — *established channel*: both agents already know the
+          reference; user says "pass to <ref>" / "check <ref>".
+
+        Example:
+            {
+              "request": {"env_name": "workspace", "title": "RLS handoff"}
+            }
+        """
+        ctx = await _resolve_ctx(
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
+        )
+        out: MemInboxOpenResponse = await inbox_mod.mem_inbox_open(
+            request, ctx=ctx
+        )
+        return _dump(out)
+
+    @mcp.tool()
+    @_wrap
+    async def mem_inbox_send(
+        request: MemInboxSendRequest,
+        agent_id: UUID | None = None,
+        attached_env_ids: list[UUID] | None = None,
+        attached_env_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Drop a message into an existing inbox channel (v0.17).
+
+        Wraps :func:`mem_write` with ``kind=message``, the channel entity
+        in ``entity_links``, the fixed ``inbox`` tag, and a TTL. The
+        ``to`` field accepts either the full reference
+        ``mem-inbox://<env>/<slug>`` (env taken from the URL) or a bare
+        slug (env required via ``env_id`` / ``env_name``). When both URL
+        and arg env are supplied, they must match — mismatch raises
+        ``INBOX_ENV_MISMATCH`` to prevent silent cross-env writes.
+
+        Rejects non-existent slugs with ``INBOX_CHANNEL_NOT_FOUND`` —
+        explicit :func:`mem_inbox_open` is required first. This prevents
+        typo-driven channel proliferation.
+
+        TTL: default 7 days, hard cap 90 days. Naive ``expires_at`` is
+        treated as UTC. Past timestamps raise ``INBOX_TTL_IN_PAST``.
+
+        Authorship: ``created_by_agent_id`` is always recorded server-side
+        from ``ctx``. Optional ``display_from`` (free-form string) is
+        stored in ``metadata`` for human-readable provenance; omit it for
+        a pseudonymous message.
+
+        Example:
+            {
+              "request": {
+                "to": "mem-inbox://workspace/quiet-otter",
+                "body": "Please refresh the build pipeline tomorrow."
+              }
+            }
+        """
+        ctx = await _resolve_ctx(
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
+        )
+        out: MemInboxSendResponse = await inbox_mod.mem_inbox_send(
+            request, ctx=ctx
+        )
+        return _dump(out)
+
+    @mcp.tool()
+    @_wrap
+    async def mem_inbox(
+        request: MemInboxRequest,
+        agent_id: UUID | None = None,
+        attached_env_ids: list[UUID] | None = None,
+        attached_env_names: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """List messages in an inbox channel (v0.17).
+
+        Returns ``items`` (newest first by default), an opaque
+        ``next_cursor`` for keyset pagination on ``(created_at, id)``,
+        and ``has_more``. Pass ``cursor`` from a prior response to resume.
+
+        Expired messages are excluded by default; pass
+        ``include_expired=True`` to surface them (useful for audit /
+        recovery flows). Read is pure — no acknowledgement state is
+        written.
+
+        The ``to`` reference accepts the same forms as
+        :func:`mem_inbox_send`: URL (``mem-inbox://<env>/<slug>``) or
+        bare slug + ``env_id`` / ``env_name``.
+
+        Example:
+            {
+              "request": {"to": "mem-inbox://workspace/quiet-otter",
+                          "limit": 20}
+            }
+        """
+        ctx = await _resolve_ctx(
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
+        )
+        out: MemInboxResponse = await inbox_mod.mem_inbox(request, ctx=ctx)
         return _dump(out)
 
     @mcp.tool()
@@ -2361,7 +2506,7 @@ def build_mcp_server(
         out: EnvMigrateResponse = await migrate_env(request, ctx=ctx)
         return _dump(out)
 
-    log.info("mcp transport: registered %d tools", 57)
+    log.info("mcp transport: registered %d tools", 60)
     _install_validation_hints(mcp)
     return mcp
 
