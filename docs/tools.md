@@ -4,7 +4,7 @@ Full MCP tool surface for memory-mcp v0.17. Tools are surfaced over MCP Streamab
 
 ## Tools (v1)
 
-For ready-to-paste agent instructions, see the [system prompt cookbook](./docs/system-prompts.md).
+For ready-to-paste agent instructions, see the [system prompt cookbook](./system-prompts.md).
 
 Memory: `mem_write`, `mem_get`, `mem_get_many`, `adr_export` *(v0.7.0)*, `mem_update`, `mem_archive`, `mem_retire`, `mem_supersede`, `mem_compose` *(v0.15.0)*, `mem_decompose` *(v0.15.0)*, `mem_journal`, `mem_digest` *(v0.6.0)*, `mem_resume` *(v0.6.0)*, `mem_search`, `mem_auto_context` *(v0.6.0)*, `mem_neighbors` *(Sprint B)*, `mem_related` *(Sprint B)*, `mem_lineage` *(Sprint B)*, `mem_sources_browse` *(Sprint B)*, `mem_browse` *(Sprint A)*, `mem_facets` *(Sprint A)*, `mem_context_pack` *(v0.7.0 F7 v2)*, `playbook_invoke` *(v0.7.0)*.
 Entities: `ent_upsert`, `ent_resolve`, `ent_merge`, `ent_neighbors` *(Phase 2.1)*, `ent_browse` *(Sprint A)*.
