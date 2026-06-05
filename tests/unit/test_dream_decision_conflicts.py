@@ -185,6 +185,13 @@ async def test_missing_vector_is_logged_and_skipped(
 ) -> None:
     rows = [dc.DecisionRow(DECISION_A, "a"), dc.DecisionRow(DECISION_B, "b")]
     proposals = await _patch_rows_and_collect(monkeypatch, rows)
+
+    # Ensure dc logger is unblocked even if another test reset root level to INFO.
+    dc_logger = logging.getLogger(dc.__name__)
+    monkeypatch.setattr(dc_logger, "disabled", False)
+    dc_logger.setLevel(logging.DEBUG)
+    dc_logger.propagate = True
+    caplog.set_level(logging.DEBUG)
     caplog.set_level(logging.DEBUG, logger=dc.__name__)
 
     result = await dc.run_decision_conflict_pass(
