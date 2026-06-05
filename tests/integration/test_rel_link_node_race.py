@@ -15,6 +15,7 @@ import os
 from uuid import uuid4
 
 import pytest
+from memory_mcp_schemas.relations import RelationEndpoint, RelationLinkRequest
 from sqlalchemy import func, select
 
 from memory_mcp import relations as relations_mod
@@ -23,7 +24,6 @@ from memory_mcp.db.models import Agent, Environment, GraphNode, Memory
 from memory_mcp.db.types import MemoryKind
 from memory_mcp.identity import AgentContext
 from memory_mcp.relations import relation_link
-from memory_mcp_schemas.relations import RelationEndpoint, RelationLinkRequest
 
 from .conftest import (
     Barrier,
@@ -135,7 +135,7 @@ async def test_rel_link_fan_out_shared_src_memory_no_integrity_error(
         current_barrier.clear()
         current_barrier[str(src_id)] = Barrier(2)
 
-        async def link(factory, dst_id):
+        async def link(factory, dst_id, *, src_id=src_id, env_id=env_id, ctx=ctx):
             token = use_session_factory(factory)
             try:
                 return await relation_link(
@@ -223,7 +223,7 @@ async def test_rel_link_fan_out_three_way_shared_src(
         current_barrier.clear()
         current_barrier[str(src_id)] = Barrier(3)
 
-        async def link(factory, dst_id):
+        async def link(factory, dst_id, *, src_id=src_id, env_id=env_id, ctx=ctx):
             token = use_session_factory(factory)
             try:
                 return await relation_link(
