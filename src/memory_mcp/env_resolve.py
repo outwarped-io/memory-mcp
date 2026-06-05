@@ -17,7 +17,7 @@ from memory_mcp.errors import EnvRefBothProvidedError
 T = TypeVar("T", bound=BaseModel)
 
 
-async def _resolve_env_refs(
+async def _resolve_env_refs[T: BaseModel](
     request: T,
     *,
     allow_deleted: bool = False,
@@ -53,10 +53,7 @@ async def _resolve_env_refs(
         if names is not None and env_ids is not None:
             raise EnvRefBothProvidedError(field="env_list")
         if names is not None:
-            resolved = [
-                (await get_env_by_name_ci(name, include_deleted=allow_deleted)).id
-                for name in names
-            ]
+            resolved = [(await get_env_by_name_ci(name, include_deleted=allow_deleted)).id for name in names]
             updates["env_ids"] = resolved
             updates["env_names"] = None
 

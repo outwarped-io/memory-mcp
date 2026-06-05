@@ -115,7 +115,9 @@ async def graph_search(
             order += 1
 
     async def _fetch_one(
-        env_id: UUID, entity_id: UUID, ent_order: int,
+        env_id: UUID,
+        entity_id: UUID,
+        ent_order: int,
     ) -> list[tuple[UUID, UUID, int, int, int]]:
         """One ``neighbors`` call.
 
@@ -131,16 +133,12 @@ async def graph_search(
                 kinds=["memory"],
                 limit=per_entity_limit,
             )
-        return [
-            (hit.node.record_id, entity_id, ent_order, idx + 1, hit.path_length)
-            for idx, hit in enumerate(hits)
-        ]
+        return [(hit.node.record_id, entity_id, ent_order, idx + 1, hit.path_length) for idx, hit in enumerate(hits)]
 
     # Run all fetches concurrently (bounded by semaphore).
-    fetched_lists = await asyncio.gather(*[
-        _fetch_one(env_id, entity_id, ent_order)
-        for env_id, entity_id, ent_order in per_call
-    ])
+    fetched_lists = await asyncio.gather(
+        *[_fetch_one(env_id, entity_id, ent_order) for env_id, entity_id, ent_order in per_call]
+    )
 
     # ---- aggregate per memory ------------------------------------------
     # For each memory id collect:

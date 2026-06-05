@@ -70,10 +70,7 @@ def upgrade() -> None:
         "ALTER TABLE graph_nodes ADD CONSTRAINT graph_nodes_node_type_check "
         f"CHECK (node_type IN {_GRAPH_NODE_TYPES_WITH_TASK})"
     )
-    op.execute(
-        "CREATE UNIQUE INDEX graph_nodes_task_uniq "
-        "ON graph_nodes(env_id, task_id) WHERE node_type = 'task'"
-    )
+    op.execute("CREATE UNIQUE INDEX graph_nodes_task_uniq ON graph_nodes(env_id, task_id) WHERE node_type = 'task'")
 
     op.execute("ALTER TABLE outbox DROP CONSTRAINT IF EXISTS outbox_aggregate_type_check")
     op.execute(
@@ -104,7 +101,9 @@ def downgrade() -> None:
         f"CHECK (node_type IN {_GRAPH_NODE_TYPES_WITHOUT_TASK})"
     )
 
-    op.execute("DELETE FROM outbox_delivery od USING outbox o WHERE od.event_id = o.event_id AND o.aggregate_type = 'task'")
+    op.execute(
+        "DELETE FROM outbox_delivery od USING outbox o WHERE od.event_id = o.event_id AND o.aggregate_type = 'task'"
+    )
     op.execute("DELETE FROM outbox WHERE aggregate_type = 'task'")
     op.execute("ALTER TABLE outbox DROP CONSTRAINT IF EXISTS outbox_aggregate_type_check")
     op.execute(

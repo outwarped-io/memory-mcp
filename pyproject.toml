@@ -78,6 +78,33 @@ select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "ASYNC"]
 # ORM column definitions are mechanical and easier to read on a single line
 # than wrapped. Cap is still effectively ~140 in practice.
 "src/memory_mcp/db/models.py" = ["E501"]
+# Typer's idiomatic API takes ``typer.Option(...)`` calls as defaults.
+"src/memory_mcp/cli/**/*.py" = ["B008"]
+# Vector backends accept opaque ``id`` strings — shadowing the builtin in a
+# narrow parameter scope is intentional and matches the abstract method.
+"src/memory_mcp/db/vector/*.py" = ["A002"]
+# env_ops + scripts use blocking ``pathlib`` calls from async functions on
+# purpose (single-shot ops, no event-loop pressure). Replacing with anyio
+# adds dependencies and noise for no measurable benefit.
+"src/memory_mcp/env_ops/**/*.py" = ["ASYNC240"]
+"scripts/**/*.py" = ["ASYNC240"]
+# MCP server entrypoint: ``id``/``type`` are public protocol field names;
+# the 7 over-long lines are inline JSON-schema strings; the try/except/pass
+# carries explanatory comments that ``contextlib.suppress`` cannot.
+"src/memory_mcp/mcp_app.py" = ["A002", "E501", "SIM105"]
+"src/memory_mcp/observability.py" = ["E501"]
+"src/memory_mcp/stats.py" = ["E501"]
+# Pre-existing nested-if that reads more clearly the way it is written.
+"src/memory_mcp/autowire.py" = ["SIM102"]
+# Import-side import_ exception is part of the public env_ops API; rename
+# would break callers.
+"src/memory_mcp/env_ops/import_.py" = ["A002", "N818"]
+# JSON-RPC envelope fields are camelCase by spec.
+"client/**/*.py" = ["A002", "N815", "SIM105"]
+# Tests intentionally use blind exception asserts, conditional imports
+# after sys.path manipulation, pathlib in async helpers, and shadowed
+# argument names for round-trip tests.
+"tests/**/*.py" = ["A002", "ASYNC240", "B017", "B023", "E402", "E501", "F811", "N818", "SIM105"]
 
 [tool.mypy]
 python_version = "3.12"

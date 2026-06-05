@@ -49,8 +49,23 @@ import string
 from typing import Any
 from uuid import UUID
 
+from memory_mcp_schemas.entities import EntityUpsertRequest, _normalize_name
+from memory_mcp_schemas.enums import MemoryKind, MemorySourceType
+from memory_mcp_schemas.inbox import (
+    DEFAULT_TTL_DAYS,
+    INBOX_TAG,
+    MAX_TTL_DAYS,
+    REFERENCE_SCHEME,
+    MemInboxItem,
+    MemInboxOpenRequest,
+    MemInboxOpenResponse,
+    MemInboxRequest,
+    MemInboxResponse,
+    MemInboxSendRequest,
+    MemInboxSendResponse,
+)
+from memory_mcp_schemas.memories import MemoryWriteRequest
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 from memory_mcp._filters import exclude_expired_clause
 from memory_mcp.db.models import Entity, GraphNode, Memory, MemoryTag, Relation, Tag
@@ -70,23 +85,6 @@ from memory_mcp.errors import (
 )
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import memory_write
-from memory_mcp_schemas.entities import EntityUpsertRequest, _normalize_name
-from memory_mcp_schemas.enums import MemoryKind, MemorySourceType
-from memory_mcp_schemas.inbox import (
-    DEFAULT_TTL_DAYS,
-    INBOX_TAG,
-    MAX_TTL_DAYS,
-    REFERENCE_SCHEME,
-    MemInboxItem,
-    MemInboxOpenRequest,
-    MemInboxOpenResponse,
-    MemInboxRequest,
-    MemInboxResponse,
-    MemInboxSendRequest,
-    MemInboxSendResponse,
-)
-from memory_mcp_schemas.memories import MemoryWriteRequest
-
 
 log = logging.getLogger(__name__)
 
@@ -130,11 +128,10 @@ def parse_reference(value: str) -> tuple[str | None, str]:
     if not value or not isinstance(value, str):
         raise InvalidInputError("INVALID_INBOX_REFERENCE: empty 'to'")
     if value.startswith(_REFERENCE_PREFIX):
-        remainder = value[len(_REFERENCE_PREFIX):]
+        remainder = value[len(_REFERENCE_PREFIX) :]
         if "/" not in remainder:
             raise InvalidInputError(
-                "INVALID_INBOX_REFERENCE: URL form requires "
-                f"'{REFERENCE_SCHEME}://<env-name>/<slug>'",
+                f"INVALID_INBOX_REFERENCE: URL form requires '{REFERENCE_SCHEME}://<env-name>/<slug>'",
                 reference=value,
             )
         env_name, _, slug = remainder.partition("/")
@@ -173,40 +170,251 @@ def format_reference(env_name: str, slug: str) -> str:
 # Pronounceable, dictation-friendly. ~100 × ~100 = ~10k unique combos
 # before re-roll. Kept inline to avoid a data file.
 _ADJECTIVES: tuple[str, ...] = (
-    "able", "agile", "alert", "amber", "ample", "arctic", "azure", "blue",
-    "bold", "brave", "brisk", "bright", "calm", "candid", "cheerful", "civic",
-    "clear", "clever", "cool", "cosmic", "cozy", "crisp", "curious", "daring",
-    "deep", "dewy", "early", "eager", "easy", "elfin", "ember", "emerald",
-    "epic", "even", "fancy", "fast", "fierce", "fine", "firm", "fluffy",
-    "free", "fresh", "frosty", "gentle", "giant", "glad", "glass", "glossy",
-    "golden", "grand", "grave", "happy", "humble", "icy", "ivory", "jade",
-    "jolly", "keen", "kind", "lively", "lofty", "lone", "loyal", "lucent",
-    "lucky", "mellow", "merry", "mighty", "mild", "misty", "mossy", "neat",
-    "nimble", "noble", "olive", "open", "patient", "peach", "pearl", "perky",
-    "plain", "polar", "proud", "quick", "quiet", "ready", "regal", "ripe",
-    "rosy", "royal", "rustic", "sage", "scarlet", "shy", "silent", "silver",
-    "sleek", "smart", "smooth", "snappy", "snug", "solar", "spry", "still",
-    "sturdy", "subtle", "sunny", "swift", "tame", "tender", "tidy", "topaz",
-    "tough", "true", "warm", "wild", "wise", "witty", "young", "zealous",
+    "able",
+    "agile",
+    "alert",
+    "amber",
+    "ample",
+    "arctic",
+    "azure",
+    "blue",
+    "bold",
+    "brave",
+    "brisk",
+    "bright",
+    "calm",
+    "candid",
+    "cheerful",
+    "civic",
+    "clear",
+    "clever",
+    "cool",
+    "cosmic",
+    "cozy",
+    "crisp",
+    "curious",
+    "daring",
+    "deep",
+    "dewy",
+    "early",
+    "eager",
+    "easy",
+    "elfin",
+    "ember",
+    "emerald",
+    "epic",
+    "even",
+    "fancy",
+    "fast",
+    "fierce",
+    "fine",
+    "firm",
+    "fluffy",
+    "free",
+    "fresh",
+    "frosty",
+    "gentle",
+    "giant",
+    "glad",
+    "glass",
+    "glossy",
+    "golden",
+    "grand",
+    "grave",
+    "happy",
+    "humble",
+    "icy",
+    "ivory",
+    "jade",
+    "jolly",
+    "keen",
+    "kind",
+    "lively",
+    "lofty",
+    "lone",
+    "loyal",
+    "lucent",
+    "lucky",
+    "mellow",
+    "merry",
+    "mighty",
+    "mild",
+    "misty",
+    "mossy",
+    "neat",
+    "nimble",
+    "noble",
+    "olive",
+    "open",
+    "patient",
+    "peach",
+    "pearl",
+    "perky",
+    "plain",
+    "polar",
+    "proud",
+    "quick",
+    "quiet",
+    "ready",
+    "regal",
+    "ripe",
+    "rosy",
+    "royal",
+    "rustic",
+    "sage",
+    "scarlet",
+    "shy",
+    "silent",
+    "silver",
+    "sleek",
+    "smart",
+    "smooth",
+    "snappy",
+    "snug",
+    "solar",
+    "spry",
+    "still",
+    "sturdy",
+    "subtle",
+    "sunny",
+    "swift",
+    "tame",
+    "tender",
+    "tidy",
+    "topaz",
+    "tough",
+    "true",
+    "warm",
+    "wild",
+    "wise",
+    "witty",
+    "young",
+    "zealous",
 )
 
 _NOUNS: tuple[str, ...] = (
-    "ant", "ape", "badger", "bass", "bat", "bear", "bee", "beetle",
-    "bird", "bison", "boar", "buck", "bunny", "calf", "camel", "carp",
-    "cat", "cattle", "cheetah", "chick", "clam", "cobra", "colt", "coyote",
-    "crab", "crane", "crow", "cub", "deer", "dingo", "dog", "donkey",
-    "dove", "drake", "duck", "eagle", "eel", "egret", "elk", "ermine",
-    "falcon", "fawn", "ferret", "finch", "fish", "fox", "frog", "gecko",
-    "gnu", "goose", "gull", "hare", "hawk", "hen", "heron", "horse",
-    "hound", "ibex", "jay", "kestrel", "kitten", "lamb", "lark", "lemur",
-    "leopard", "lion", "lizard", "llama", "lynx", "magpie", "mare", "marten",
-    "mink", "mole", "moose", "moth", "mouse", "newt", "ocelot", "otter",
-    "owl", "ox", "panda", "panther", "parrot", "peacock", "pelican", "pony",
-    "pug", "puma", "quail", "rabbit", "raccoon", "ram", "raven", "robin",
-    "salmon", "seal", "shark", "sheep", "shrew", "skunk", "snake", "sparrow",
-    "spider", "squid", "stag", "stoat", "stork", "swan", "tiger", "toad",
-    "trout", "turtle", "viper", "vole", "weasel", "whale", "wolf", "wren",
-    "yak", "zebra",
+    "ant",
+    "ape",
+    "badger",
+    "bass",
+    "bat",
+    "bear",
+    "bee",
+    "beetle",
+    "bird",
+    "bison",
+    "boar",
+    "buck",
+    "bunny",
+    "calf",
+    "camel",
+    "carp",
+    "cat",
+    "cattle",
+    "cheetah",
+    "chick",
+    "clam",
+    "cobra",
+    "colt",
+    "coyote",
+    "crab",
+    "crane",
+    "crow",
+    "cub",
+    "deer",
+    "dingo",
+    "dog",
+    "donkey",
+    "dove",
+    "drake",
+    "duck",
+    "eagle",
+    "eel",
+    "egret",
+    "elk",
+    "ermine",
+    "falcon",
+    "fawn",
+    "ferret",
+    "finch",
+    "fish",
+    "fox",
+    "frog",
+    "gecko",
+    "gnu",
+    "goose",
+    "gull",
+    "hare",
+    "hawk",
+    "hen",
+    "heron",
+    "horse",
+    "hound",
+    "ibex",
+    "jay",
+    "kestrel",
+    "kitten",
+    "lamb",
+    "lark",
+    "lemur",
+    "leopard",
+    "lion",
+    "lizard",
+    "llama",
+    "lynx",
+    "magpie",
+    "mare",
+    "marten",
+    "mink",
+    "mole",
+    "moose",
+    "moth",
+    "mouse",
+    "newt",
+    "ocelot",
+    "otter",
+    "owl",
+    "ox",
+    "panda",
+    "panther",
+    "parrot",
+    "peacock",
+    "pelican",
+    "pony",
+    "pug",
+    "puma",
+    "quail",
+    "rabbit",
+    "raccoon",
+    "ram",
+    "raven",
+    "robin",
+    "salmon",
+    "seal",
+    "shark",
+    "sheep",
+    "shrew",
+    "skunk",
+    "snake",
+    "sparrow",
+    "spider",
+    "squid",
+    "stag",
+    "stoat",
+    "stork",
+    "swan",
+    "tiger",
+    "toad",
+    "trout",
+    "turtle",
+    "viper",
+    "vole",
+    "weasel",
+    "whale",
+    "wolf",
+    "wren",
+    "yak",
+    "zebra",
 )
 
 
@@ -321,8 +529,7 @@ async def _resolve_inbox_env(
     # UC2 invariant: URL env must match request env when both provided.
     if to_env_name is not None and not _env_names_equal(to_env_name, resolved_name):
         raise InvalidInputError(
-            "INBOX_ENV_MISMATCH: 'to' URL env-name does not match the "
-            "explicit env_id/env_name argument",
+            "INBOX_ENV_MISMATCH: 'to' URL env-name does not match the explicit env_id/env_name argument",
             to_env_name=to_env_name,
             resolved_env_name=resolved_name,
         )
@@ -491,26 +698,24 @@ async def mem_inbox_send(
         channel = await _find_channel_entity(s=s, env_id=env_id, slug=slug)
     if channel is None:
         raise InvalidInputError(
-            "INBOX_CHANNEL_NOT_FOUND: no channel with this slug exists; "
-            "call mem_inbox_open first",
+            "INBOX_CHANNEL_NOT_FOUND: no channel with this slug exists; call mem_inbox_open first",
             slug=slug,
             env_name=env_name,
         )
 
     # TTL handling — default 7d, cap at 90d.
-    now = dt.datetime.now(dt.timezone.utc)
+    now = dt.datetime.now(dt.UTC)
     if request.expires_at is None:
         expires_at: dt.datetime | None = now + dt.timedelta(days=DEFAULT_TTL_DAYS)
     else:
         expires_at = request.expires_at
         if expires_at.tzinfo is None:
             # Treat naive timestamps as UTC; otherwise comparison below blows up.
-            expires_at = expires_at.replace(tzinfo=dt.timezone.utc)
+            expires_at = expires_at.replace(tzinfo=dt.UTC)
         max_allowed = now + dt.timedelta(days=MAX_TTL_DAYS)
         if expires_at > max_allowed:
             raise InvalidInputError(
-                "INBOX_TTL_TOO_LARGE: expires_at exceeds the "
-                f"{MAX_TTL_DAYS}-day cap",
+                f"INBOX_TTL_TOO_LARGE: expires_at exceeds the {MAX_TTL_DAYS}-day cap",
                 expires_at=expires_at.isoformat(),
                 max_allowed=max_allowed.isoformat(),
             )
@@ -586,8 +791,7 @@ async def mem_inbox(
         channel = await _find_channel_entity(s=s, env_id=env_id, slug=slug)
         if channel is None:
             raise InvalidInputError(
-                "INBOX_CHANNEL_NOT_FOUND: no channel with this slug exists; "
-                "call mem_inbox_open first",
+                "INBOX_CHANNEL_NOT_FOUND: no channel with this slug exists; call mem_inbox_open first",
                 slug=slug,
                 env_name=env_name,
             )
@@ -633,18 +837,12 @@ async def mem_inbox(
             if order_desc:
                 stmt = stmt.where(
                     (Memory.created_at < cursor_created_at)
-                    | (
-                        (Memory.created_at == cursor_created_at)
-                        & (Memory.id < cursor_id)
-                    )
+                    | ((Memory.created_at == cursor_created_at) & (Memory.id < cursor_id))
                 )
             else:
                 stmt = stmt.where(
                     (Memory.created_at > cursor_created_at)
-                    | (
-                        (Memory.created_at == cursor_created_at)
-                        & (Memory.id > cursor_id)
-                    )
+                    | ((Memory.created_at == cursor_created_at) & (Memory.id > cursor_id))
                 )
 
         # Stable ordering — tie-break on id so cursor pagination is

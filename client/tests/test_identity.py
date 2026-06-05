@@ -9,7 +9,6 @@ import pytest
 from memory_mcp_client import MemoryClient
 from tests.conftest import make_memory_payload
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -58,7 +57,9 @@ async def test_client_level_env_names_merged(session_factory, fake_session) -> N
     assert "attached_env_ids" not in payload
 
 
-async def test_client_constructor_accepts_attached_env_names_alias(session_factory, fake_session) -> None:
+async def test_client_constructor_accepts_attached_env_names_alias(
+    session_factory, fake_session
+) -> None:
     client = MemoryClient(
         "http://fake.local/mcp",
         session_factory=session_factory,

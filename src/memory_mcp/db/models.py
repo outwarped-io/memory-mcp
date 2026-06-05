@@ -55,6 +55,7 @@ class Base(DeclarativeBase):
 # environments / agents / sessions / tokens / env_grants
 # ---------------------------------------------------------------------------
 
+
 class Environment(Base):
     __tablename__ = "environments"
     __table_args__ = (
@@ -65,10 +66,14 @@ class Environment(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     kind: Mapped[str | None] = mapped_column(Text, nullable=True)
-    retention_policy: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    retention_policy: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
     default_embedding_model_id: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     status: Mapped[str] = mapped_column(
@@ -77,15 +82,15 @@ class Environment(Base):
         default="active",
         server_default=text("'active'"),
     )
-    deleted_at: Mapped[dt.datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    deleted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Agent(Base):
     __tablename__ = "agents"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_seen_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -94,7 +99,9 @@ class Agent(Base):
 class Session(Base):
     __tablename__ = "sessions"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("agents.id", ondelete="CASCADE"),
@@ -107,14 +114,18 @@ class Session(Base):
 class Token(Base):
     __tablename__ = "tokens"
 
-    token_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    token_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     agent_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("agents.id", ondelete="CASCADE"),
         nullable=False,
     )
     hashed_secret: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    scopes: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list, server_default=text("ARRAY[]::text[]"))
+    scopes: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, default=list, server_default=text("ARRAY[]::text[]")
+    )
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -144,7 +155,9 @@ class Snapshot(Base):
         Index("snapshots_env_created_idx", "env_id", text("created_at DESC")),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     env_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("environments.id", ondelete="RESTRICT"),
@@ -181,7 +194,9 @@ class MemoryTombstone(Base):
         Index("memory_tombstones_deleted_by_idx", "deleted_by_agent_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     env_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("environments.id", ondelete="RESTRICT"),
@@ -198,6 +213,7 @@ class MemoryTombstone(Base):
 # ---------------------------------------------------------------------------
 # memories
 # ---------------------------------------------------------------------------
+
 
 class Memory(Base):
     __tablename__ = "memories"
@@ -216,7 +232,9 @@ class Memory(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     env_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("environments.id", ondelete="RESTRICT"),
@@ -245,24 +263,33 @@ class Memory(Base):
     pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     negative_feedback_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
     reference_count_rel_link: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default=text("0"),
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
     reference_count_lineage: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default=text("0"),
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
     reference_count_task: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default=text("0"),
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
     reference_count_playbook: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default=text("0"),
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
     reference_count: Mapped[int] = mapped_column(
         Integer,
         Computed(
-            "reference_count_rel_link "
-            "+ reference_count_lineage "
-            "+ reference_count_task "
-            "+ reference_count_playbook",
+            "reference_count_rel_link + reference_count_lineage + reference_count_task + reference_count_playbook",
             persisted=True,
         ),
         nullable=False,
@@ -272,24 +299,33 @@ class Memory(Base):
     # walks canonical edge state each cycle when DREAM_POPULARITY_AUTHORITY_WEIGHTED
     # is enabled.
     ref_authority_rel_link: Mapped[float] = mapped_column(
-        Numeric(18, 6), nullable=False, default=0, server_default=text("0"),
+        Numeric(18, 6),
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
     ref_authority_lineage: Mapped[float] = mapped_column(
-        Numeric(18, 6), nullable=False, default=0, server_default=text("0"),
+        Numeric(18, 6),
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
     ref_authority_task: Mapped[float] = mapped_column(
-        Numeric(18, 6), nullable=False, default=0, server_default=text("0"),
+        Numeric(18, 6),
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
     ref_authority_playbook: Mapped[float] = mapped_column(
-        Numeric(18, 6), nullable=False, default=0, server_default=text("0"),
+        Numeric(18, 6),
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
     reference_authority: Mapped[float] = mapped_column(
         Numeric(19, 6),
         Computed(
-            "ref_authority_rel_link "
-            "+ ref_authority_lineage "
-            "+ ref_authority_task "
-            "+ ref_authority_playbook",
+            "ref_authority_rel_link + ref_authority_lineage + ref_authority_task + ref_authority_playbook",
             persisted=True,
         ),
         nullable=False,
@@ -297,7 +333,8 @@ class Memory(Base):
     # Stamped by the recount pass each cycle it touches a memory; NULL means
     # "never recomputed" (knob has never been on for this env).
     authority_last_recount_at: Mapped[dt.datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True,
+        DateTime(timezone=True),
+        nullable=True,
     )
     # Phase 1e-d (Migration 0019) — formula version this row's stored
     # ``salience`` was computed under. ``0`` = pre-1e-d / unstamped;
@@ -306,7 +343,10 @@ class Memory(Base):
     # ``compute_salience`` math MUST bump the settings value** so existing
     # rows re-stamp on the next recount cycle (see ``salience.py`` docstring).
     salience_formula_version: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default=text("0"),
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
     )
     verified_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -318,7 +358,11 @@ class Memory(Base):
         nullable=True,
     )
     metadata_: Mapped[dict[str, Any]] = mapped_column(
-        "metadata", JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+        "metadata",
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
     )
     decision_meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1, server_default=text("1"))
@@ -335,6 +379,7 @@ class Memory(Base):
 # entities / entity_aliases
 # ---------------------------------------------------------------------------
 
+
 class Entity(Base):
     __tablename__ = "entities"
     __table_args__ = (
@@ -342,7 +387,9 @@ class Entity(Base):
         UniqueConstraint("id", "env_id", name="entities_id_env_uniq"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     env_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("environments.id", ondelete="RESTRICT"),
@@ -352,7 +399,11 @@ class Entity(Base):
     canonical_name: Mapped[str] = mapped_column(Text, nullable=False)
     normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
-        "metadata", JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+        "metadata",
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
     )
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -383,6 +434,7 @@ class EntityAlias(Base):
 # tasks
 # ---------------------------------------------------------------------------
 
+
 class Task(Base):
     __tablename__ = "tasks"
     __table_args__ = (
@@ -397,7 +449,9 @@ class Task(Base):
         Index("tasks_updated_desc_idx", text("updated_at DESC")),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     env_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("environments.id", ondelete="CASCADE"),
@@ -426,6 +480,7 @@ class Task(Base):
 # graph_nodes / relations
 # ---------------------------------------------------------------------------
 
+
 class GraphNode(Base):
     __tablename__ = "graph_nodes"
     __table_args__ = (
@@ -438,7 +493,9 @@ class GraphNode(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     env_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("environments.id", ondelete="RESTRICT"),
@@ -481,7 +538,9 @@ class Relation(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     env_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("environments.id", ondelete="RESTRICT"),
@@ -490,7 +549,9 @@ class Relation(Base):
     src_node_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     dst_node_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     type: Mapped[str] = mapped_column(Text, nullable=False)
-    properties: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    properties: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1, server_default=text("1"))
@@ -500,6 +561,7 @@ class Relation(Base):
 # tags / memory_tags
 # ---------------------------------------------------------------------------
 
+
 class Tag(Base):
     __tablename__ = "tags"
     __table_args__ = (
@@ -507,7 +569,9 @@ class Tag(Base):
         UniqueConstraint("id", "env_id", name="tags_id_env_uniq"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
     env_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("environments.id", ondelete="RESTRICT"),
@@ -542,6 +606,7 @@ class MemoryTag(Base):
 # ---------------------------------------------------------------------------
 # audit_log / memory_sources / memory_lineage
 # ---------------------------------------------------------------------------
+
 
 class AuditLog(Base):
     __tablename__ = "audit_log"
@@ -590,9 +655,7 @@ class MemorySource(Base):
 
 class MemoryLineage(Base):
     __tablename__ = "memory_lineage"
-    __table_args__ = (
-        PrimaryKeyConstraint("parent_memory_id", "child_memory_id", "relation"),
-    )
+    __table_args__ = (PrimaryKeyConstraint("parent_memory_id", "child_memory_id", "relation"),)
 
     parent_memory_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -611,6 +674,7 @@ class MemoryLineage(Base):
 # ---------------------------------------------------------------------------
 # decompose_operations (v0.15.0 Phase 3, migration 0021)
 # ---------------------------------------------------------------------------
+
 
 class DecomposeOperation(Base):
     """Substrate-level idempotency record for ``mem_decompose``.
@@ -690,11 +754,14 @@ class DecomposeOperation(Base):
 # outbox / outbox_delivery / projection_state
 # ---------------------------------------------------------------------------
 
+
 class Outbox(Base):
     __tablename__ = "outbox"
     __table_args__ = (
         UniqueConstraint(
-            "aggregate_type", "aggregate_id", "aggregate_version",
+            "aggregate_type",
+            "aggregate_id",
+            "aggregate_version",
             name="outbox_aggregate_type_aggregate_id_aggregate_version_key",
         ),
         Index("ix_outbox_aggregate", "aggregate_id", "aggregate_version"),
@@ -714,14 +781,14 @@ class Outbox(Base):
     op: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    available_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    available_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class OutboxDelivery(Base):
     __tablename__ = "outbox_delivery"
-    __table_args__ = (
-        PrimaryKeyConstraint("event_id", "sink"),
-    )
+    __table_args__ = (PrimaryKeyConstraint("event_id", "sink"),)
 
     event_id: Mapped[int] = mapped_column(
         BigInteger,
@@ -739,9 +806,7 @@ class OutboxDelivery(Base):
 
 class ProjectionState(Base):
     __tablename__ = "projection_state"
-    __table_args__ = (
-        PrimaryKeyConstraint("sink", "env_id"),
-    )
+    __table_args__ = (PrimaryKeyConstraint("sink", "env_id"),)
 
     sink: Mapped[str] = mapped_column(Text, nullable=False)
     env_id: Mapped[uuid.UUID] = mapped_column(
@@ -760,19 +825,24 @@ class ProjectionState(Base):
 # dream_runs / dream_proposals (Phase 2.2)
 # ---------------------------------------------------------------------------
 
+
 class DreamRun(Base):
     __tablename__ = "dream_runs"
     __table_args__ = (
         Index("dream_runs_env_started_idx", "env_id", "started_at"),
         Index("dream_runs_mode_started_idx", "mode", "started_at"),
         Index(
-            "dream_runs_running_idx", "env_id", "mode",
+            "dream_runs_running_idx",
+            "env_id",
+            "mode",
             postgresql_where=text("status = 'running'"),
         ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"),
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     env_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -781,18 +851,29 @@ class DreamRun(Base):
     )
     mode: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(
-        Text, nullable=False, default="running", server_default=text("'running'"),
+        Text,
+        nullable=False,
+        default="running",
+        server_default=text("'running'"),
     )
     started_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
     ended_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     triggered_by: Mapped[str] = mapped_column(
-        Text, nullable=False, default="scheduler", server_default=text("'scheduler'"),
+        Text,
+        nullable=False,
+        default="scheduler",
+        server_default=text("'scheduler'"),
     )
     summarizer_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
     )
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -803,20 +884,25 @@ class DreamProposal(Base):
         Index("dream_proposals_env_status_idx", "env_id", "status"),
         Index("dream_proposals_env_kind_status_idx", "env_id", "kind", "status"),
         Index(
-            "dream_proposals_run_idx", "dream_run_id",
+            "dream_proposals_run_idx",
+            "dream_run_id",
             postgresql_where=text("dream_run_id IS NOT NULL"),
         ),
         Index("dream_proposals_created_idx", "env_id", "created_at"),
         Index(
             "dream_proposals_open_dedupe_key_uniq",
-            "env_id", "kind", "dedupe_key",
+            "env_id",
+            "kind",
+            "dedupe_key",
             unique=True,
             postgresql_where=text("status = 'open' AND dedupe_key IS NOT NULL"),
         ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"),
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
     )
     env_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -825,14 +911,23 @@ class DreamProposal(Base):
     )
     kind: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(
-        Text, nullable=False, default="open", server_default=text("'open'"),
+        Text,
+        nullable=False,
+        default="open",
+        server_default=text("'open'"),
     )
     payload: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
     )
     summarizer_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
     llm_failed: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default=text("false"),
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
     )
     dedupe_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     dream_run_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -841,10 +936,14 @@ class DreamProposal(Base):
         nullable=True,
     )
     created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
     updated_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(),
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
     reviewed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reviewed_by_agent_id: Mapped[uuid.UUID | None] = mapped_column(

@@ -42,8 +42,7 @@ def upgrade() -> None:
     version = conn.execute(sa.text("SHOW server_version_num")).scalar_one()
     if int(version) < 140000:
         raise RuntimeError(
-            "memory-mcp Sprint B requires PostgreSQL 14+ (CYCLE clause). "
-            f"Detected server_version_num={version}."
+            f"memory-mcp Sprint B requires PostgreSQL 14+ (CYCLE clause). Detected server_version_num={version}."
         )
 
     # Plain btree (no DESC) so Postgres can do forward OR backward scans.

@@ -5,13 +5,14 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from memory_mcp_client.api._base import _BaseAPI
 from memory_mcp_schemas.relations import (
     RelationBrowseRequest,
     RelationBrowseResponse,
     RelationLinkRequest,
     RelationResponse,
 )
+
+from memory_mcp_client.api._base import _BaseAPI
 
 
 class RelationsAPI(_BaseAPI):

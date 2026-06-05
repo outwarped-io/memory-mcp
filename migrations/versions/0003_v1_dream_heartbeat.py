@@ -36,10 +36,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 _OLD_SINK_CHECK = "sink IN ('qdrant','neo4j','pgvector')"
-_NEW_SINK_CHECK = (
-    "sink IN ('qdrant','neo4j','pgvector') "
-    "OR sink LIKE 'dream_worker:%'"
-)
+_NEW_SINK_CHECK = "sink IN ('qdrant','neo4j','pgvector') OR sink LIKE 'dream_worker:%'"
 
 
 def upgrade() -> None:

@@ -6,6 +6,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from memory_mcp_schemas.env_ops import EnvRenameRequest, EnvRenameResponse
 from sqlalchemy import func, select
 
 from memory_mcp import rbac
@@ -16,14 +17,11 @@ from memory_mcp.db.types import OutboxAggregateType, OutboxOp
 from memory_mcp.errors import InvalidInputError, MemoryMCPError, NotFoundError
 from memory_mcp.identity import AgentContext
 
-from memory_mcp_schemas.env_ops import EnvRenameRequest, EnvRenameResponse
-
 log = logging.getLogger(__name__)
 
 
 NO_AUTO_REEMBED_WARNING = (
-    "Changing default_embedding_model_id does not re-embed existing memories; "
-    "it only affects new memories."
+    "Changing default_embedding_model_id does not re-embed existing memories; it only affects new memories."
 )
 
 
@@ -82,7 +80,7 @@ async def rename_env(request: EnvRenameRequest, *, ctx: AgentContext) -> EnvRena
         if request.new_name is not None and request.new_name != env.name:
             env.name = request.new_name
             if hasattr(env, "display_name"):
-                setattr(env, "display_name", _slugify(request.new_name))
+                env.display_name = _slugify(request.new_name)
             changed_fields.append("name")
 
         if (
@@ -101,7 +99,7 @@ async def rename_env(request: EnvRenameRequest, *, ctx: AgentContext) -> EnvRena
             changed_fields.append("retention_policy")
 
         if hasattr(env, "updated_at"):
-            setattr(env, "updated_at", func.now())
+            env.updated_at = func.now()
 
         if changed_fields:
             await _emit_env_renamed(

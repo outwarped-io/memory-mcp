@@ -5,9 +5,9 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from memory_mcp_schemas.memories import MemoryWriteRequest
 
 from memory_mcp_client import MemoryClient
-from memory_mcp_schemas.memories import MemoryWriteRequest
 
 pytestmark = pytest.mark.asyncio
 

@@ -74,18 +74,24 @@ def test_mem_auto_context_requires_requested_env_attachment() -> None:
     [
         ("task_substep", lambda task_id, memory_id: {"parent_task_id": task_id, "title": "child"}),
         ("task_dep_link", lambda task_id, memory_id: {"src_task_id": task_id, "dst_task_id": uuid.uuid4()}),
-        ("task_status_set", lambda task_id, memory_id: {
-            "task_id": task_id,
-            "status": "in_progress",
-            "expected_version": 1,
-        }),
-        ("task_link_memory", lambda task_id, memory_id: {
-            "request": {
+        (
+            "task_status_set",
+            lambda task_id, memory_id: {
                 "task_id": task_id,
-                "memory_id": memory_id,
-                "relation": "motivated_by",
+                "status": "in_progress",
+                "expected_version": 1,
             },
-        }),
+        ),
+        (
+            "task_link_memory",
+            lambda task_id, memory_id: {
+                "request": {
+                    "task_id": task_id,
+                    "memory_id": memory_id,
+                    "relation": "motivated_by",
+                },
+            },
+        ),
         ("adr_export", lambda task_id, memory_id: {"memory_id": memory_id}),
     ],
 )

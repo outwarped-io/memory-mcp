@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.env_ops import EnvMergeRequest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -13,9 +14,7 @@ from memory_mcp.db.models import Agent, Entity, EntityAlias, Environment, Memory
 from memory_mcp.env_ops import merge as merger
 from memory_mcp.env_ops.merge import ExternalRefsBlockingError, merge_envs
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.env_ops import EnvMergeRequest
-
-from tests.env_ops.test_roundtrip import _MemoryVectorStore, _truncate, postgres_factory
+from tests.env_ops.test_roundtrip import _MemoryVectorStore, _truncate, postgres_factory  # noqa: F401
 
 
 @pytest.fixture
@@ -111,7 +110,11 @@ async def test_merge_with_entity_canonical_key_collision_triggers_ent_merge(
     report = await merge_envs(EnvMergeRequest(src_env_id=src, dst_env_id=dst), ctx=ctx)
 
     assert report.entity_merges_performed >= 1
-    rows = (await session.execute(select(Entity).where(Entity.env_id == dst, Entity.normalized_name == "x"))).scalars().all()
+    rows = (
+        (await session.execute(select(Entity).where(Entity.env_id == dst, Entity.normalized_name == "x")))
+        .scalars()
+        .all()
+    )
     assert [row.id for row in rows] == [dst_entity.id]
     alias = await session.scalar(
         select(EntityAlias).where(EntityAlias.env_id == dst, EntityAlias.normalized_alias == "source x")
@@ -121,7 +124,9 @@ async def test_merge_with_entity_canonical_key_collision_triggers_ent_merge(
 
 
 @pytest.mark.asyncio
-async def test_merge_preserves_supersession_chain(merge_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext]) -> None:
+async def test_merge_preserves_supersession_chain(
+    merge_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext],
+) -> None:
     session, _store, ctx = merge_db
     src = await _create_env(session, "src-chain")
     dst = await _create_env(session, "dst-chain")
@@ -138,7 +143,9 @@ async def test_merge_preserves_supersession_chain(merge_db: tuple[AsyncSession, 
 
     await merge_envs(EnvMergeRequest(src_env_id=src, dst_env_id=dst), ctx=ctx)
 
-    copied = {row.body: row for row in (await session.execute(select(Memory).where(Memory.env_id == dst))).scalars().all()}
+    copied = {
+        row.body: row for row in (await session.execute(select(Memory).where(Memory.env_id == dst))).scalars().all()
+    }
     assert copied["a"].superseded_by == copied["b"].id
     assert copied["b"].superseded_by == copied["c"].id
 
@@ -248,10 +255,12 @@ async def _create_env(session: AsyncSession, name: str, *, model: str = "test-mo
 
 async def _create_env_with_memories(session: AsyncSession, name: str, count: int) -> UUID:
     env_id = await _create_env(session, name)
-    session.add_all([
-        Memory(id=uuid4(), env_id=env_id, kind="fact", status="active", body=f"{name}-{idx}", version=1)
-        for idx in range(count)
-    ])
+    session.add_all(
+        [
+            Memory(id=uuid4(), env_id=env_id, kind="fact", status="active", body=f"{name}-{idx}", version=1)
+            for idx in range(count)
+        ]
+    )
     await session.commit()
     return env_id
 
@@ -272,7 +281,9 @@ async def _create_external_lineage(session: AsyncSession) -> tuple[UUID, Memory,
     dst = await _create_env(session, "dst-external-lineage")
     external = await _create_env(session, "external-lineage")
     src_memory = Memory(id=uuid4(), env_id=src, kind="fact", status="active", body="src external target", version=1)
-    external_memory = Memory(id=uuid4(), env_id=external, kind="fact", status="active", body="external source", version=1)
+    external_memory = Memory(
+        id=uuid4(), env_id=external, kind="fact", status="active", body="external source", version=1
+    )
     session.add_all([src_memory, external_memory])
     await session.flush()
     session.add(

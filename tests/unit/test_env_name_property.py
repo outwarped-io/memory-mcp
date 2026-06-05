@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import inspect
 import importlib
+import inspect
 import pkgutil
 
 from pydantic import BaseModel
-
-import memory_mcp_schemas
-
 
 SKIP = {
     # Response/support schemas that still expose canonical env UUIDs only.

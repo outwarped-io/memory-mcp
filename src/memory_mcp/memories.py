@@ -60,7 +60,22 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from memory_mcp_schemas.env_ops import (
+    MemCopyRequest,
+    MemCopyResponse,
+    MemMoveRequest,
+    MemMoveResponse,
+)
+from memory_mcp_schemas.memories import (
+    HardDeleteProjectionStatus,
+    MemoryHardDeleteAffected,
+    MemoryHardDeleteRequest,
+    MemoryHardDeleteResponse,
+    MemoryResponse,
+    MemorySupersedeRequest,
+    MemoryWriteRequest,
+)
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -82,7 +97,6 @@ from memory_mcp.db.models import (
     Tag,
 )
 from memory_mcp.db.outbox import enqueue_event
-from memory_mcp.decisions.api import validate_decision_meta
 from memory_mcp.db.postgres import session_scope
 from memory_mcp.db.types import (
     LineageRelation,
@@ -93,6 +107,7 @@ from memory_mcp.db.types import (
     OutboxOp,
     is_valid_transition,
 )
+from memory_mcp.decisions.api import validate_decision_meta
 from memory_mcp.dream.salience import (
     SalienceInputs,
     compute_salience,
@@ -109,22 +124,6 @@ from memory_mcp.errors import (
     VersionConflictError,
 )
 from memory_mcp.identity import AgentContext
-
-from memory_mcp_schemas.env_ops import (
-    MemCopyRequest,
-    MemCopyResponse,
-    MemMoveRequest,
-    MemMoveResponse,
-)
-from memory_mcp_schemas.memories import (
-    HardDeleteProjectionStatus,
-    MemoryHardDeleteAffected,
-    MemoryHardDeleteRequest,
-    MemoryHardDeleteResponse,
-    MemoryResponse,
-    MemorySupersedeRequest,
-    MemoryWriteRequest,
-)
 
 log = logging.getLogger(__name__)
 
@@ -151,11 +150,13 @@ __all__ = [
 
 
 # Statuses for which the canonical memory should appear in projections.
-_VISIBLE_IN_PROJECTION: frozenset[MemoryStatus] = frozenset({
-    MemoryStatus.proposed,
-    MemoryStatus.active,
-    MemoryStatus.stale,
-})
+_VISIBLE_IN_PROJECTION: frozenset[MemoryStatus] = frozenset(
+    {
+        MemoryStatus.proposed,
+        MemoryStatus.active,
+        MemoryStatus.stale,
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -329,15 +330,15 @@ def _audit_snapshot(memory: Memory, *, tag_names: list[str] | None = None) -> di
     only that one row to remove all sensitive content.
     """
     try:
-        steps = getattr(memory, "steps")
+        steps = memory.steps
     except AttributeError:
         steps = None
     try:
-        macro = getattr(memory, "macro")
+        macro = memory.macro
     except AttributeError:
         macro = None
     try:
-        decision_meta = getattr(memory, "decision_meta")
+        decision_meta = memory.decision_meta
     except AttributeError:
         decision_meta = None
 
@@ -359,11 +360,7 @@ def _audit_snapshot(memory: Memory, *, tag_names: list[str] | None = None) -> di
         "pinned": memory.pinned,
         "version": memory.version,
         "superseded_by": str(memory.superseded_by) if memory.superseded_by else None,
-        "decision_meta": (
-                dict(decision_meta or {})
-                if decision_meta
-                else None
-            ),
+        "decision_meta": (dict(decision_meta or {}) if decision_meta else None),
         "expires_at": memory.expires_at.isoformat() if memory.expires_at else None,
         "verified_at": memory.verified_at.isoformat() if memory.verified_at else None,
     }
@@ -432,9 +429,7 @@ def _projection_payload(
         "verified_at": memory.verified_at.isoformat() if memory.verified_at else None,
         "superseded_by": str(memory.superseded_by) if memory.superseded_by else None,
         "decision_meta": (
-            dict(getattr(memory, "decision_meta", None) or {})
-            if getattr(memory, "decision_meta", None)
-            else None
+            dict(getattr(memory, "decision_meta", None) or {}) if getattr(memory, "decision_meta", None) else None
         ),
         "version": memory.version,
         "created_at": memory.created_at.isoformat(),
@@ -476,9 +471,7 @@ async def _upsert_tags(
         .values([{"env_id": env_id, "name": n} for n in names])
         .on_conflict_do_nothing(index_elements=["env_id", "name"])
     )
-    rows = await session.execute(
-        select(Tag.id, Tag.name).where(Tag.env_id == env_id, Tag.name.in_(names))
-    )
+    rows = await session.execute(select(Tag.id, Tag.name).where(Tag.env_id == env_id, Tag.name.in_(names)))
     return {name: tid for tid, name in rows.all()}
 
 
@@ -493,12 +486,7 @@ async def _replace_memory_tags(
     await session.execute(delete(MemoryTag).where(MemoryTag.memory_id == memory_id))
     if tag_ids:
         await session.execute(
-            insert(MemoryTag).values(
-                [
-                    {"memory_id": memory_id, "tag_id": tid, "env_id": env_id}
-                    for tid in tag_ids
-                ]
-            )
+            insert(MemoryTag).values([{"memory_id": memory_id, "tag_id": tid, "env_id": env_id} for tid in tag_ids])
         )
 
 
@@ -526,9 +514,7 @@ async def _load_env_embedding_model(
     session: AsyncSession,
     env_id: UUID,
 ) -> str:
-    row = await session.execute(
-        select(Environment.default_embedding_model_id).where(Environment.id == env_id)
-    )
+    row = await session.execute(select(Environment.default_embedding_model_id).where(Environment.id == env_id))
     val = row.scalar_one_or_none()
     if val is None:
         raise NotFoundError(f"environment {env_id} not found", env_id=str(env_id))
@@ -548,12 +534,7 @@ async def _lock_memories(s: AsyncSession, ids: list[UUID]) -> list[Memory]:
     """
     if not ids:
         return []
-    stmt = (
-        select(Memory)
-        .where(Memory.id.in_(ids))
-        .order_by(Memory.id)
-        .with_for_update()
-    )
+    stmt = select(Memory).where(Memory.id.in_(ids)).order_by(Memory.id).with_for_update()
     rows = (await s.execute(stmt)).scalars().all()
     return list(rows)
 
@@ -564,9 +545,7 @@ async def _ensure_memory_graph_node(
     env_id: UUID,
     memory_id: UUID,
 ) -> GraphNode:
-    node = (await session.execute(
-        select(GraphNode).where(GraphNode.memory_id == memory_id)
-    )).scalar_one_or_none()
+    node = (await session.execute(select(GraphNode).where(GraphNode.memory_id == memory_id))).scalar_one_or_none()
     if node is None:
         node = GraphNode(env_id=env_id, node_type="memory", memory_id=memory_id)
         session.add(node)
@@ -587,9 +566,7 @@ async def _ensure_entity_graph_node(
     if entity.env_id != env_id:
         raise ValueError(f"entity {entity_id} is in env {entity.env_id}, not memory env {env_id}")
 
-    node = (await session.execute(
-        select(GraphNode).where(GraphNode.entity_id == entity_id)
-    )).scalar_one_or_none()
+    node = (await session.execute(select(GraphNode).where(GraphNode.entity_id == entity_id))).scalar_one_or_none()
     if node is None:
         node = GraphNode(env_id=env_id, node_type="entity", entity_id=entity_id)
         session.add(node)
@@ -772,41 +749,52 @@ async def _copy_memory_in_session(
         )
 
     if request.copy_provenance:
-        sources = (await session.execute(
-            select(MemorySource).where(MemorySource.memory_id == source.id)
-        )).scalars().all()
+        sources = (
+            (await session.execute(select(MemorySource).where(MemorySource.memory_id == source.id))).scalars().all()
+        )
         for row in sources:
-            session.add(MemorySource(
-                memory_id=dst_memory.id,
-                source_type=row.source_type,
-                source_ref=row.source_ref,
-                agent_id=None,
-                created_at=row.created_at,
-                evidence_span=row.evidence_span,
-            ))
+            session.add(
+                MemorySource(
+                    memory_id=dst_memory.id,
+                    source_type=row.source_type,
+                    source_ref=row.source_ref,
+                    agent_id=None,
+                    created_at=row.created_at,
+                    evidence_span=row.evidence_span,
+                )
+            )
 
     if request.copy_lineage:
-        lineage_rows = (await session.execute(
-            select(MemoryLineage).where(
-                (MemoryLineage.parent_memory_id == source.id)
-                | (MemoryLineage.child_memory_id == source.id)
+        lineage_rows = (
+            (
+                await session.execute(
+                    select(MemoryLineage).where(
+                        (MemoryLineage.parent_memory_id == source.id) | (MemoryLineage.child_memory_id == source.id)
+                    )
+                )
             )
-        )).scalars().all()
+            .scalars()
+            .all()
+        )
         for row in lineage_rows:
-            session.add(MemoryLineage(
-                parent_memory_id=dst_memory.id if row.parent_memory_id == source.id else row.parent_memory_id,
-                child_memory_id=dst_memory.id if row.child_memory_id == source.id else row.child_memory_id,
-                relation=row.relation,
-                created_at=row.created_at,
-            ))
+            session.add(
+                MemoryLineage(
+                    parent_memory_id=dst_memory.id if row.parent_memory_id == source.id else row.parent_memory_id,
+                    child_memory_id=dst_memory.id if row.child_memory_id == source.id else row.child_memory_id,
+                    relation=row.relation,
+                    created_at=row.created_at,
+                )
+            )
 
     lineage_edge_id: UUID | None = None
     if request.create_lineage_edge:
-        session.add(MemoryLineage(
-            parent_memory_id=source.id,
-            child_memory_id=dst_memory.id,
-            relation=LineageRelation.copied_from.value,
-        ))
+        session.add(
+            MemoryLineage(
+                parent_memory_id=source.id,
+                child_memory_id=dst_memory.id,
+                relation=LineageRelation.copied_from.value,
+            )
+        )
         lineage_edge_id = source.id
 
     await _record_audit(
@@ -909,10 +897,7 @@ def _lineage_edge_id(parent_id: UUID, child_id: UUID, relation: str) -> str:
 async def _ensure_memory_hard_delete_allowed(session: AsyncSession, memory_id: UUID) -> None:
     lineage_ref = await session.scalar(
         select(MemoryLineage.parent_memory_id)
-        .where(
-            (MemoryLineage.parent_memory_id == memory_id)
-            | (MemoryLineage.child_memory_id == memory_id)
-        )
+        .where((MemoryLineage.parent_memory_id == memory_id) | (MemoryLineage.child_memory_id == memory_id))
         .limit(1)
     )
     superseded_ref = await session.scalar(select(Memory.id).where(Memory.superseded_by == memory_id).limit(1))
@@ -933,9 +918,14 @@ async def mem_copy(request: MemCopyRequest, *, ctx: AgentContext) -> MemCopyResp
     """
     settings = get_settings()
     async with session_scope() as session:
-        source, dst_memory, lineage_parent_id, tag_names, source_model_id, target_model_id = (
-            await _copy_memory_in_session(session, request, ctx=ctx, settings=settings)
-        )
+        (
+            source,
+            dst_memory,
+            lineage_parent_id,
+            tag_names,
+            source_model_id,
+            target_model_id,
+        ) = await _copy_memory_in_session(session, request, ctx=ctx, settings=settings)
 
     pending = await _apply_mem_copy_vector(
         source=source,
@@ -981,9 +971,14 @@ async def mem_move(request: MemMoveRequest, *, ctx: AgentContext) -> MemMoveResp
         copy_lineage=request.copy_lineage,
     )
     async with session_scope() as session:
-        source, dst_memory, lineage_parent_id, tag_names, source_model_id, target_model_id = (
-            await _copy_memory_in_session(session, copy_request, ctx=ctx, settings=settings)
-        )
+        (
+            source,
+            dst_memory,
+            lineage_parent_id,
+            tag_names,
+            source_model_id,
+            target_model_id,
+        ) = await _copy_memory_in_session(session, copy_request, ctx=ctx, settings=settings)
         old_tag_names = await _load_tag_names(session, source.id)
         source_before = _audit_snapshot(source, tag_names=old_tag_names)
         source_status = "superseded"
@@ -1184,7 +1179,11 @@ async def _memory_write_in_session(
             insert(MemorySource).values(
                 memory_id=memory.id,
                 source_type=req.source_type.value,
-                source_ref=req.source_ref if req.source_ref is not None else str(ctx.session_id) if ctx.session_id else None,
+                source_ref=req.source_ref
+                if req.source_ref is not None
+                else str(ctx.session_id)
+                if ctx.session_id
+                else None,
                 agent_id=ctx.agent_id,
                 evidence_span=req.evidence_span,
             )
@@ -1194,13 +1193,15 @@ async def _memory_write_in_session(
             memory_node = await _ensure_memory_graph_node(s, env_id=env_id, memory_id=memory.id)
             for entity_id in list(dict.fromkeys(req.entity_links)):
                 entity_node = await _ensure_entity_graph_node(s, env_id=env_id, entity_id=entity_id)
-                existing_rel = (await s.execute(
-                    select(Relation).where(
-                        Relation.src_node_id == memory_node.id,
-                        Relation.dst_node_id == entity_node.id,
-                        Relation.type == "mentions",
+                existing_rel = (
+                    await s.execute(
+                        select(Relation).where(
+                            Relation.src_node_id == memory_node.id,
+                            Relation.dst_node_id == entity_node.id,
+                            Relation.type == "mentions",
+                        )
                     )
-                )).scalar_one_or_none()
+                ).scalar_one_or_none()
                 if existing_rel is None:
                     s.add(
                         Relation(
@@ -1224,9 +1225,7 @@ async def _memory_write_in_session(
         )
 
         # Outbox
-        payload = _projection_payload(
-            memory, tag_names=tag_names, embedding_model_id=embedding_model_id
-        )
+        payload = _projection_payload(memory, tag_names=tag_names, embedding_model_id=embedding_model_id)
         await enqueue_event(
             s,
             aggregate_type=OutboxAggregateType.memory,
@@ -1375,10 +1374,7 @@ async def memory_get_many(
             tags_by_id[mid].append(name)
 
         if bump_access:
-            bumpable = [
-                m for m in visible
-                if MemoryStatus(m.status) in _VISIBLE_IN_PROJECTION
-            ]
+            bumpable = [m for m in visible if MemoryStatus(m.status) in _VISIBLE_IN_PROJECTION]
             if bumpable:
                 now = dt.datetime.now(dt.UTC)
                 weights = salience_weights_from_settings(get_settings())
@@ -1539,10 +1535,7 @@ async def memory_update(
             # Phase 1e-d: bundle the formula-version stamp with the
             # salience write so recount's recompute leaves a coherent
             # ``(salience, salience_formula_version)`` pair on the row.
-            if (
-                "salience_formula_version" in fields_set
-                and patch.salience_formula_version is not None
-            ):
+            if "salience_formula_version" in fields_set and patch.salience_formula_version is not None:
                 update_values["salience_formula_version"] = patch.salience_formula_version
             if "confidence" in fields_set and patch.confidence is not None:
                 update_values["confidence"] = patch.confidence
@@ -1566,9 +1559,7 @@ async def memory_update(
                 async with session_scope() as s2:
                     fresh = await _load_memory_for_read(s2, memory_id)
                 actual = fresh.version if fresh else patch.expected_version + 1
-                raise VersionConflictError(
-                    expected=patch.expected_version, actual=actual
-                )
+                raise VersionConflictError(expected=patch.expected_version, actual=actual)
 
             await s.refresh(memory)
 
@@ -1708,9 +1699,7 @@ async def _load_forward_hard_delete_dependents(
     for relation, dependent in lineage_rows:
         dependents.setdefault(dependent.id, (dependent, relation))
 
-    superseded_rows = (
-        await session.execute(select(Memory).where(Memory.superseded_by == memory_id))
-    ).scalars().all()
+    superseded_rows = (await session.execute(select(Memory).where(Memory.superseded_by == memory_id))).scalars().all()
     for dependent in superseded_rows:
         dependents.setdefault(dependent.id, (dependent, LineageRelation.supersedes.value))
 
@@ -1735,15 +1724,9 @@ def _blast_radius_error(
     }
     if offending_depth is not None:
         details["offending_depth"] = offending_depth
-        message = (
-            "BLAST_RADIUS_EXCEEDED: depth "
-            f"{offending_depth} exceeds max_cascade_depth={limit}"
-        )
+        message = f"BLAST_RADIUS_EXCEEDED: depth {offending_depth} exceeds max_cascade_depth={limit}"
     else:
-        message = (
-            "BLAST_RADIUS_EXCEEDED: affected row count would exceed "
-            f"max_cascade_count={limit}"
-        )
+        message = f"BLAST_RADIUS_EXCEEDED: affected row count would exceed max_cascade_count={limit}"
 
     return BlastRadiusExceededError(
         cap_hit=cap_hit,
@@ -1853,16 +1836,12 @@ async def memory_hard_delete(
             _ensure_env_visible(memory, ctx)
 
             if memory.version != request.expected_version:
-                raise VersionConflictError(
-                    expected=request.expected_version, actual=memory.version
-                )
+                raise VersionConflictError(expected=request.expected_version, actual=memory.version)
 
             await _ensure_memory_hard_delete_allowed(session, memory_id)
 
             env_id = memory.env_id
-            env_row = await session.scalar(
-                select(Environment).where(Environment.id == env_id)
-            )
+            env_row = await session.scalar(select(Environment).where(Environment.id == env_id))
             if env_row is None:
                 raise NotFoundError(f"env {env_id} not found", env_id=str(env_id))
             embedding_model_id = env_row.default_embedding_model_id
@@ -1914,7 +1893,7 @@ async def memory_hard_delete(
             )
 
             await session.execute(delete(Memory).where(Memory.id == memory_id))
-            deleted_at = dt.datetime.now(tz=dt.timezone.utc)
+            deleted_at = dt.datetime.now(tz=dt.UTC)
 
         projection_status = HardDeleteProjectionStatus(
             qdrant="pending",
@@ -1967,18 +1946,14 @@ async def memory_hard_delete(
         qdrant="pending",
         neo4j="pending",
     )
-    deleted_at = dt.datetime.now(tz=dt.timezone.utc)
+    deleted_at = dt.datetime.now(tz=dt.UTC)
     root_tombstone_id: UUID | None = None
 
     async with session_scope() as session:
         embedding_models: dict[UUID, str] = {}
         for candidate in affected:
             locked = (
-                await session.execute(
-                    select(Memory)
-                    .where(Memory.id == candidate.id)
-                    .with_for_update()
-                )
+                await session.execute(select(Memory).where(Memory.id == candidate.id).with_for_update())
             ).scalar_one_or_none()
             if locked is None:
                 exc = VersionConflictError(
@@ -2000,9 +1975,7 @@ async def memory_hard_delete(
 
             embedding_model_id = embedding_models.get(locked.env_id)
             if embedding_model_id is None:
-                env_row = await session.scalar(
-                    select(Environment).where(Environment.id == locked.env_id)
-                )
+                env_row = await session.scalar(select(Environment).where(Environment.id == locked.env_id))
                 if env_row is None:
                     raise NotFoundError(
                         f"env {locked.env_id} not found",
@@ -2121,15 +2094,11 @@ async def memory_supersede(
         rbac.require("write", env_id, ctx)
 
         if old.version != req.expected_version:
-            raise VersionConflictError(
-                expected=req.expected_version, actual=old.version
-            )
+            raise VersionConflictError(expected=req.expected_version, actual=old.version)
 
         old_status = MemoryStatus(old.status)
         if not is_valid_transition(old_status, MemoryStatus.superseded):
-            raise InvalidTransitionError(
-                src=old_status.value, dst=MemoryStatus.superseded.value
-            )
+            raise InvalidTransitionError(src=old_status.value, dst=MemoryStatus.superseded.value)
 
         embedding_model_id = await _load_env_embedding_model(s, env_id)
         new_decision_meta = await _validate_decision_meta_for_kind(
@@ -2198,9 +2167,7 @@ async def memory_supersede(
             # Concurrent writer bumped old.version after our pre-check. The
             # raise below triggers session_scope rollback — the new memory
             # we just inserted is discarded along with everything else.
-            raise VersionConflictError(
-                expected=req.expected_version, actual=req.expected_version + 1
-            )
+            raise VersionConflictError(expected=req.expected_version, actual=req.expected_version + 1)
         await s.refresh(old)
 
         # 3. Lineage: parent=old, child=new, relation=supersedes

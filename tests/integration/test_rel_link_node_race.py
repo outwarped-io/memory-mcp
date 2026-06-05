@@ -82,8 +82,12 @@ async def _create_env_agent_and_memories(factory, *, iteration: int):
 
 async def _graph_node_count_for_memory(factory, memory_id) -> int:
     async with factory() as session:
-        stmt = select(func.count()).select_from(GraphNode).where(
-            GraphNode.memory_id == memory_id,
+        stmt = (
+            select(func.count())
+            .select_from(GraphNode)
+            .where(
+                GraphNode.memory_id == memory_id,
+            )
         )
         return int((await session.execute(stmt)).scalar_one())
 
@@ -118,17 +122,15 @@ async def test_rel_link_fan_out_shared_src_memory_no_integrity_error(
             barrier = current_barrier.get(str(candidate.memory_id))
             if barrier is not None:
                 await barrier.wait()
-        return await original_create(
-            session, candidate=candidate, re_select_stmt=re_select_stmt
-        )
+        return await original_create(session, candidate=candidate, re_select_stmt=re_select_stmt)
 
     monkeypatch.setattr(relations_mod, "session_scope", routed_session_scope)
     monkeypatch.setattr(relations_mod, "_create_or_get_graph_node", gated_create_or_get)
 
     factory_1, factory_2 = postgres_session_factories()
     for iteration in range(_iterations()):
-        env_id, agent_id, src_id, dst_a_id, dst_b_id = (
-            await _create_env_agent_and_memories(factory_1, iteration=iteration)
+        env_id, agent_id, src_id, dst_a_id, dst_b_id = await _create_env_agent_and_memories(
+            factory_1, iteration=iteration
         )
         ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
         # Both gated calls share the src memory id; gate on it.
@@ -190,9 +192,7 @@ async def test_rel_link_fan_out_three_way_shared_src(
             barrier = current_barrier.get(str(candidate.memory_id))
             if barrier is not None:
                 await barrier.wait()
-        return await original_create(
-            session, candidate=candidate, re_select_stmt=re_select_stmt
-        )
+        return await original_create(session, candidate=candidate, re_select_stmt=re_select_stmt)
 
     monkeypatch.setattr(relations_mod, "session_scope", routed_session_scope)
     monkeypatch.setattr(relations_mod, "_create_or_get_graph_node", gated_create_or_get)
@@ -204,8 +204,8 @@ async def test_rel_link_fan_out_three_way_shared_src(
     factory_3, _factory_4 = postgres_session_factories()
 
     for iteration in range(_iterations()):
-        env_id, agent_id, src_id, dst_a_id, dst_b_id = (
-            await _create_env_agent_and_memories(factory_1, iteration=iteration)
+        env_id, agent_id, src_id, dst_a_id, dst_b_id = await _create_env_agent_and_memories(
+            factory_1, iteration=iteration
         )
         # Add a third dst.
         async with factory_1() as session:

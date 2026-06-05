@@ -5,6 +5,15 @@ from __future__ import annotations
 from collections.abc import Iterable
 from uuid import UUID
 
+from memory_mcp_schemas.browse import MemBrowseRequest
+from memory_mcp_schemas.env_ops import (
+    BatchFailure,
+    EnvMigrateRequest,
+    EnvMigrateResponse,
+    MemCopyRequest,
+    MemMoveRequest,
+    MigrationMode,
+)
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,16 +24,6 @@ from memory_mcp.db.types import MemoryStatus
 from memory_mcp.errors import InvalidInputError, MemoryMCPError, NotFoundError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import mem_copy, mem_move
-
-from memory_mcp_schemas.browse import MemBrowseRequest
-from memory_mcp_schemas.env_ops import (
-    BatchFailure,
-    EnvMigrateRequest,
-    EnvMigrateResponse,
-    MemCopyRequest,
-    MemMoveRequest,
-    MigrationMode,
-)
 
 
 async def migrate_env(request: EnvMigrateRequest, *, ctx: AgentContext) -> EnvMigrateResponse:
@@ -124,10 +123,7 @@ async def _validate_request(request: EnvMigrateRequest, *, ctx: AgentContext) ->
     if request.mode == MigrationMode.move:
         rbac.require("write", request.src_env_id, ctx)
 
-    if (
-        src.default_embedding_model_id != dst.default_embedding_model_id
-        and not request.re_embed_if_model_mismatch
-    ):
+    if src.default_embedding_model_id != dst.default_embedding_model_id and not request.re_embed_if_model_mismatch:
         exc = InvalidInputError(
             "source and destination default embedding models differ",
             src_env_id=str(request.src_env_id),
@@ -141,9 +137,15 @@ async def _validate_request(request: EnvMigrateRequest, *, ctx: AgentContext) ->
 
 async def _load_env_pair(src_env_id: UUID, dst_env_id: UUID) -> tuple[Environment, Environment]:
     async with session_scope() as session:
-        rows = (await session.execute(
-            select(Environment).where(Environment.id.in_([src_env_id, dst_env_id])),
-        )).scalars().all()
+        rows = (
+            (
+                await session.execute(
+                    select(Environment).where(Environment.id.in_([src_env_id, dst_env_id])),
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     by_id = {row.id: row for row in rows}
     for env_id in (src_env_id, dst_env_id):
@@ -172,11 +174,7 @@ async def _seed_memory_ids(session: AsyncSession, request: EnvMigrateRequest) ->
 
     browse_filter = _filter_for_src(request.filter, request.src_env_id, request.include_superseded)
     statuses = [s.value for s in browse_filter.statuses] if browse_filter.statuses else [MemoryStatus.active.value]
-    stmt = (
-        select(Memory.id)
-        .where(Memory.env_id == request.src_env_id)
-        .where(Memory.status.in_(statuses))
-    )
+    stmt = select(Memory.id).where(Memory.env_id == request.src_env_id).where(Memory.status.in_(statuses))
     if browse_filter.kinds:
         stmt = stmt.where(Memory.kind.in_([k.value for k in browse_filter.kinds]))
     if browse_filter.created_after is not None:
@@ -216,11 +214,13 @@ async def _expand_supersession_chain(
     expanded = set(memory_ids)
     frontier = set(memory_ids)
     while frontier:
-        rows = (await session.execute(
-            select(Memory.id, Memory.superseded_by)
-            .where(Memory.env_id == env_id)
-            .where((Memory.id.in_(frontier)) | (Memory.superseded_by.in_(frontier))),
-        )).all()
+        rows = (
+            await session.execute(
+                select(Memory.id, Memory.superseded_by)
+                .where(Memory.env_id == env_id)
+                .where((Memory.id.in_(frontier)) | (Memory.superseded_by.in_(frontier))),
+            )
+        ).all()
         discovered: set[UUID] = set()
         for memory_id, superseded_by in rows:
             discovered.add(memory_id)
@@ -235,15 +235,20 @@ async def _order_for_chain(session: AsyncSession, *, env_id: UUID, memory_ids: I
     ids = set(memory_ids)
     if not ids:
         return []
-    rows = (await session.execute(
-        select(Memory.id, Memory.superseded_by, Memory.created_at)
-        .where(Memory.env_id == env_id)
-        .where(Memory.id.in_(ids)),
-    )).all()
+    rows = (
+        await session.execute(
+            select(Memory.id, Memory.superseded_by, Memory.created_at)
+            .where(Memory.env_id == env_id)
+            .where(Memory.id.in_(ids)),
+        )
+    ).all()
     superseded_by = {memory_id: target for memory_id, target, _created_at in rows}
-    created_order = {memory_id: index for index, (memory_id, _target, _created_at) in enumerate(
-        sorted(rows, key=lambda row: (row[2], row[0])),
-    )}
+    created_order = {
+        memory_id: index
+        for index, (memory_id, _target, _created_at) in enumerate(
+            sorted(rows, key=lambda row: (row[2], row[0])),
+        )
+    }
 
     def depth(memory_id: UUID) -> int:
         seen: set[UUID] = set()
@@ -263,7 +268,7 @@ async def _superseded_by_map(session: AsyncSession, memory_ids: Iterable[UUID]) 
     if not ids:
         return {}
     rows = await session.execute(select(Memory.id, Memory.superseded_by).where(Memory.id.in_(ids)))
-    return {memory_id: superseded_by for memory_id, superseded_by in rows.all()}
+    return dict(rows.all())
 
 
 async def _restore_dst_supersession_chain(

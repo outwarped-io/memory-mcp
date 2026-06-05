@@ -295,10 +295,7 @@ class TemplateSummarizer(DreamSummarizer):
         snippet = topic if len(topic) <= 240 else topic[:237].rstrip() + "…"
         return PromotionSummary(
             suggested_title=f"Observations about {cluster.source_entity_name}",
-            suggested_body=(
-                f"Repeated observations about {cluster.source_entity_name}: "
-                f"{snippet}"
-            ),
+            suggested_body=(f"Repeated observations about {cluster.source_entity_name}: {snippet}"),
             suggested_confidence=_template_promotion_confidence(len(observations)),
             summarizer_kind=SummarizerKind.template,
         )
@@ -385,7 +382,8 @@ def _format_promotion_prompt(cluster: PromotionCluster) -> str:
     # name could appear in the natural-language instruction text and
     # trick the LLM into ignoring the JSON-shape requirement.
     entity_safe = _escape_input(
-        cluster.source_entity_name, char_budget=_LLM_TITLE_CHAR_CAP,
+        cluster.source_entity_name,
+        char_budget=_LLM_TITLE_CHAR_CAP,
     )
     obs_text = []
     for i, o in enumerate(cluster.observations):
@@ -418,11 +416,7 @@ def _parse_merge_response(raw: str) -> tuple[str | None, str]:
         raise ValueError("merge payload missing non-empty 'body'")
     if title_raw is not None and not isinstance(title_raw, str):
         raise ValueError("merge payload 'title' must be string-or-null")
-    title = (
-        None
-        if title_raw is None
-        else _truncate(title_raw.strip(), _LLM_TITLE_CHAR_CAP) or None
-    )
+    title = None if title_raw is None else _truncate(title_raw.strip(), _LLM_TITLE_CHAR_CAP) or None
     body = _truncate(body_raw.strip(), _LLM_BODY_CHAR_CAP)
     return title, body
 
@@ -444,9 +438,7 @@ def _parse_promotion_response(raw: str) -> tuple[str, str, float]:
         raise ValueError("promotion payload 'confidence' must be a number")
     conf = float(conf_raw)
     if not (0.0 <= conf <= 1.0):
-        raise ValueError(
-            f"promotion payload 'confidence'={conf} is outside [0, 1]"
-        )
+        raise ValueError(f"promotion payload 'confidence'={conf} is outside [0, 1]")
     title = _truncate(title_raw.strip(), _LLM_TITLE_CHAR_CAP)
     body = _truncate(body_raw.strip(), _LLM_BODY_CHAR_CAP)
     return title, body, conf

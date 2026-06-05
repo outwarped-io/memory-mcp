@@ -75,7 +75,7 @@ def is_expired(memory: Memory, *, now: dt.datetime | None = None) -> bool:
     if memory.expires_at is None:
         return False
     if now is None:
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
     return memory.expires_at <= now
 
 

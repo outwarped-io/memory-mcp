@@ -41,15 +41,45 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from functools import wraps
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from typing import Any
 from uuid import UUID
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
+from memory_mcp_schemas.digest import DigestRequest, ResumeRequest
+from memory_mcp_schemas.env_ops import (
+    EnvCloneRequest,
+    EnvCloneResponse,
+    EnvDeleteRequest,
+    EnvDeleteResponse,
+    EnvDiffRequest,
+    EnvDiffResponse,
+    EnvExportRequest,
+    EnvExportResponse,
+    EnvImportReport,
+    EnvImportRequest,
+    EnvMergeRequest,
+    EnvMergeResponse,
+    EnvMigrateRequest,
+    EnvMigrateResponse,
+    EnvRenameRequest,
+    EnvRenameResponse,
+    EnvRestoreRequest,
+    EnvRestoreResponse,
+    EnvSnapshotRequest,
+    EnvSnapshotResponse,
+    MemCopyRequest,
+    MemCopyResponse,
+    MemMoveRequest,
+    MemMoveResponse,
+)
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from memory_mcp import inbox as inbox_mod
+from memory_mcp import rbac
 from memory_mcp.browse import (
     MemBrowseRequest,
     MemBrowseResponse,
@@ -58,14 +88,25 @@ from memory_mcp.browse import (
     memory_browse,
     memory_facets,
 )
-from memory_mcp.top import (
-    MemTopRequest,
-    MemTopResponse,
-    memory_top,
+from memory_mcp.composers import (
+    MemComposeRequest,
+    MemComposeResponse,
+    memory_compose,
 )
 from memory_mcp.config import Settings, get_settings
-from memory_mcp.context_pack import ContextPackResponse, pack as context_pack
-from memory_mcp.decisions import AdrExportResponse, adr_export as adr_export_memory
+from memory_mcp.context_pack import ContextPackResponse
+from memory_mcp.context_pack import pack as context_pack
+from memory_mcp.db.models import Memory, Task
+from memory_mcp.db.postgres import session_scope
+from memory_mcp.db.types import TaskRelationKind, TaskStatus
+from memory_mcp.decisions import AdrExportResponse
+from memory_mcp.decisions import adr_export as adr_export_memory
+from memory_mcp.decomposers import (
+    MemDecomposeRequest,
+    MemDecomposeResponse,
+    memory_decompose,
+)
+from memory_mcp.digest import DigestResponse, ResumeResponse, digest_for_env, resume_for_env
 from memory_mcp.dream.api import (
     DreamProposalsListRequest,
     DreamProposalsListResponse,
@@ -80,7 +121,6 @@ from memory_mcp.dream.api import (
     dream_run,
     dream_status,
 )
-from memory_mcp.digest import DigestResponse, ResumeResponse, digest_for_env, resume_for_env
 from memory_mcp.entities import (
     EntityBrowseRequest,
     EntityBrowseResponse,
@@ -93,6 +133,15 @@ from memory_mcp.entities import (
     entity_resolve,
     entity_upsert,
 )
+from memory_mcp.env_ops.clone import clone_env
+from memory_mcp.env_ops.delete import delete_env
+from memory_mcp.env_ops.diff import diff_envs
+from memory_mcp.env_ops.export import export_env
+from memory_mcp.env_ops.import_ import import_env
+from memory_mcp.env_ops.merge import merge_envs
+from memory_mcp.env_ops.migrate import migrate_env
+from memory_mcp.env_ops.rename import rename_env
+from memory_mcp.env_ops.snapshot import create_snapshot, restore_snapshot
 from memory_mcp.env_resolve import _resolve_env_refs
 from memory_mcp.envs import (
     AttachedEnvsResponse,
@@ -104,46 +153,6 @@ from memory_mcp.envs import (
     env_get,
     env_list,
 )
-from memory_mcp.env_ops.delete import delete_env
-from memory_mcp.env_ops.diff import diff_envs
-from memory_mcp.env_ops.clone import clone_env
-from memory_mcp.env_ops.export import export_env
-from memory_mcp.env_ops.import_ import import_env
-from memory_mcp.env_ops.merge import merge_envs
-from memory_mcp.env_ops.migrate import migrate_env
-from memory_mcp.env_ops.snapshot import create_snapshot, restore_snapshot
-from memory_mcp.env_ops.rename import rename_env
-from memory_mcp_schemas.digest import DigestRequest, ResumeRequest
-from memory_mcp_schemas.env_ops import (
-    EnvCloneRequest,
-    EnvCloneResponse,
-    EnvDeleteRequest,
-    EnvDeleteResponse,
-    EnvDiffRequest,
-    EnvDiffResponse,
-    EnvExportRequest,
-    EnvExportResponse,
-    EnvImportRequest,
-    EnvImportReport,
-    EnvSnapshotResponse,
-    EnvSnapshotRequest,
-    EnvRestoreResponse,
-    EnvRestoreRequest,
-    EnvMergeRequest,
-    EnvMergeResponse,
-    EnvMigrateRequest,
-    EnvMigrateResponse,
-    EnvRenameResponse,
-    EnvRenameRequest,
-    MemCopyRequest,
-    MemCopyResponse,
-    MemMoveRequest,
-    MemMoveResponse,
-)
-from memory_mcp import rbac
-from memory_mcp.db.models import Memory, Task
-from memory_mcp.db.postgres import session_scope
-from memory_mcp.db.types import TaskRelationKind, TaskStatus
 from memory_mcp.errors import EnvNotAttachedError, InvalidInputError, MemoryMCPError, NotFoundError
 from memory_mcp.graph import (
     EntityNeighborsRequest,
@@ -157,18 +166,6 @@ from memory_mcp.graph import (
     memory_related,
 )
 from memory_mcp.identity import AgentContext, get_identity_resolver
-from memory_mcp.journal import JournalRequest, memory_journal
-from memory_mcp.composers import (
-    MemComposeRequest,
-    MemComposeResponse,
-    memory_compose,
-)
-from memory_mcp.decomposers import (
-    MemDecomposeRequest,
-    MemDecomposeResponse,
-    memory_decompose,
-)
-from memory_mcp import inbox as inbox_mod
 from memory_mcp.inbox import (
     MemInboxOpenRequest,
     MemInboxOpenResponse,
@@ -177,9 +174,9 @@ from memory_mcp.inbox import (
     MemInboxSendRequest,
     MemInboxSendResponse,
 )
+from memory_mcp.journal import JournalRequest, memory_journal
 from memory_mcp.memories import (
     MemoryHardDeleteRequest,
-    MemoryHardDeleteResponse,
     MemoryResponse,
     MemorySupersedeRequest,
     MemoryUpdatePatch,
@@ -195,7 +192,8 @@ from memory_mcp.memories import (
     memory_update,
     memory_write,
 )
-from memory_mcp.playbooks import PlaybookInvokeResponse, playbook_invoke as invoke_playbook
+from memory_mcp.playbooks import PlaybookInvokeResponse
+from memory_mcp.playbooks import playbook_invoke as invoke_playbook
 from memory_mcp.provenance import (
     MemLineageRequest,
     MemLineageResponse,
@@ -230,14 +228,35 @@ from memory_mcp.tasks import (
     TaskRelationResponse,
     TaskResponse,
     TaskTreeResponse,
+)
+from memory_mcp.tasks import (
     task_create as task_create_impl,
+)
+from memory_mcp.tasks import (
     task_dep_link as task_dep_link_impl,
+)
+from memory_mcp.tasks import (
     task_link_memory as task_link_memory_impl,
+)
+from memory_mcp.tasks import (
     task_list as task_list_impl,
+)
+from memory_mcp.tasks import (
     task_next as task_next_impl,
+)
+from memory_mcp.tasks import (
     task_status_set as task_status_set_impl,
+)
+from memory_mcp.tasks import (
     task_substep as task_substep_impl,
+)
+from memory_mcp.tasks import (
     task_tree as task_tree_impl,
+)
+from memory_mcp.top import (
+    MemTopRequest,
+    MemTopResponse,
+    memory_top,
 )
 
 log = logging.getLogger(__name__)
@@ -277,9 +296,7 @@ async def _resolve_ctx(
         session_id_header=None,
     )
     if attached_env_ids or attached_env_names:
-        refs = await _resolve_env_refs(
-            _AttachedEnvRefs(env_ids=attached_env_ids, env_names=attached_env_names)
-        )
+        refs = await _resolve_env_refs(_AttachedEnvRefs(env_ids=attached_env_ids, env_names=attached_env_names))
         ctx.attached_env_ids = list(refs.env_ids or [])
         ctx.attached_env_names = []
     return ctx
@@ -298,9 +315,7 @@ def _format_tool_error(exc: BaseException) -> ToolError:
     # Embed the structured info in the message so MCP clients that don't
     # parse `data` still see actionable text.
     details_json = json.dumps(body.get("details", {}))
-    return ToolError(
-        f"[{body['code']}] {body['message']} :: {details_json}"
-    )
+    return ToolError(f"[{body['code']}] {body['message']} :: {details_json}")
 
 
 def _wrap[T](
@@ -355,9 +370,7 @@ def _require_env_attached(env_id: UUID, ctx: AgentContext) -> None:
 
 async def _resolve_task_env(task_id: UUID) -> UUID:
     async with session_scope() as session:
-        env_id = (await session.execute(
-            select(Task.env_id).where(Task.id == task_id)
-        )).scalar_one_or_none()
+        env_id = (await session.execute(select(Task.env_id).where(Task.id == task_id))).scalar_one_or_none()
     if env_id is None:
         raise NotFoundError(f"task {task_id} not found", task_id=str(task_id))
     return env_id
@@ -365,9 +378,7 @@ async def _resolve_task_env(task_id: UUID) -> UUID:
 
 async def _resolve_memory_env(memory_id: UUID) -> UUID:
     async with session_scope() as session:
-        env_id = (await session.execute(
-            select(Memory.env_id).where(Memory.id == memory_id)
-        )).scalar_one_or_none()
+        env_id = (await session.execute(select(Memory.env_id).where(Memory.id == memory_id))).scalar_one_or_none()
     if env_id is None:
         raise NotFoundError(f"memory {memory_id} not found", memory_id=str(memory_id))
     return env_id
@@ -441,7 +452,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: MemoryResponse = await memory_write(request, ctx=ctx)
@@ -463,7 +476,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         return _dump(await memory_get(memory_id, ctx=ctx))
 
@@ -486,7 +501,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         return _dump(await memory_get_many(memory_ids, ctx=ctx))
 
@@ -506,7 +523,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         env_id = await _resolve_memory_env(memory_id)
         _require_env_attached(env_id, ctx)
@@ -539,7 +558,9 @@ def build_mcp_server(
         which surfaces as ``[VERSION_CONFLICT]`` to the MCP caller.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         return _dump(await memory_update(memory_id, patch=patch, ctx=ctx))
 
@@ -561,11 +582,17 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
-        return _dump(await memory_archive(
-            memory_id, expected_version=expected_version, ctx=ctx,
-        ))
+        return _dump(
+            await memory_archive(
+                memory_id,
+                expected_version=expected_version,
+                ctx=ctx,
+            )
+        )
 
     @mcp.tool()
     @_wrap
@@ -589,12 +616,18 @@ def build_mcp_server(
         ``reason`` is recorded in ``audit_log`` and is required.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
-        return _dump(await memory_retire(
-            memory_id, expected_version=expected_version,
-            reason=reason, ctx=ctx,
-        ))
+        return _dump(
+            await memory_retire(
+                memory_id,
+                expected_version=expected_version,
+                reason=reason,
+                ctx=ctx,
+            )
+        )
 
     @mcp.tool()
     @_wrap
@@ -659,7 +692,9 @@ def build_mcp_server(
         unblocks audits.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         return _dump(await memory_hard_delete(memory_id, request, ctx=ctx))
 
@@ -689,7 +724,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         old, new = await memory_supersede(old_memory_id, request, ctx=ctx)
         return {"old": _dump(old), "new": _dump(new)}
@@ -849,9 +886,7 @@ def build_mcp_server(
             attached_env_ids=attached_env_ids,
             attached_env_names=attached_env_names,
         )
-        out: MemInboxOpenResponse = await inbox_mod.mem_inbox_open(
-            request, ctx=ctx
-        )
+        out: MemInboxOpenResponse = await inbox_mod.mem_inbox_open(request, ctx=ctx)
         return _dump(out)
 
     @mcp.tool()
@@ -897,9 +932,7 @@ def build_mcp_server(
             attached_env_ids=attached_env_ids,
             attached_env_names=attached_env_names,
         )
-        out: MemInboxSendResponse = await inbox_mod.mem_inbox_send(
-            request, ctx=ctx
-        )
+        out: MemInboxSendResponse = await inbox_mod.mem_inbox_send(request, ctx=ctx)
         return _dump(out)
 
     @mcp.tool()
@@ -963,7 +996,9 @@ def build_mcp_server(
         cross-env lineage edge are copied by default (toggleable). The source memory is unchanged. Embeddings replicate
         verbatim unless re_embed_if_model_mismatch=True forces re-embedding via the destination env's model.
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         out: MemCopyResponse = await mem_copy(request, ctx=ctx)
         return _dump(out)
 
@@ -990,7 +1025,9 @@ def build_mcp_server(
         memory's UUID remains valid as a tombstone; searches in the source env will see it as 'superseded'. The cross-env
         supersession is allowed only for mem_move (mem_supersede still blocks all cross-env supersessions).
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         out: MemMoveResponse = await mem_move(request, ctx=ctx)
         return _dump(out)
 
@@ -1016,7 +1053,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         return _dump(await memory_journal(request, ctx=ctx))
@@ -1040,13 +1079,16 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
-        request = await _resolve_env_refs(
-            DigestRequest(env_id=env_id, env_name=env_name, since_ts=since_ts)
-        )
+        request = await _resolve_env_refs(DigestRequest(env_id=env_id, env_name=env_name, since_ts=since_ts))
         out: DigestResponse = await digest_for_env(
-            request.env_id, since_ts=request.since_ts, ctx=ctx, settings=settings,
+            request.env_id,
+            since_ts=request.since_ts,
+            ctx=ctx,
+            settings=settings,
         )
         return _dump(out)
 
@@ -1069,13 +1111,15 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
-        request = await _resolve_env_refs(
-            ResumeRequest(env_id=env_id, env_name=env_name, journal_tail=journal_tail)
-        )
+        request = await _resolve_env_refs(ResumeRequest(env_id=env_id, env_name=env_name, journal_tail=journal_tail))
         out: ResumeResponse = await resume_for_env(
-            request.env_id, journal_tail=request.journal_tail, ctx=ctx,
+            request.env_id,
+            journal_tail=request.journal_tail,
+            ctx=ctx,
         )
         return _dump(out)
 
@@ -1139,7 +1183,9 @@ def build_mcp_server(
           ``fallback_used``. ``mode=id`` does not participate.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: MemorySearchResponse = await memory_search(request, ctx=ctx)
@@ -1167,7 +1213,9 @@ def build_mcp_server(
         """
         _ = ctx
         agent_ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         _require_env_attached(env_id, agent_ctx)
         rbac.require("read", env_id, agent_ctx)
@@ -1206,7 +1254,9 @@ def build_mcp_server(
         ``include_retired``).
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: MemNeighborsResponse = await memory_neighbors(request, ctx=ctx)
@@ -1238,7 +1288,9 @@ def build_mcp_server(
         Relaxation steps that fired are echoed back in ``fallback_used``.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: MemRelatedResponse = await memory_related(request, ctx=ctx)
@@ -1265,7 +1317,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request, allow_deleted=True)
         out: MemLineageResponse = await memory_lineage(request, ctx=ctx)
@@ -1293,11 +1347,14 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: MemSourcesBrowseResponse = await memory_sources_browse(
-            request, ctx=ctx,
+            request,
+            ctx=ctx,
         )
         return _dump(out)
 
@@ -1328,7 +1385,9 @@ def build_mcp_server(
         change raises ``INVALID_CURSOR``.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: MemBrowseResponse = await memory_browse(request, ctx=ctx)
@@ -1360,7 +1419,9 @@ def build_mcp_server(
         cost.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: MemFacetsResponse = await memory_facets(request, ctx=ctx)
@@ -1405,7 +1466,9 @@ def build_mcp_server(
         ``items`` but counted in ``total_examined``.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: MemTopResponse = await memory_top(request, ctx=ctx)
@@ -1434,7 +1497,9 @@ def build_mcp_server(
         through ``include_substrates=true``.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: MemStatsResponse = await compute_mem_stats(request, ctx=ctx)
@@ -1463,7 +1528,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: EntityResponse = await entity_upsert(request, ctx=ctx)
@@ -1490,7 +1557,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         return _dump(await entity_resolve(request, ctx=ctx))
@@ -1518,7 +1587,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         return _dump(await entity_merge(request, ctx=ctx))
 
@@ -1549,11 +1620,14 @@ def build_mcp_server(
         opaque-cursor; pages may be sparse after lifecycle filtering.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: EntityNeighborsResponse = await entity_neighbors(
-            request, ctx=ctx,
+            request,
+            ctx=ctx,
         )
         return _dump(out)
 
@@ -1582,7 +1656,9 @@ def build_mcp_server(
         Backed by ``text_pattern_ops`` indexes; LIKE ``prefix%`` only.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: EntityBrowseResponse = await entity_browse(request, ctx=ctx)
@@ -1611,7 +1687,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: RelationResponse = await relation_link(request, ctx=ctx)
@@ -1644,7 +1722,9 @@ def build_mcp_server(
         graph_node id).
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: RelationBrowseResponse = await relation_browse(request, ctx=ctx)
@@ -1677,7 +1757,9 @@ def build_mcp_server(
         future core-pinned support and is currently a no-op.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         out: ContextPackResponse = await context_pack(
             task_desc=task_desc,
@@ -1707,7 +1789,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         _require_env_attached(env_id, ctx)
         rbac.require("read", env_id, ctx)
@@ -1739,7 +1823,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         out: EnvResponse = await env_create(request, ctx=ctx)
         return _dump(out)
@@ -1760,7 +1846,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         return _dump(await env_list(ctx=ctx, include_deleted=include_deleted))
 
@@ -1782,7 +1870,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         out: EnvResponse = await env_get(
             name=name,
@@ -1817,11 +1907,12 @@ def build_mcp_server(
         By default, fails fast with sample IDs if any other env has a lineage edge pointing
         into this env. Pass ``cascade_external_refs=True`` to drop those edges and proceed.
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         request = await _resolve_env_refs(request, allow_deleted=True)
         out: EnvDeleteResponse = await delete_env(request, ctx=ctx)
         return _dump(out)
-
 
     @mcp.tool()
     @_wrap
@@ -1845,7 +1936,9 @@ def build_mcp_server(
         existing memories — only affects new ones), ``retention_policy`` (effective at next
         dream-run). The env_id is immutable (lineage anchor).
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         request = await _resolve_env_refs(request, allow_deleted=True)
         out: EnvRenameResponse = await rename_env(request, ctx=ctx)
         return _dump(out)
@@ -1873,7 +1966,9 @@ def build_mcp_server(
         token-derived identity.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         ctx.session_id = session_id
         out: AttachedEnvsResponse = await env_attach(name=name, ctx=ctx)
@@ -1897,7 +1992,9 @@ def build_mcp_server(
             }
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         ctx.session_id = session_id
         out = await env_detach(name=name, ctx=ctx)
@@ -1925,7 +2022,9 @@ def build_mcp_server(
               }
             }
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         request = await _resolve_env_refs(request)
         _require_env_attached(request.env_id, ctx)
         out: TaskResponse = await task_create_impl(request, ctx=ctx, settings=settings)
@@ -1951,7 +2050,9 @@ def build_mcp_server(
               "priority": 40
             }
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         env_id = await _resolve_task_env(parent_task_id)
         _require_env_attached(env_id, ctx)
         out: TaskResponse = await task_substep_impl(
@@ -1983,7 +2084,9 @@ def build_mcp_server(
               "type": "depends_on"
             }
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         src_env_id = await _resolve_task_env(src_task_id)
         dst_env_id = await _resolve_task_env(dst_task_id)
         if src_env_id != dst_env_id:
@@ -2015,7 +2118,9 @@ def build_mcp_server(
               "expected_version": 1
             }
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         env_id = await _resolve_task_env(task_id)
         _require_env_attached(env_id, ctx)
         out: TaskResponse = await task_status_set_impl(
@@ -2046,7 +2151,9 @@ def build_mcp_server(
               }
             }
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         request = await _resolve_env_refs(request)
         _require_env_attached(request.env_id, ctx)
         out: TaskListResponse = await task_list_impl(request, ctx=ctx, settings=settings)
@@ -2067,7 +2174,9 @@ def build_mcp_server(
               "env_id": "00000000-0000-0000-0000-000000000101"
             }
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         _require_env_attached(env_id, ctx)
         out = await task_next_impl(env_id, ctx=ctx, settings=settings)
         return _dump(out) if out is not None else None
@@ -2091,7 +2200,9 @@ def build_mcp_server(
               "max_nodes": 20
             }
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         out: TaskTreeResponse = await task_tree_impl(
             task_id,
             ctx=ctx,
@@ -2119,7 +2230,9 @@ def build_mcp_server(
               }
             }
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         env_id = await _resolve_task_env(request.task_id)
         _require_env_attached(env_id, ctx)
         out: TaskLinkMemoryResponse = await task_link_memory_impl(request, ctx=ctx, settings=settings)
@@ -2155,7 +2268,9 @@ def build_mcp_server(
         ``skipped_locked`` rather than racing.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: DreamRunResponse = await dream_run(request, ctx=ctx)
@@ -2184,7 +2299,9 @@ def build_mcp_server(
         will report ``status='error'`` rather than block the call.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: DreamStatusResponse = await dream_status(request, ctx=ctx)
@@ -2214,11 +2331,14 @@ def build_mcp_server(
         rejected with ``INVALID_INPUT`` if reused with different filters.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request)
         out: DreamProposalsListResponse = await dream_proposals_list(
-            request, ctx=ctx,
+            request,
+            ctx=ctx,
         )
         return _dump(out)
 
@@ -2252,7 +2372,9 @@ def build_mcp_server(
         ``INVALID_INPUT``.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         out: DreamReviewResponse = await dream_review(request, ctx=ctx)
         return _dump(out)
@@ -2291,7 +2413,9 @@ def build_mcp_server(
         they're memory rows already inside ``memories.jsonl``.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         request = await _resolve_env_refs(request, allow_deleted=True)
         out: EnvExportResponse = await export_env(request, ctx=ctx)
@@ -2329,7 +2453,9 @@ def build_mcp_server(
         reports counts/conflicts without writing.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         out: EnvImportReport = await import_env(request, ctx=ctx)
         return _dump(out)
@@ -2355,7 +2481,9 @@ def build_mcp_server(
 
         Persists a tar.gz archive at ``<data_root>/snapshots/<env_id>/<snapshot_id>.memarchive.tar.gz`` and inserts a row in the ``snapshots`` table. Snapshots are not auto-pruned; the server logs a warning when the snapshot dir exceeds 10 GB.
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         request = await _resolve_env_refs(request, allow_deleted=True)
         out: EnvSnapshotResponse = await create_snapshot(request, ctx=ctx)
         return _dump(out)
@@ -2383,7 +2511,9 @@ def build_mcp_server(
         - ``replace_env_in_place``: truncate the live env and reload from snapshot in a single PG transaction. Requires ``confirm_destroy=True``. The env_id and all memory UUIDs are preserved byte-for-byte (external lineage refs remain valid).
         - ``restore_to_new_env``: equivalent to env_import of the snapshot archive into a fresh env.
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         out: EnvRestoreResponse = await restore_snapshot(request, ctx=ctx)
         return _dump(out)
 
@@ -2412,7 +2542,9 @@ def build_mcp_server(
         tags, relations, tasks, graph nodes, and memory lineage.
         """
         ctx = await _resolve_ctx(
-            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names,
+            agent_id=agent_id,
+            attached_env_ids=attached_env_ids,
+            attached_env_names=attached_env_names,
         )
         out: EnvDiffResponse = await diff_envs(request, ctx=ctx)
         return _dump(out)
@@ -2442,7 +2574,9 @@ def build_mcp_server(
         ``closure_inclusions``. Embeddings are copied verbatim from the source vector store; if the destination env later
         wants different embeddings, a separate re-embed flow handles that.
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         out: EnvCloneResponse = await clone_env(request, ctx=ctx)
         return _dump(out)
 
@@ -2472,7 +2606,9 @@ def build_mcp_server(
         ``delete_src_after=True`` (default) the src env is soft-deleted at end — its UUID remains valid for downstream
         references. Embedding models must match unless ``allow_embedding_mismatch=True``.
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         out: EnvMergeResponse = await merge_envs(request, ctx=ctx)
         return _dump(out)
 
@@ -2502,7 +2638,9 @@ def build_mcp_server(
         ``preserve_supersession_chain=False``. Use ``fail_fast=True`` to abort on first error.
         Embedding mismatches between src and dst envs require ``re_embed_if_model_mismatch=True``.
         """
-        ctx = await _resolve_ctx(agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names)
+        ctx = await _resolve_ctx(
+            agent_id=agent_id, attached_env_ids=attached_env_ids, attached_env_names=attached_env_names
+        )
         out: EnvMigrateResponse = await migrate_env(request, ctx=ctx)
         return _dump(out)
 
@@ -2550,7 +2688,10 @@ def _install_validation_hints(mcp: FastMCP) -> None:
     ) -> Any:
         try:
             return await original_call_tool(
-                name, arguments, context=context, convert_result=convert_result,
+                name,
+                arguments,
+                context=context,
+                convert_result=convert_result,
             )
         except ToolError as exc:
             cause = exc.__cause__

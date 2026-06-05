@@ -81,7 +81,10 @@ class TestRelationLinkRequestSchema:
     def test_rejects_zero_expected_version(self) -> None:
         with pytest.raises(ValidationError):
             RelationLinkRequest(
-                src=self._ep(), dst=self._ep(), type="x", expected_version=0,
+                src=self._ep(),
+                dst=self._ep(),
+                type="x",
+                expected_version=0,
             )
 
     def test_accepts_properties_and_env(self) -> None:
@@ -101,7 +104,10 @@ class TestRelationLinkRequestSchema:
     def test_rejects_extra_fields(self) -> None:
         with pytest.raises(ValidationError):
             RelationLinkRequest(
-                src=self._ep(), dst=self._ep(), type="x", bogus=1,  # type: ignore[call-arg]
+                src=self._ep(),
+                dst=self._ep(),
+                type="x",
+                bogus=1,  # type: ignore[call-arg]
             )
 
 
@@ -173,10 +179,16 @@ class TestRelationPayload:
         src_rec = uuid4()
         dst_rec = uuid4()
         src = GraphNode(
-            id=uuid4(), env_id=env, node_type="entity", entity_id=src_rec,
+            id=uuid4(),
+            env_id=env,
+            node_type="entity",
+            entity_id=src_rec,
         )
         dst = GraphNode(
-            id=uuid4(), env_id=env, node_type="memory", memory_id=dst_rec,
+            id=uuid4(),
+            env_id=env,
+            node_type="memory",
+            memory_id=dst_rec,
         )
         rel = Relation(
             id=uuid4(),
@@ -211,10 +223,16 @@ class TestRelationPayload:
     def test_payload_handles_none_properties(self) -> None:
         env = uuid4()
         src = GraphNode(
-            id=uuid4(), env_id=env, node_type="entity", entity_id=uuid4(),
+            id=uuid4(),
+            env_id=env,
+            node_type="entity",
+            entity_id=uuid4(),
         )
         dst = GraphNode(
-            id=uuid4(), env_id=env, node_type="entity", entity_id=uuid4(),
+            id=uuid4(),
+            env_id=env,
+            node_type="entity",
+            entity_id=uuid4(),
         )
         rel = Relation(
             id=uuid4(),

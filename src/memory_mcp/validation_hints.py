@@ -33,7 +33,6 @@ from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel, ValidationError
 
-
 # Common aliases the agent knows callers reach for. Keys are the
 # offered (rejected) field; values are the canonical field names to
 # look for on the offending submodel — first hit wins.
@@ -85,9 +84,7 @@ def _ratio(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
-def _resolve_submodel(
-    root_model: type[BaseModel], loc_path: tuple[Any, ...]
-) -> type[BaseModel] | None:
+def _resolve_submodel(root_model: type[BaseModel], loc_path: tuple[Any, ...]) -> type[BaseModel] | None:
     """Walk ``loc_path`` (excluding the offending leaf) to the submodel.
 
     Returns ``None`` if any segment can't be resolved — we degrade
@@ -134,9 +131,7 @@ def _allowed_fields(model_cls: type[BaseModel]) -> list[str]:
     return list(model_cls.model_fields.keys())
 
 
-def _best_match(
-    offered: str, candidates: list[str]
-) -> tuple[str | None, float]:
+def _best_match(offered: str, candidates: list[str]) -> tuple[str | None, float]:
     """Return ``(best_field, confidence)`` or ``(None, 0.0)``."""
     best: str | None = None
     best_score = 0.0
@@ -153,9 +148,7 @@ def _best_match(
     return best, best_score
 
 
-def build_hints(
-    root_model: type[BaseModel], err: ValidationError
-) -> list[dict[str, Any]]:
+def build_hints(root_model: type[BaseModel], err: ValidationError) -> list[dict[str, Any]]:
     """Return a list of structured hint dicts (possibly empty).
 
     Every entry has the shape::
@@ -239,9 +232,7 @@ def safe_error_payload(err: ValidationError) -> list[dict[str, Any]]:
     return safe
 
 
-def format_message(
-    tool_name: str, errors_payload: list[dict[str, Any]], hints: list[dict[str, Any]]
-) -> str:
+def format_message(tool_name: str, errors_payload: list[dict[str, Any]], hints: list[dict[str, Any]]) -> str:
     """Compose a human-readable one-liner for the wire-format ``message``.
 
     Includes a parenthesised ``did you mean '<field>'?`` only when

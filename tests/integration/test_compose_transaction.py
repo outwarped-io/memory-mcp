@@ -37,6 +37,7 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.compose import MemComposeRequest, MemComposeTarget
 from sqlalchemy import select
 
 from memory_mcp import composers as composers_mod
@@ -47,7 +48,6 @@ from memory_mcp.db.types import LineageRelation, MemoryKind, MemoryStatus
 from memory_mcp.errors import InvalidInputError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import MemoryWriteRequest, memory_write
-from memory_mcp_schemas.compose import MemComposeRequest, MemComposeTarget
 
 from .conftest import (
     SessionPairFactory,
@@ -107,26 +107,26 @@ async def _write_source(
 
 async def _fetch_memory(factory, memory_id: UUID) -> Memory:
     async with factory() as session:
-        return (await session.execute(
-            select(Memory).where(Memory.id == memory_id)
-        )).scalar_one()
+        return (await session.execute(select(Memory).where(Memory.id == memory_id))).scalar_one()
 
 
 async def _fetch_lineage(factory, child_id: UUID) -> list[tuple[UUID, str]]:
     async with factory() as session:
-        rows = (await session.execute(
-            select(MemoryLineage.parent_memory_id, MemoryLineage.relation)
-            .where(MemoryLineage.child_memory_id == child_id)
-        )).all()
+        rows = (
+            await session.execute(
+                select(MemoryLineage.parent_memory_id, MemoryLineage.relation).where(
+                    MemoryLineage.child_memory_id == child_id
+                )
+            )
+        ).all()
         return [(r[0], r[1]) for r in rows]
 
 
 async def _count_audits(factory, memory_id: UUID, op_like: str | None = None) -> int:
     async with factory() as session:
         from sqlalchemy import func
-        stmt = select(func.count()).select_from(AuditLog).where(
-            AuditLog.record_id == memory_id
-        )
+
+        stmt = select(func.count()).select_from(AuditLog).where(AuditLog.record_id == memory_id)
         if op_like is not None:
             stmt = stmt.where(AuditLog.op.like(op_like))
         return int((await session.execute(stmt)).scalar_one())
@@ -522,64 +522,65 @@ async def test_smoke_replay_mode_mismatch_rejected(
 async def _max_outbox_event_id(factory) -> int:
     async with factory() as session:
         from sqlalchemy import func
-        return int((await session.execute(
-            select(func.coalesce(func.max(Outbox.event_id), 0))
-        )).scalar_one())
+
+        return int((await session.execute(select(func.coalesce(func.max(Outbox.event_id), 0)))).scalar_one())
 
 
 async def _max_audit_id(factory) -> int:
     async with factory() as session:
         from sqlalchemy import func
-        return int((await session.execute(
-            select(func.coalesce(func.max(AuditLog.id), 0))
-        )).scalar_one())
+
+        return int((await session.execute(select(func.coalesce(func.max(AuditLog.id), 0)))).scalar_one())
 
 
 async def _outbox_rows_since(
-    factory, baseline_event_id: int,
+    factory,
+    baseline_event_id: int,
 ) -> list[tuple[UUID, str, str, int]]:
     """Return (aggregate_id, aggregate_type, op, aggregate_version) rows enqueued
     after `baseline_event_id`. Sorted by event_id for deterministic assertions."""
     async with factory() as session:
-        rows = (await session.execute(
-            select(
-                Outbox.aggregate_id,
-                Outbox.aggregate_type,
-                Outbox.op,
-                Outbox.aggregate_version,
+        rows = (
+            await session.execute(
+                select(
+                    Outbox.aggregate_id,
+                    Outbox.aggregate_type,
+                    Outbox.op,
+                    Outbox.aggregate_version,
+                )
+                .where(Outbox.event_id > baseline_event_id)
+                .order_by(Outbox.event_id)
             )
-            .where(Outbox.event_id > baseline_event_id)
-            .order_by(Outbox.event_id)
-        )).all()
+        ).all()
         return [(r[0], r[1], r[2], r[3]) for r in rows]
 
 
 async def _audit_rows_since(
-    factory, baseline_audit_id: int,
+    factory,
+    baseline_audit_id: int,
 ) -> list[tuple[UUID | None, str]]:
     """Return (record_id, op) rows inserted after `baseline_audit_id`."""
     async with factory() as session:
-        rows = (await session.execute(
-            select(AuditLog.record_id, AuditLog.op)
-            .where(AuditLog.id > baseline_audit_id)
-            .order_by(AuditLog.id)
-        )).all()
+        rows = (
+            await session.execute(
+                select(AuditLog.record_id, AuditLog.op).where(AuditLog.id > baseline_audit_id).order_by(AuditLog.id)
+            )
+        ).all()
         return [(r[0], r[1]) for r in rows]
 
 
 async def _seed_reference_count_lineage(
-    factory, memory_id: UUID, value: int,
+    factory,
+    memory_id: UUID,
+    value: int,
 ) -> None:
     """Directly stamp reference_count_lineage on a memory without going through
     the trigger. Used by `popularity_no_inherit_merge` to prove "no inherit"
     is observable on non-zero baselines."""
     async with factory() as session:
         from sqlalchemy import update
-        await session.execute(
-            update(Memory)
-            .where(Memory.id == memory_id)
-            .values(reference_count_lineage=value)
-        )
+
+        await session.execute(update(Memory).where(Memory.id == memory_id).values(reference_count_lineage=value))
         await session.commit()
 
 
@@ -928,8 +929,10 @@ async def test_accounting_replay_no_side_effects(
 
 from memory_mcp.errors import (
     InvalidTransitionError,
-    NotFoundError as MemNotFoundError,
     VersionConflictError,
+)
+from memory_mcp.errors import (
+    NotFoundError as MemNotFoundError,
 )
 
 
@@ -996,11 +999,8 @@ async def test_validation_retired_source_rejected(
     # Mark src1 retired directly.
     async with factory() as session:
         from sqlalchemy import update
-        await session.execute(
-            update(Memory)
-            .where(Memory.id == src1)
-            .values(status=MemoryStatus.retired.value)
-        )
+
+        await session.execute(update(Memory).where(Memory.id == src1).values(status=MemoryStatus.retired.value))
         await session.commit()
 
     token = use_session_factory(factory)
@@ -1035,10 +1035,20 @@ async def test_validation_mixed_kind_merge_rejected(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src1 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="src1", body="a", kind=MemoryKind.fact,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src1",
+        body="a",
+        kind=MemoryKind.fact,
     )
     src2 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="src2", body="b", kind=MemoryKind.decision,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src2",
+        body="b",
+        kind=MemoryKind.decision,
     )
 
     token = use_session_factory(factory)
@@ -1071,10 +1081,20 @@ async def test_validation_mixed_kind_promote_ok(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src1 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="src1", body="a", kind=MemoryKind.fact,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src1",
+        body="a",
+        kind=MemoryKind.fact,
     )
     src2 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="src2", body="b", kind=MemoryKind.observation,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src2",
+        body="b",
+        kind=MemoryKind.observation,
     )
 
     token = use_session_factory(factory)
@@ -1109,10 +1129,20 @@ async def test_validation_target_kind_merge_mismatch_rejected(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src1 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="src1", body="a", kind=MemoryKind.fact,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src1",
+        body="a",
+        kind=MemoryKind.fact,
     )
     src2 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="src2", body="b", kind=MemoryKind.fact,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src2",
+        body="b",
+        kind=MemoryKind.fact,
     )
 
     token = use_session_factory(factory)
@@ -1122,7 +1152,9 @@ async def test_validation_target_kind_merge_mismatch_rejected(
                 MemComposeRequest(
                     source_ids=[src1, src2],
                     target=MemComposeTarget(
-                        kind=MemoryKind.decision, title="t", body="b",
+                        kind=MemoryKind.decision,
+                        title="t",
+                        body="b",
                     ),
                     mode="merge",
                 ),
@@ -1222,12 +1254,13 @@ async def test_validation_rbac_invisible_source(
 async def _fetch_tag_names_for(factory, memory_id: UUID) -> list[str]:
     """Read effective tag names for a memory via the memory_tags join table."""
     from memory_mcp.db.models import MemoryTag, Tag
+
     async with factory() as session:
-        rows = (await session.execute(
-            select(Tag.name)
-            .join(MemoryTag, Tag.id == MemoryTag.tag_id)
-            .where(MemoryTag.memory_id == memory_id)
-        )).all()
+        rows = (
+            await session.execute(
+                select(Tag.name).join(MemoryTag, Tag.id == MemoryTag.tag_id).where(MemoryTag.memory_id == memory_id)
+            )
+        ).all()
         return sorted([r[0] for r in rows])
 
 
@@ -1245,12 +1278,20 @@ async def test_tag_policy_target_only(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src1 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src1", body="a", tags=["src-a-tag", "shared"],
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src1",
+        body="a",
+        tags=["src-a-tag", "shared"],
     )
     src2 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src2", body="b", tags=["src-b-tag", "shared"],
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src2",
+        body="b",
+        tags=["src-b-tag", "shared"],
     )
 
     token = use_session_factory(factory)
@@ -1259,7 +1300,9 @@ async def test_tag_policy_target_only(
             MemComposeRequest(
                 source_ids=[src1, src2],
                 target=MemComposeTarget(
-                    kind=MemoryKind.fact, title="t", body="b",
+                    kind=MemoryKind.fact,
+                    title="t",
+                    body="b",
                     tags=["target-tag"],
                 ),
                 mode="merge",
@@ -1290,12 +1333,20 @@ async def test_tag_policy_union_only(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src1 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src1", body="a", tags=["src-a-tag", "shared"],
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src1",
+        body="a",
+        tags=["src-a-tag", "shared"],
     )
     src2 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src2", body="b", tags=["src-b-tag", "shared"],
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src2",
+        body="b",
+        tags=["src-b-tag", "shared"],
     )
 
     token = use_session_factory(factory)
@@ -1304,7 +1355,9 @@ async def test_tag_policy_union_only(
             MemComposeRequest(
                 source_ids=[src1, src2],
                 target=MemComposeTarget(
-                    kind=MemoryKind.fact, title="t", body="b",
+                    kind=MemoryKind.fact,
+                    title="t",
+                    body="b",
                     tags=["target-tag"],
                 ),
                 mode="promote",
@@ -1338,12 +1391,20 @@ async def test_tag_policy_target_plus_union_explicit_promote(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src1 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src1", body="a", tags=["src-a-tag"],
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src1",
+        body="a",
+        tags=["src-a-tag"],
     )
     src2 = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src2", body="b", tags=["src-b-tag"],
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src2",
+        body="b",
+        tags=["src-b-tag"],
     )
 
     token = use_session_factory(factory)
@@ -1352,7 +1413,9 @@ async def test_tag_policy_target_plus_union_explicit_promote(
             MemComposeRequest(
                 source_ids=[src1, src2],
                 target=MemComposeTarget(
-                    kind=MemoryKind.fact, title="t", body="b",
+                    kind=MemoryKind.fact,
+                    title="t",
+                    body="b",
                     tags=["target-tag"],
                 ),
                 mode="promote",
@@ -1404,7 +1467,9 @@ async def test_concurrent_identical_request_race(
         token = use_session_factory(factory)
         try:
             return await composers_mod.memory_compose(
-                request, ctx=ctx, settings=_settings(),
+                request,
+                ctx=ctx,
+                settings=_settings(),
             )
         finally:
             reset_session_factory(token)
@@ -1416,9 +1481,7 @@ async def test_concurrent_identical_request_race(
     )
 
     # Both must succeed (no exceptions).
-    assert all(not isinstance(r, Exception) for r in results), (
-        f"unexpected exceptions: {results}"
-    )
+    assert all(not isinstance(r, Exception) for r in results), f"unexpected exceptions: {results}"
 
     # Both point at the same memory id.
     assert results[0].memory.id == results[1].memory.id
@@ -1430,10 +1493,17 @@ async def test_concurrent_identical_request_race(
     # Exactly one memory landed in the DB.
     async with factory_1() as session:
         from sqlalchemy import func
-        n = int((await session.execute(
-            select(func.count()).select_from(Memory).where(
-                Memory.env_id == env_id,
-                Memory.compose_dedupe_key.is_not(None),
-            )
-        )).scalar_one())
+
+        n = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(Memory)
+                    .where(
+                        Memory.env_id == env_id,
+                        Memory.compose_dedupe_key.is_not(None),
+                    )
+                )
+            ).scalar_one()
+        )
         assert n == 1

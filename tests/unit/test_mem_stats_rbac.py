@@ -5,10 +5,10 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from memory_mcp_schemas.stats import MemStatsRequest
 
 from memory_mcp import rbac, stats
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.stats import MemStatsRequest
 
 
 def test_default_scope_uses_attached_envs_and_read_rbac(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -54,7 +54,9 @@ def test_global_scope_requires_admin(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(rbac, "require", fake_require)
 
-    out = stats._scope_env_ids(MemStatsRequest(global_=True), AgentContext(agent_id=uuid4(), attached_env_ids=[uuid4()]))
+    out = stats._scope_env_ids(
+        MemStatsRequest(global_=True), AgentContext(agent_id=uuid4(), attached_env_ids=[uuid4()])
+    )
 
     assert out is None
     assert calls == [("admin", None)]

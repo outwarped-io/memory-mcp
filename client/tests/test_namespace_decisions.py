@@ -5,9 +5,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-
 from memory_mcp_schemas.decisions import AdrExportResponse
-
 
 pytestmark = pytest.mark.asyncio
 

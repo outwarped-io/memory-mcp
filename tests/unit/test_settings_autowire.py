@@ -16,7 +16,6 @@ import pytest
 
 from memory_mcp.config import Settings
 
-
 # ---- defaults ----------------------------------------------------------------
 
 
@@ -63,17 +62,13 @@ def test_autowire_top_k_env_override() -> None:
 
 
 def test_autowire_sim_threshold_env_override() -> None:
-    with mock.patch.dict(
-        os.environ, {"AUTOWIRE_SIM_THRESHOLD": "0.85"}, clear=False
-    ):
+    with mock.patch.dict(os.environ, {"AUTOWIRE_SIM_THRESHOLD": "0.85"}, clear=False):
         s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert s.autowire_sim_threshold == pytest.approx(0.85)
 
 
 def test_autowire_candidate_limit_env_override() -> None:
-    with mock.patch.dict(
-        os.environ, {"AUTOWIRE_CANDIDATE_LIMIT": "50"}, clear=False
-    ):
+    with mock.patch.dict(os.environ, {"AUTOWIRE_CANDIDATE_LIMIT": "50"}, clear=False):
         s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert s.autowire_candidate_limit == 50
 
@@ -107,9 +102,7 @@ def test_autowire_top_k_accepts_one_and_ten_boundaries() -> None:
 
 def test_autowire_sim_threshold_rejects_negative() -> None:
     with (
-        mock.patch.dict(
-            os.environ, {"AUTOWIRE_SIM_THRESHOLD": "-0.01"}, clear=False
-        ),
+        mock.patch.dict(os.environ, {"AUTOWIRE_SIM_THRESHOLD": "-0.01"}, clear=False),
         pytest.raises(ValueError),
     ):
         Settings(_env_file=None)  # type: ignore[call-arg]
@@ -117,9 +110,7 @@ def test_autowire_sim_threshold_rejects_negative() -> None:
 
 def test_autowire_sim_threshold_rejects_above_one() -> None:
     with (
-        mock.patch.dict(
-            os.environ, {"AUTOWIRE_SIM_THRESHOLD": "1.01"}, clear=False
-        ),
+        mock.patch.dict(os.environ, {"AUTOWIRE_SIM_THRESHOLD": "1.01"}, clear=False),
         pytest.raises(ValueError),
     ):
         Settings(_env_file=None)  # type: ignore[call-arg]
@@ -127,18 +118,14 @@ def test_autowire_sim_threshold_rejects_above_one() -> None:
 
 def test_autowire_sim_threshold_accepts_zero_and_one_boundaries() -> None:
     for val in ("0.0", "1.0"):
-        with mock.patch.dict(
-            os.environ, {"AUTOWIRE_SIM_THRESHOLD": val}, clear=False
-        ):
+        with mock.patch.dict(os.environ, {"AUTOWIRE_SIM_THRESHOLD": val}, clear=False):
             s = Settings(_env_file=None)  # type: ignore[call-arg]
         assert s.autowire_sim_threshold == pytest.approx(float(val))
 
 
 def test_autowire_candidate_limit_rejects_zero() -> None:
     with (
-        mock.patch.dict(
-            os.environ, {"AUTOWIRE_CANDIDATE_LIMIT": "0"}, clear=False
-        ),
+        mock.patch.dict(os.environ, {"AUTOWIRE_CANDIDATE_LIMIT": "0"}, clear=False),
         pytest.raises(ValueError),
     ):
         Settings(_env_file=None)  # type: ignore[call-arg]
@@ -146,9 +133,7 @@ def test_autowire_candidate_limit_rejects_zero() -> None:
 
 def test_autowire_candidate_limit_rejects_above_200() -> None:
     with (
-        mock.patch.dict(
-            os.environ, {"AUTOWIRE_CANDIDATE_LIMIT": "201"}, clear=False
-        ),
+        mock.patch.dict(os.environ, {"AUTOWIRE_CANDIDATE_LIMIT": "201"}, clear=False),
         pytest.raises(ValueError),
     ):
         Settings(_env_file=None)  # type: ignore[call-arg]

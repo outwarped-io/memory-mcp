@@ -155,11 +155,7 @@ def _patch_task_tree(
         return task
 
     async def fake_children(_session, *, env_id, task_id):
-        children = [
-            tasks[child_id]
-            for child_id in edges.get(task_id, [])
-            if tasks[child_id].env_id == env_id
-        ]
+        children = [tasks[child_id] for child_id in edges.get(task_id, []) if tasks[child_id].env_id == env_id]
         return sorted(children, key=lambda task: (task.priority, task.created_at, task.id))
 
     monkeypatch.setattr(task_api, "session_scope", fake_scope)

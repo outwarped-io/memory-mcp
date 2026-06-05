@@ -32,6 +32,7 @@ class MemoryMCPError(Exception):
 # handling already wired without conditional imports.
 # ---------------------------------------------------------------------------
 
+
 class UnauthorizedError(MemoryMCPError):
     """Bad / missing / expired token. Reserved; v1 never raises."""
 
@@ -97,6 +98,7 @@ EnvNotFound = EnvNotFoundError
 # ---------------------------------------------------------------------------
 # Live in v1.
 # ---------------------------------------------------------------------------
+
 
 class EnvAmbiguousError(MemoryMCPError):
     """Caller has >1 writable env attached and didn't specify which to use."""

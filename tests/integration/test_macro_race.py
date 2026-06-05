@@ -45,10 +45,14 @@ async def _create_env_and_agent(factory, *, scenario: str, iteration: int):
 
 async def _macro_count(factory, env_id, macro: str) -> int:
     async with factory() as session:
-        stmt = select(func.count()).select_from(Memory).where(
-            Memory.env_id == env_id,
-            Memory.kind == MemoryKind.playbook.value,
-            func.lower(Memory.macro) == macro.lower(),
+        stmt = (
+            select(func.count())
+            .select_from(Memory)
+            .where(
+                Memory.env_id == env_id,
+                Memory.kind == MemoryKind.playbook.value,
+                func.lower(Memory.macro) == macro.lower(),
+            )
         )
         return int((await session.execute(stmt)).scalar_one())
 

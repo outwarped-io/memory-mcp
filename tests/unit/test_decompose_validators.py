@@ -20,11 +20,11 @@ testcontainer-backed integration tests.
 
 from __future__ import annotations
 
-import uuid
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.decompose import MemDecomposeChild, MemDecomposeRequest
 
 from memory_mcp.db.types import MemoryKind, MemoryStatus
 from memory_mcp.decomposers import (
@@ -37,8 +37,6 @@ from memory_mcp.errors import (
     NotFoundError,
     VersionConflictError,
 )
-from memory_mcp_schemas.decompose import MemDecomposeChild, MemDecomposeRequest
-
 
 # ---------------------------------------------------------------------------
 # Factories

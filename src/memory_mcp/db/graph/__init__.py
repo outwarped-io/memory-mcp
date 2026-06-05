@@ -53,7 +53,4 @@ def get_graph_store(settings: "Settings") -> GraphStore:  # noqa: F821
         from memory_mcp.db.graph.postgres import PostgresGraphStore
 
         return PostgresGraphStore(settings)
-    raise ValueError(
-        f"unsupported graph_backend={settings.graph_backend!r} "
-        "(expected 'neo4j' or 'postgres')"
-    )
+    raise ValueError(f"unsupported graph_backend={settings.graph_backend!r} (expected 'neo4j' or 'postgres')")

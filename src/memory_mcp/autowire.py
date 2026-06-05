@@ -53,18 +53,18 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from memory_mcp_schemas.relations import RelationEndpoint
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from memory_mcp.config import Settings, get_settings
-from memory_mcp.db.models import GraphNode, Memory, Relation
+from memory_mcp.db.models import Memory, Relation
 from memory_mcp.db.outbox import enqueue_event
 from memory_mcp.db.types import MemoryKind, OutboxAggregateType, OutboxOp
 from memory_mcp.embeddings.base import Embedder, get_embedder
 from memory_mcp.errors import EmbeddingModelMismatchError
 from memory_mcp.identity import AgentContext
 from memory_mcp.relations import _ensure_graph_node, _record_relation_audit
-from memory_mcp_schemas.relations import RelationEndpoint
 
 log = logging.getLogger(__name__)
 
@@ -195,15 +195,18 @@ async def autowire_fetch_candidates(
     skip_kind_values = list(_SKIP_KINDS)
     rows = (
         await s.execute(
-            select(Memory.id, Memory.salience).where(
+            select(Memory.id, Memory.salience)
+            .where(
                 Memory.env_id == env_id,
                 Memory.status == "active",
                 Memory.kind.not_in(skip_kind_values),
-            ).order_by(
+            )
+            .order_by(
                 Memory.salience.desc(),
                 Memory.created_at.desc(),
                 Memory.id.desc(),
-            ).limit(candidate_limit)
+            )
+            .limit(candidate_limit)
         )
     ).all()
     if not rows:
@@ -281,7 +284,10 @@ async def autowire_fetch_candidates(
 
     log.debug(
         "autowire candidates: k_pg=%d k_sem=%d k_combined=%d k_returned=%d",
-        len(pg_candidates), len(sim_scores), len(combined), len(top),
+        len(pg_candidates),
+        len(sim_scores),
+        len(combined),
+        len(top),
     )
     return top
 
@@ -312,9 +318,7 @@ async def _collect_lineage_ancestors(
         SELECT DISTINCT id FROM ancestors
         """
     )
-    result = await s.execute(
-        cte_sql.bindparams(seeds=[str(u) for u in seeds], max_depth=max_depth)
-    )
+    result = await s.execute(cte_sql.bindparams(seeds=[str(u) for u in seeds], max_depth=max_depth))
     return {row[0] for row in result.all()}
 
 
@@ -357,9 +361,7 @@ async def autowire_compose_target(
     # Re-apply skip filter at Stage B too: defensive against caller
     # threading the wrong inputs and against pre-computed candidates
     # surviving across a feature-flag flip.
-    if _should_skip_target(
-        kind=new_memory_kind, tags=new_memory_tags, body=new_memory_body
-    ):
+    if _should_skip_target(kind=new_memory_kind, tags=new_memory_tags, body=new_memory_body):
         return []
 
     # Resolve src graph_node once.
@@ -372,7 +374,8 @@ async def autowire_compose_target(
     except Exception as exc:  # noqa: BLE001 — never block compose on autowire
         log.warning(
             "autowire: failed to resolve src graph_node for %s (%s); skipping",
-            new_memory_id, exc,
+            new_memory_id,
+            exc,
         )
         return []
 
@@ -391,7 +394,8 @@ async def autowire_compose_target(
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "autowire: failed to resolve dst graph_node for %s (%s); skipping edge",
-                dst_memory_id, exc,
+                dst_memory_id,
+                exc,
             )
             continue
         resolved.append((dst_node.id, dst_memory_id, combined_score))
@@ -435,6 +439,7 @@ async def autowire_compose_target(
             """
         )
         import json as _json
+
         row = (
             await s.execute(
                 insert_sql.bindparams(
@@ -459,11 +464,7 @@ async def autowire_compose_target(
 
         # Refresh the inserted row so we have version + timestamps for
         # the outbox payload.
-        relation = (
-            await s.execute(
-                select(Relation).where(Relation.id == relation_id)
-            )
-        ).scalar_one()
+        relation = (await s.execute(select(Relation).where(Relation.id == relation_id))).scalar_one()
 
         outbox_payload = {
             "relation_id": str(relation.id),
@@ -481,12 +482,8 @@ async def autowire_compose_target(
                 "node_id": str(dst_node_id),
             },
             "version": relation.version,
-            "created_at": (
-                relation.created_at.isoformat() if relation.created_at else None
-            ),
-            "updated_at": (
-                relation.updated_at.isoformat() if relation.updated_at else None
-            ),
+            "created_at": (relation.created_at.isoformat() if relation.created_at else None),
+            "updated_at": (relation.updated_at.isoformat() if relation.updated_at else None),
             "auto_wire": True,
         }
 
@@ -547,9 +544,7 @@ async def reconstruct_auto_wired(
          ORDER BY gn_dst.id ASC
         """
     )
-    result = await s.execute(
-        query.bindparams(memory_id=str(memory_id), rel_type=AUTO_WIRE_PREDICATE)
-    )
+    result = await s.execute(query.bindparams(memory_id=str(memory_id), rel_type=AUTO_WIRE_PREDICATE))
     out: list[UUID] = []
     for row in result.all():
         val = row[0]
@@ -646,9 +641,7 @@ async def autowire_fetch_candidates_decompose(
     result: dict[int, list[tuple[UUID, float]]] = {}
     for child in children:
         idx = int(child["index"])
-        if _should_skip_target(
-            kind=child["kind"], tags=child.get("tags") or [], body=child["body"]
-        ):
+        if _should_skip_target(kind=child["kind"], tags=child.get("tags") or [], body=child["body"]):
             result[idx] = []
         else:
             surviving.append(child)
@@ -659,15 +652,18 @@ async def autowire_fetch_candidates_decompose(
     skip_kind_values = list(_SKIP_KINDS)
     rows = (
         await s.execute(
-            select(Memory.id, Memory.salience).where(
+            select(Memory.id, Memory.salience)
+            .where(
                 Memory.env_id == env_id,
                 Memory.status == "active",
                 Memory.kind.not_in(skip_kind_values),
-            ).order_by(
+            )
+            .order_by(
                 Memory.salience.desc(),
                 Memory.created_at.desc(),
                 Memory.id.desc(),
-            ).limit(candidate_limit)
+            )
+            .limit(candidate_limit)
         )
     ).all()
     if not rows:
@@ -703,7 +699,8 @@ async def autowire_fetch_candidates_decompose(
     if not vectors or len(vectors) != len(surviving):
         log.warning(
             "autowire.decompose: embedder returned %d vectors for %d children; skipping",
-            len(vectors) if vectors else 0, len(surviving),
+            len(vectors) if vectors else 0,
+            len(surviving),
         )
         return {}
 
@@ -724,9 +721,7 @@ async def autowire_fetch_candidates_decompose(
         except Exception as exc:  # noqa: BLE001
             return exc
 
-    search_results = await asyncio.gather(
-        *[_search_one(qvec) for qvec in vectors]
-    )
+    search_results = await asyncio.gather(*[_search_one(qvec) for qvec in vectors])
 
     # Detect total Qdrant outage: every child got an exception.
     if all(isinstance(r, BaseException) for r in search_results):
@@ -738,12 +733,13 @@ async def autowire_fetch_candidates_decompose(
 
     # A6 — per-child combine + rank + take K.
     per_child_results: list[tuple[int, list[tuple[UUID, float]]]] = []
-    for child, search_result in zip(surviving, search_results):
+    for child, search_result in zip(surviving, search_results, strict=False):
         idx = int(child["index"])
         if isinstance(search_result, BaseException):
             log.warning(
                 "autowire.decompose: Qdrant failure for child %d (%s); empty",
-                idx, search_result,
+                idx,
+                search_result,
             )
             per_child_results.append((idx, []))
             continue
@@ -755,9 +751,8 @@ async def autowire_fetch_candidates_decompose(
                 score = float(hit["score"])
             except (KeyError, ValueError, TypeError):
                 continue
-            if score >= sim_threshold:
-                if score > sim_scores.get(mid, float("-inf")):
-                    sim_scores[mid] = score
+            if score >= sim_threshold and score > sim_scores.get(mid, float("-inf")):
+                sim_scores[mid] = score
 
         combined: list[tuple[UUID, float]] = []
         for mid, salience in pg_candidates.items():
@@ -785,9 +780,7 @@ async def autowire_fetch_candidates_decompose(
     flat.sort(key=lambda t: (-t[2], -int(t[1].int), t[0]))
     kept = flat[:total_cap]
 
-    regrouped: dict[int, list[tuple[UUID, float]]] = {
-        idx: [] for idx, _ in per_child_results
-    }
+    regrouped: dict[int, list[tuple[UUID, float]]] = {idx: [] for idx, _ in per_child_results}
     for idx, dst_id, score in kept:
         regrouped[idx].append((dst_id, score))
 
@@ -803,7 +796,9 @@ async def autowire_fetch_candidates_decompose(
 
     log.debug(
         "autowire.decompose candidates: surviving=%d total_pre_cap=%d total_post_cap=%d",
-        len(surviving), total, sum(len(v) for v in regrouped.values()),
+        len(surviving),
+        total,
+        sum(len(v) for v in regrouped.values()),
     )
     return result
 

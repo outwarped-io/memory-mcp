@@ -31,15 +31,15 @@ from memory_mcp.db.models import Memory
 from memory_mcp.identity import AgentContext
 from memory_mcp.search import api as search_api
 from memory_mcp.search.api import (
-    MemorySearchRequest,
     _FALLBACK_STEPS,
+    MemorySearchRequest,
     _step_boost_limit,
     _step_drop_filters,
     _step_widen_lifecycle,
     _step_widen_mode,
     memory_search,
 )
-from memory_mcp.search.ranking import FusedHit, RankedHit
+from memory_mcp.search.ranking import RankedHit
 
 
 def _settings(**overrides) -> Settings:
@@ -192,10 +192,12 @@ def test_min_score_drops_sub_threshold_hits(monkeypatch) -> None:
     # Build a single lex leg. Rank 1 → RRF score ~1/61 ≈ 0.0164. After
     # salience boost: high → ~0.0246, low → ~0.0164. Threshold 0.02
     # should keep only ``high_id``.
-    ranked = [[
-        RankedHit(memory_id=high_id, rank=1, raw_score=1.0, source="lex"),
-        RankedHit(memory_id=low_id, rank=2, raw_score=0.5, source="lex"),
-    ]]
+    ranked = [
+        [
+            RankedHit(memory_id=high_id, rank=1, raw_score=1.0, source="lex"),
+            RankedHit(memory_id=low_id, rank=2, raw_score=0.5, source="lex"),
+        ]
+    ]
     _patch_lex_only(monkeypatch, ranked, memories)
 
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
@@ -210,10 +212,12 @@ def test_min_score_none_keeps_all_hits(monkeypatch) -> None:
     mid_a = uuid4()
     mid_b = uuid4()
     memories = {a: _memory(a, env_id) for a in (mid_a, mid_b)}
-    ranked = [[
-        RankedHit(memory_id=mid_a, rank=1, raw_score=1.0, source="lex"),
-        RankedHit(memory_id=mid_b, rank=2, raw_score=0.5, source="lex"),
-    ]]
+    ranked = [
+        [
+            RankedHit(memory_id=mid_a, rank=1, raw_score=1.0, source="lex"),
+            RankedHit(memory_id=mid_b, rank=2, raw_score=0.5, source="lex"),
+        ]
+    ]
     _patch_lex_only(monkeypatch, ranked, memories)
 
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
@@ -285,10 +289,16 @@ def test_fallback_widens_lex_to_hybrid_on_first_step(monkeypatch) -> None:
 
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
     req = MemorySearchRequest(query="q", mode="lex", fallback=True)
-    resp = asyncio.run(memory_search(
-        req, ctx=ctx, settings=_settings(),
-        vector_store=MagicMock(), embedder=MagicMock(), graph_store=MagicMock(),
-    ))
+    resp = asyncio.run(
+        memory_search(
+            req,
+            ctx=ctx,
+            settings=_settings(),
+            vector_store=MagicMock(),
+            embedder=MagicMock(),
+            graph_store=MagicMock(),
+        )
+    )
 
     assert resp.fallback_used == ["mode->hybrid"]
     assert [h.memory.id for h in resp.hits] == [mid]
@@ -325,10 +335,16 @@ def test_fallback_skips_widen_mode_when_already_hybrid(monkeypatch) -> None:
 
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
     req = MemorySearchRequest(query="q", mode="hybrid", tags=["x"], fallback=True)
-    resp = asyncio.run(memory_search(
-        req, ctx=ctx, settings=_settings(),
-        vector_store=MagicMock(), embedder=MagicMock(), graph_store=MagicMock(),
-    ))
+    resp = asyncio.run(
+        memory_search(
+            req,
+            ctx=ctx,
+            settings=_settings(),
+            vector_store=MagicMock(),
+            embedder=MagicMock(),
+            graph_store=MagicMock(),
+        )
+    )
 
     # Step 1 (widen mode) was a no-op so it's NOT in fallback_used.
     # Step 2 (drop_filters) fired and produced hits.
@@ -361,17 +377,30 @@ def test_fallback_traverses_all_steps_when_each_pass_empty(monkeypatch) -> None:
 
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
     req = MemorySearchRequest(
-        query="q", mode="lex", tags=["x"], fallback=True, limit=5,
+        query="q",
+        mode="lex",
+        tags=["x"],
+        fallback=True,
+        limit=5,
     )
-    resp = asyncio.run(memory_search(
-        req, ctx=ctx, settings=_settings(),
-        vector_store=MagicMock(), embedder=MagicMock(), graph_store=MagicMock(),
-    ))
+    resp = asyncio.run(
+        memory_search(
+            req,
+            ctx=ctx,
+            settings=_settings(),
+            vector_store=MagicMock(),
+            embedder=MagicMock(),
+            graph_store=MagicMock(),
+        )
+    )
 
     assert resp.hits == []
     # All 4 steps fired.
     assert resp.fallback_used == [
-        "mode->hybrid", "drop_filters", "widen_lifecycle", "boost_limit",
+        "mode->hybrid",
+        "drop_filters",
+        "widen_lifecycle",
+        "boost_limit",
     ]
 
 
@@ -407,7 +436,10 @@ def test_fallback_disabled_for_mode_id(monkeypatch) -> None:
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
     # Unknown id → empty hits.
     req = MemorySearchRequest(
-        query="", mode="id", ids=[uuid4()], fallback=True,
+        query="",
+        mode="id",
+        ids=[uuid4()],
+        fallback=True,
     )
     resp = asyncio.run(memory_search(req, ctx=ctx, settings=_settings()))
 
@@ -450,12 +482,21 @@ def test_min_score_drives_further_fallback(monkeypatch) -> None:
 
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
     req = MemorySearchRequest(
-        query="q", mode="lex", fallback=True, min_score=0.02,
+        query="q",
+        mode="lex",
+        fallback=True,
+        min_score=0.02,
     )
-    resp = asyncio.run(memory_search(
-        req, ctx=ctx, settings=_settings(),
-        vector_store=MagicMock(), embedder=MagicMock(), graph_store=MagicMock(),
-    ))
+    resp = asyncio.run(
+        memory_search(
+            req,
+            ctx=ctx,
+            settings=_settings(),
+            vector_store=MagicMock(),
+            embedder=MagicMock(),
+            graph_store=MagicMock(),
+        )
+    )
 
     assert resp.fallback_used == ["mode->hybrid"]
     assert [h.memory.id for h in resp.hits] == [strong_id]

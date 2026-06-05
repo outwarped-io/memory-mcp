@@ -91,13 +91,24 @@ def test_mcp_tool_registry_contains_v1_tools() -> None:
     tools = asyncio.run(mcp.list_tools())
     names = {t.name for t in tools}
     expected = {
-        "mem_write", "mem_get", "mem_get_many", "mem_update",
-        "mem_archive", "mem_retire", "mem_supersede",
-        "mem_journal", "mem_search",
-        "ent_upsert", "ent_resolve", "ent_merge",
+        "mem_write",
+        "mem_get",
+        "mem_get_many",
+        "mem_update",
+        "mem_archive",
+        "mem_retire",
+        "mem_supersede",
+        "mem_journal",
+        "mem_search",
+        "ent_upsert",
+        "ent_resolve",
+        "ent_merge",
         "rel_link",
-        "env_create_", "env_list_", "env_get_",
-        "env_attach_", "env_detach_",
+        "env_create_",
+        "env_list_",
+        "env_get_",
+        "env_attach_",
+        "env_detach_",
     }
     missing = expected - names
     assert not missing, f"missing tools: {sorted(missing)} (got {sorted(names)})"
@@ -137,8 +148,7 @@ def test_mcp_server_info_reports_package_version_not_sdk() -> None:
     # we're not accidentally aligned with it.
     sdk_version = pkg_version("mcp")
     assert actual != sdk_version or expected == sdk_version, (
-        f"serverInfo.version {actual!r} matches the MCP SDK version "
-        f"{sdk_version!r} — the override likely isn't wired."
+        f"serverInfo.version {actual!r} matches the MCP SDK version {sdk_version!r} — the override likely isn't wired."
     )
 
 
@@ -162,4 +172,3 @@ def test_healthz_includes_package_version() -> None:
     with TestClient(build_app()) as client:
         body = client.get("/healthz").json()
     assert body.get("version") == expected
-

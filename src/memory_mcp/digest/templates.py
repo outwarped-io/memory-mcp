@@ -44,10 +44,7 @@ class DigestContext:
 
 
 def serialize_sections(sections: DigestSections) -> str:
-    return "\n\n".join(
-        f"## {name}\n{getattr(sections, name).strip() or '_None recorded._'}"
-        for name in SECTION_NAMES
-    )
+    return "\n\n".join(f"## {name}\n{getattr(sections, name).strip() or '_None recorded._'}" for name in SECTION_NAMES)
 
 
 def parse_digest_markdown(body: str) -> DigestSections:
@@ -130,8 +127,7 @@ def build_digest_context(
         "### Omitted memory aggregate",
         _render_omitted_aggregate(omitted),
         "### Latest journal entries",
-        "\n".join(_render_memory(j) for j in journals[:LATEST_TEMPLATE_JOURNALS])
-        or "_No journal entries recorded._",
+        "\n".join(_render_memory(j) for j in journals[:LATEST_TEMPLATE_JOURNALS]) or "_No journal entries recorded._",
     ]
     return DigestContext(
         context_markdown="\n\n".join(parts),
@@ -180,12 +176,8 @@ def build_template_sections(
             f"{len(kind_counts)} kinds. Top observed kinds: {_format_counts(kind_counts)}."
         ),
         active_context="\n".join(journal_lines),
-        system_patterns=(
-            "Top high-salience memories:\n" + "\n".join(top_lines) + "\n\n" + omitted_summary
-        ),
-        tech_context=(
-            f"Known entity count: {entity_count}. Total input body bytes: {context.total_body_bytes}."
-        ),
+        system_patterns=("Top high-salience memories:\n" + "\n".join(top_lines) + "\n\n" + omitted_summary),
+        tech_context=(f"Known entity count: {entity_count}. Total input body bytes: {context.total_body_bytes}."),
         progress=(
             "Template digest extracted progress signals from high-salience memories and latest journals. "
             f"Included {len(context.included_memories)} memories verbatim; summarized {len(omitted)} "

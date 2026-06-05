@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
 
+from memory_mcp_schemas.browse import MemBrowseRequest
+from memory_mcp_schemas.env_ops import EnvCloneRequest, EnvCloneResponse
+from memory_mcp_schemas.envs import EnvCreateRequest
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -32,10 +35,6 @@ from memory_mcp.envs import env_create, get_env_by_name
 from memory_mcp.errors import AlreadyExistsError, MemoryMCPError, NotFoundError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import _projection_payload
-
-from memory_mcp_schemas.browse import MemBrowseRequest
-from memory_mcp_schemas.env_ops import EnvCloneRequest, EnvCloneResponse
-from memory_mcp_schemas.envs import EnvCreateRequest
 
 
 class ConflictError(MemoryMCPError):
@@ -96,7 +95,9 @@ async def clone_env(request: EnvCloneRequest, *, ctx: AgentContext) -> EnvCloneR
 
     async with session_scope() as session:
         closure = await _resolve_closure(session, request)
-        copied = await _copy_closure(session, src_env_id=request.src_env_id, dst_env_id=dst.id, closure=closure, ctx=ctx)
+        copied = await _copy_closure(
+            session, src_env_id=request.src_env_id, dst_env_id=dst.id, closure=closure, ctx=ctx
+        )
 
     pending_vector_rebuild = await _copy_vectors(
         src_env_id=request.src_env_id,
@@ -156,40 +157,68 @@ async def _resolve_closure(session: AsyncSession, request: EnvCloneRequest) -> _
             depth=request.lineage_depth,
         )
 
-    closure.tags = set((await session.execute(
-        select(MemoryTag.tag_id).where(MemoryTag.env_id == request.src_env_id, MemoryTag.memory_id.in_(closure.memories))
-    )).scalars().all()) if closure.memories else set()
+    closure.tags = (
+        set(
+            (
+                await session.execute(
+                    select(MemoryTag.tag_id).where(
+                        MemoryTag.env_id == request.src_env_id, MemoryTag.memory_id.in_(closure.memories)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if closure.memories
+        else set()
+    )
 
     if request.filter is None:
-        closure.entities = set((await session.execute(
-            select(Entity.id).where(Entity.env_id == request.src_env_id)
-        )).scalars().all())
-        closure.graph_nodes = set((await session.execute(
-            select(GraphNode.id).where(GraphNode.env_id == request.src_env_id)
-        )).scalars().all())
-        closure.tasks = set((await session.execute(
-            select(Task.id).where(Task.env_id == request.src_env_id)
-        )).scalars().all())
+        closure.entities = set(
+            (await session.execute(select(Entity.id).where(Entity.env_id == request.src_env_id))).scalars().all()
+        )
+        closure.graph_nodes = set(
+            (await session.execute(select(GraphNode.id).where(GraphNode.env_id == request.src_env_id))).scalars().all()
+        )
+        closure.tasks = set(
+            (await session.execute(select(Task.id).where(Task.env_id == request.src_env_id))).scalars().all()
+        )
         return closure
 
     if request.include_referenced_entities:
         memory_node = aliased(GraphNode)
         entity_node = aliased(GraphNode)
-        closure.entities.update((await session.execute(
-            select(entity_node.entity_id)
-            .select_from(Relation)
-            .join(memory_node, memory_node.id == Relation.src_node_id)
-            .join(entity_node, entity_node.id == Relation.dst_node_id)
-            .where(Relation.env_id == request.src_env_id)
-            .where(memory_node.memory_id.in_(closure.memories))
-            .where(entity_node.entity_id.is_not(None))
-        )).scalars().all())
+        closure.entities.update(
+            (
+                await session.execute(
+                    select(entity_node.entity_id)
+                    .select_from(Relation)
+                    .join(memory_node, memory_node.id == Relation.src_node_id)
+                    .join(entity_node, entity_node.id == Relation.dst_node_id)
+                    .where(Relation.env_id == request.src_env_id)
+                    .where(memory_node.memory_id.in_(closure.memories))
+                    .where(entity_node.entity_id.is_not(None))
+                )
+            )
+            .scalars()
+            .all()
+        )
 
-    closure.tasks = set((await session.execute(
-        select(Task.id)
-        .where(Task.env_id == request.src_env_id)
-        .where(Task.playbook_id.is_not(None), Task.playbook_id.in_(closure.memories))
-    )).scalars().all()) if closure.memories else set()
+    closure.tasks = (
+        set(
+            (
+                await session.execute(
+                    select(Task.id)
+                    .where(Task.env_id == request.src_env_id)
+                    .where(Task.playbook_id.is_not(None), Task.playbook_id.in_(closure.memories))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if closure.memories
+        else set()
+    )
 
     node_clauses: list[Any] = []
     if closure.memories:
@@ -201,25 +230,27 @@ async def _resolve_closure(session: AsyncSession, request: EnvCloneRequest) -> _
     if node_clauses:
         from sqlalchemy import or_
 
-        closure.graph_nodes = set((await session.execute(
-            select(GraphNode.id).where(GraphNode.env_id == request.src_env_id).where(or_(*node_clauses))
-        )).scalars().all())
+        closure.graph_nodes = set(
+            (
+                await session.execute(
+                    select(GraphNode.id).where(GraphNode.env_id == request.src_env_id).where(or_(*node_clauses))
+                )
+            )
+            .scalars()
+            .all()
+        )
     return closure
 
 
 async def _seed_memory_ids(session: AsyncSession, request: EnvCloneRequest) -> set[UUID]:
     if request.filter is None:
-        return set((await session.execute(
-            select(Memory.id).where(Memory.env_id == request.src_env_id)
-        )).scalars().all())
+        return set(
+            (await session.execute(select(Memory.id).where(Memory.env_id == request.src_env_id))).scalars().all()
+        )
 
     browse_filter = _filter_for_src(request.filter, request.src_env_id)
     statuses = [s.value for s in browse_filter.statuses] if browse_filter.statuses else ["proposed", "active"]
-    stmt = (
-        select(Memory.id)
-        .where(Memory.env_id == request.src_env_id)
-        .where(Memory.status.in_(statuses))
-    )
+    stmt = select(Memory.id).where(Memory.env_id == request.src_env_id).where(Memory.status.in_(statuses))
     if browse_filter.kinds:
         stmt = stmt.where(Memory.kind.in_([k.value for k in browse_filter.kinds]))
     if browse_filter.created_after is not None:
@@ -249,11 +280,13 @@ def _filter_for_src(raw: MemBrowseRequest, src_env_id: UUID) -> MemBrowseRequest
 async def _expand_supersession_chain(session: AsyncSession, *, env_id: UUID, memory_ids: set[UUID]) -> None:
     frontier = set(memory_ids)
     while frontier:
-        rows = (await session.execute(
-            select(Memory.id, Memory.superseded_by)
-            .where(Memory.env_id == env_id)
-            .where((Memory.id.in_(frontier)) | (Memory.superseded_by.in_(frontier)))
-        )).all()
+        rows = (
+            await session.execute(
+                select(Memory.id, Memory.superseded_by)
+                .where(Memory.env_id == env_id)
+                .where((Memory.id.in_(frontier)) | (Memory.superseded_by.in_(frontier)))
+            )
+        ).all()
         discovered: set[UUID] = set()
         for memory_id, superseded_by in rows:
             discovered.add(memory_id)
@@ -274,9 +307,15 @@ async def _expand_lineage_parents(
     for _ in range(depth):
         if not frontier:
             return
-        parents = set((await session.execute(
-            select(MemoryLineage.parent_memory_id).where(MemoryLineage.child_memory_id.in_(frontier))
-        )).scalars().all())
+        parents = set(
+            (
+                await session.execute(
+                    select(MemoryLineage.parent_memory_id).where(MemoryLineage.child_memory_id.in_(frontier))
+                )
+            )
+            .scalars()
+            .all()
+        )
         frontier = parents - memory_ids
         memory_ids.update(parents)
 
@@ -321,32 +360,44 @@ async def _copy_closure(
 
     for row in await _rows_by_ids(session, Entity, closure.entities):
         remap.entities[row.id] = uuid4()
-        session.add(Entity(
-            id=remap.entities[row.id],
-            env_id=dst_env_id,
-            kind=row.kind,
-            canonical_name=row.canonical_name,
-            normalized_name=row.normalized_name,
-            metadata_=dict(row.metadata_ or {}),
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            version=row.version,
-        ))
+        session.add(
+            Entity(
+                id=remap.entities[row.id],
+                env_id=dst_env_id,
+                kind=row.kind,
+                canonical_name=row.canonical_name,
+                normalized_name=row.normalized_name,
+                metadata_=dict(row.metadata_ or {}),
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                version=row.version,
+            )
+        )
         counts["entities"] += 1
     await session.flush()
 
     if closure.entities:
-        aliases = (await session.execute(
-            select(EntityAlias).where(EntityAlias.env_id == src_env_id, EntityAlias.entity_id.in_(closure.entities))
-        )).scalars().all()
+        aliases = (
+            (
+                await session.execute(
+                    select(EntityAlias).where(
+                        EntityAlias.env_id == src_env_id, EntityAlias.entity_id.in_(closure.entities)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         for row in aliases:
-            session.add(EntityAlias(
-                entity_id=remap.entities[row.entity_id],
-                env_id=dst_env_id,
-                alias=row.alias,
-                normalized_alias=row.normalized_alias,
-                created_at=row.created_at,
-            ))
+            session.add(
+                EntityAlias(
+                    entity_id=remap.entities[row.entity_id],
+                    env_id=dst_env_id,
+                    alias=row.alias,
+                    normalized_alias=row.normalized_alias,
+                    created_at=row.created_at,
+                )
+            )
             counts["entity_aliases"] += 1
 
     for row in await _rows_by_ids(session, Memory, closure.memories):
@@ -383,11 +434,17 @@ async def _copy_closure(
     await session.flush()
 
     if closure.memories and closure.tags:
-        memory_tags = (await session.execute(
-            select(MemoryTag)
-            .where(MemoryTag.env_id == src_env_id)
-            .where(MemoryTag.memory_id.in_(closure.memories), MemoryTag.tag_id.in_(closure.tags))
-        )).scalars().all()
+        memory_tags = (
+            (
+                await session.execute(
+                    select(MemoryTag)
+                    .where(MemoryTag.env_id == src_env_id)
+                    .where(MemoryTag.memory_id.in_(closure.memories), MemoryTag.tag_id.in_(closure.tags))
+                )
+            )
+            .scalars()
+            .all()
+        )
         tag_names_by_old_id = await _tag_names(session, closure.tags)
         for row in memory_tags:
             new_memory_id = remap.memories[row.memory_id]
@@ -397,37 +454,43 @@ async def _copy_closure(
             counts["memory_tags"] += 1
 
     if closure.memories:
-        sources = (await session.execute(
-            select(MemorySource).where(MemorySource.memory_id.in_(closure.memories))
-        )).scalars().all()
+        sources = (
+            (await session.execute(select(MemorySource).where(MemorySource.memory_id.in_(closure.memories))))
+            .scalars()
+            .all()
+        )
         for row in sources:
-            session.add(MemorySource(
-                memory_id=remap.memories[row.memory_id],
-                source_type=row.source_type,
-                source_ref=row.source_ref,
-                agent_id=None,
-                created_at=row.created_at,
-                evidence_span=row.evidence_span,
-            ))
+            session.add(
+                MemorySource(
+                    memory_id=remap.memories[row.memory_id],
+                    source_type=row.source_type,
+                    source_ref=row.source_ref,
+                    agent_id=None,
+                    created_at=row.created_at,
+                    evidence_span=row.evidence_span,
+                )
+            )
             counts["memory_sources"] += 1
 
     task_rows = await _rows_by_ids(session, Task, closure.tasks)
     for row in task_rows:
         remap.tasks[row.id] = uuid4()
         playbook_id = remap.memories.get(row.playbook_id) if row.playbook_id is not None else None
-        session.add(Task(
-            id=remap.tasks[row.id],
-            env_id=dst_env_id,
-            title=row.title,
-            description=row.description,
-            status=row.status,
-            priority=row.priority,
-            playbook_id=playbook_id,
-            version=row.version,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            created_by_agent_id=ctx.agent_id,
-        ))
+        session.add(
+            Task(
+                id=remap.tasks[row.id],
+                env_id=dst_env_id,
+                title=row.title,
+                description=row.description,
+                status=row.status,
+                priority=row.priority,
+                playbook_id=playbook_id,
+                version=row.version,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                created_by_agent_id=ctx.agent_id,
+            )
+        )
         counts["tasks"] += 1
     await session.flush()
 
@@ -442,65 +505,81 @@ async def _copy_closure(
         ):
             continue
         remap.graph_nodes[row.id] = uuid4()
-        session.add(GraphNode(
-            id=remap.graph_nodes[row.id],
-            env_id=dst_env_id,
-            node_type=row.node_type,
-            memory_id=memory_id,
-            entity_id=entity_id,
-            task_id=task_id,
-            created_at=row.created_at,
-        ))
+        session.add(
+            GraphNode(
+                id=remap.graph_nodes[row.id],
+                env_id=dst_env_id,
+                node_type=row.node_type,
+                memory_id=memory_id,
+                entity_id=entity_id,
+                task_id=task_id,
+                created_at=row.created_at,
+            )
+        )
         counts["graph_nodes"] += 1
     await session.flush()
 
     if remap.graph_nodes:
-        relations = (await session.execute(
-            select(Relation)
-            .where(Relation.env_id == src_env_id)
-            .where(Relation.src_node_id.in_(remap.graph_nodes), Relation.dst_node_id.in_(remap.graph_nodes))
-        )).scalars().all()
+        relations = (
+            (
+                await session.execute(
+                    select(Relation)
+                    .where(Relation.env_id == src_env_id)
+                    .where(Relation.src_node_id.in_(remap.graph_nodes), Relation.dst_node_id.in_(remap.graph_nodes))
+                )
+            )
+            .scalars()
+            .all()
+        )
         for row in relations:
             remap.relations[row.id] = uuid4()
-            session.add(Relation(
-                id=remap.relations[row.id],
-                env_id=dst_env_id,
-                src_node_id=remap.graph_nodes[row.src_node_id],
-                dst_node_id=remap.graph_nodes[row.dst_node_id],
-                type=row.type,
-                properties=dict(row.properties or {}),
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-                version=row.version,
-            ))
+            session.add(
+                Relation(
+                    id=remap.relations[row.id],
+                    env_id=dst_env_id,
+                    src_node_id=remap.graph_nodes[row.src_node_id],
+                    dst_node_id=remap.graph_nodes[row.dst_node_id],
+                    type=row.type,
+                    properties=dict(row.properties or {}),
+                    created_at=row.created_at,
+                    updated_at=row.updated_at,
+                    version=row.version,
+                )
+            )
             counts["relations"] += 1
 
     if closure.memories:
-        lineage = (await session.execute(
-            select(MemoryLineage)
-            .where(MemoryLineage.parent_memory_id.in_(closure.memories))
-            .where(MemoryLineage.child_memory_id.in_(closure.memories))
-        )).scalars().all()
+        lineage = (
+            (
+                await session.execute(
+                    select(MemoryLineage)
+                    .where(MemoryLineage.parent_memory_id.in_(closure.memories))
+                    .where(MemoryLineage.child_memory_id.in_(closure.memories))
+                )
+            )
+            .scalars()
+            .all()
+        )
         for row in lineage:
-            session.add(MemoryLineage(
-                parent_memory_id=remap.memories[row.parent_memory_id],
-                child_memory_id=remap.memories[row.child_memory_id],
-                relation=row.relation,
-                created_at=row.created_at,
-            ))
+            session.add(
+                MemoryLineage(
+                    parent_memory_id=remap.memories[row.parent_memory_id],
+                    child_memory_id=remap.memories[row.child_memory_id],
+                    relation=row.relation,
+                    created_at=row.created_at,
+                )
+            )
             counts["memory_lineage"] += 1
 
     for old_id, memory in dst_memories.items():
-        source_status, source_target = (await session.execute(
-            select(Memory.status, Memory.superseded_by).where(Memory.id == old_id)
-        )).one()
+        source_status, source_target = (
+            await session.execute(select(Memory.status, Memory.superseded_by).where(Memory.id == old_id))
+        ).one()
         if source_target is None or source_target not in remap.memories:
             continue
         new_target = remap.memories[source_target]
         await session.execute(
-            update(Memory)
-            .where(Memory.id == memory.id)
-            .values(status=source_status, superseded_by=new_target)
+            update(Memory).where(Memory.id == memory.id).values(status=source_status, superseded_by=new_target)
         )
         memory.status = source_status
         memory.superseded_by = new_target
@@ -516,7 +595,7 @@ async def _rows_by_ids(session: AsyncSession, model: Any, ids: set[UUID]) -> lis
 
 async def _tag_names(session: AsyncSession, tag_ids: set[UUID]) -> dict[UUID, str]:
     rows = (await session.execute(select(Tag.id, Tag.name).where(Tag.id.in_(tag_ids)))).all()
-    return {tag_id: name for tag_id, name in rows}
+    return dict(rows)
 
 
 def _closure_inclusions(closure: _Closure) -> dict[str, int]:

@@ -21,7 +21,7 @@ import pytest
 from sqlalchemy import text
 
 from memory_mcp import top as top_mod
-from memory_mcp.db.types import MemoryKind, MemoryStatus
+from memory_mcp.db.types import MemoryStatus
 from memory_mcp.identity import AgentContext
 from memory_mcp.top import MemTopRequest, memory_top
 
@@ -74,8 +74,14 @@ async def _mk_mem(
                 "VALUES (:id, :env_id, :kind, :status, :title, :body, :salience, :access)"
             ),
             {
-                "id": mem_id, "env_id": env_id, "kind": kind, "status": status,
-                "title": title, "body": body, "salience": salience, "access": access_count,
+                "id": mem_id,
+                "env_id": env_id,
+                "kind": kind,
+                "status": status,
+                "title": title,
+                "body": body,
+                "salience": salience,
+                "access": access_count,
             },
         )
     else:
@@ -86,8 +92,14 @@ async def _mk_mem(
                 "VALUES (:id, :env_id, :kind, :status, :title, :body, :salience, :access, :created)"
             ),
             {
-                "id": mem_id, "env_id": env_id, "kind": kind, "status": status,
-                "title": title, "body": body, "salience": salience, "access": access_count,
+                "id": mem_id,
+                "env_id": env_id,
+                "kind": kind,
+                "status": status,
+                "title": title,
+                "body": body,
+                "salience": salience,
+                "access": access_count,
                 "created": created_at,
             },
         )
@@ -97,10 +109,7 @@ async def _mk_mem(
 async def _mk_gn_for_memory(session, env_id: UUID, memory_id: UUID) -> UUID:
     gn_id = uuid4()
     await session.execute(
-        text(
-            "INSERT INTO graph_nodes (id, env_id, node_type, memory_id) "
-            "VALUES (:id, :env_id, 'memory', :memory_id)"
-        ),
+        text("INSERT INTO graph_nodes (id, env_id, node_type, memory_id) VALUES (:id, :env_id, 'memory', :memory_id)"),
         {"id": gn_id, "env_id": env_id, "memory_id": memory_id},
     )
     return gn_id
@@ -131,8 +140,12 @@ async def _mk_relation(
                 "VALUES (:id, :env_id, :src, :dst, :type, :created)"
             ),
             {
-                "id": rel_id, "env_id": env_id, "src": src_gn, "dst": dst_gn,
-                "type": rel_type, "created": created_at,
+                "id": rel_id,
+                "env_id": env_id,
+                "src": src_gn,
+                "dst": dst_gn,
+                "type": rel_type,
+                "created": created_at,
             },
         )
     return rel_id
@@ -141,10 +154,7 @@ async def _mk_relation(
 async def _attach_tag(session, env_id: UUID, mem_id: UUID, tag_name: str) -> None:
     tag_id = uuid4()
     await session.execute(
-        text(
-            "INSERT INTO tags (id, env_id, name) VALUES (:id, :env_id, :name) "
-            "ON CONFLICT (env_id, name) DO NOTHING"
-        ),
+        text("INSERT INTO tags (id, env_id, name) VALUES (:id, :env_id, :name) ON CONFLICT (env_id, name) DO NOTHING"),
         {"id": tag_id, "env_id": env_id, "name": tag_name},
     )
     real_id = (
@@ -248,7 +258,10 @@ async def test_mem_top_by_reference_count_uses_computed_column(
     assert resp.items[1].metric_value == 1.0
     # Breakdown surfaces in the response too.
     assert resp.items[0].memory.reference_breakdown == {
-        "rel_link": 3, "lineage": 0, "task": 0, "playbook": 0,
+        "rel_link": 3,
+        "lineage": 0,
+        "task": 0,
+        "playbook": 0,
     }
 
 
@@ -278,7 +291,9 @@ async def test_mem_top_default_status_filter_excludes_non_active(
         # Explicit override: include stale.
         resp2 = await memory_top(
             MemTopRequest(
-                env_ids=[env_id], by="salience", limit=10,
+                env_ids=[env_id],
+                by="salience",
+                limit=10,
                 statuses=[MemoryStatus.active, MemoryStatus.stale, MemoryStatus.proposed],
             ),
             ctx=ctx,
@@ -307,7 +322,7 @@ async def test_mem_top_tag_match_any_vs_all(
         m_both = await _mk_mem(session, env_id, salience=0.3, title="both")
         m_foo = await _mk_mem(session, env_id, salience=0.6, title="foo-only")
         m_bar = await _mk_mem(session, env_id, salience=0.5, title="bar-only")
-        m_none = await _mk_mem(session, env_id, salience=0.9, title="no-tags")
+        await _mk_mem(session, env_id, salience=0.9, title="no-tags")
         await _attach_tag(session, env_id, m_both, "task:foo")
         await _attach_tag(session, env_id, m_both, "task:bar")
         await _attach_tag(session, env_id, m_foo, "task:foo")
@@ -320,15 +335,21 @@ async def test_mem_top_tag_match_any_vs_all(
 
         any_resp = await memory_top(
             MemTopRequest(
-                env_ids=[env_id], by="salience", limit=10,
-                tags=["task:foo", "task:bar"], tag_match="any",
+                env_ids=[env_id],
+                by="salience",
+                limit=10,
+                tags=["task:foo", "task:bar"],
+                tag_match="any",
             ),
             ctx=ctx,
         )
         all_resp = await memory_top(
             MemTopRequest(
-                env_ids=[env_id], by="salience", limit=10,
-                tags=["task:foo", "task:bar"], tag_match="all",
+                env_ids=[env_id],
+                by="salience",
+                limit=10,
+                tags=["task:foo", "task:bar"],
+                tag_match="all",
             ),
             ctx=ctx,
         )
@@ -358,15 +379,24 @@ async def test_mem_top_stable_tiebreaker(
         # Three memories with identical salience but different created_at.
         # Expected ordering: newest first (created_at DESC).
         m_old = await _mk_mem(
-            session, env_id, salience=0.5, title="old",
+            session,
+            env_id,
+            salience=0.5,
+            title="old",
             created_at=now - dt.timedelta(days=3),
         )
         m_mid = await _mk_mem(
-            session, env_id, salience=0.5, title="mid",
+            session,
+            env_id,
+            salience=0.5,
+            title="mid",
             created_at=now - dt.timedelta(days=2),
         )
         m_new = await _mk_mem(
-            session, env_id, salience=0.5, title="new",
+            session,
+            env_id,
+            salience=0.5,
+            title="new",
             created_at=now - dt.timedelta(days=1),
         )
         await session.commit()
@@ -407,7 +437,10 @@ async def test_mem_top_by_reference_velocity_window(
             src_mem = await _mk_mem(session, env_id)
             gn_src = await _mk_gn_for_memory(session, env_id, src_mem)
             await _mk_relation(
-                session, env_id, gn_src, gn_recent,
+                session,
+                env_id,
+                gn_src,
+                gn_recent,
                 created_at=now - dt.timedelta(days=5),
             )
 
@@ -417,7 +450,10 @@ async def test_mem_top_by_reference_velocity_window(
             src_mem = await _mk_mem(session, env_id)
             gn_src = await _mk_gn_for_memory(session, env_id, src_mem)
             await _mk_relation(
-                session, env_id, gn_src, gn_old,
+                session,
+                env_id,
+                gn_src,
+                gn_old,
                 created_at=now - dt.timedelta(days=60),
             )
         await session.commit()
@@ -444,7 +480,9 @@ async def test_mem_top_by_reference_velocity_window(
     try:
         wider = await memory_top(
             MemTopRequest(
-                env_ids=[env_id], by="reference_velocity", limit=10,
+                env_ids=[env_id],
+                by="reference_velocity",
+                limit=10,
                 velocity_window_days=90,
             ),
             ctx=await _ctx_with_env(env_id),
@@ -502,8 +540,13 @@ def _settings_authority_on(**overrides) -> Settings:
 
 
 async def _set_authority(
-    session, mem_id: UUID, *, rel_link: float = 0.0, lineage: float = 0.0,
-    task: float = 0.0, playbook: float = 0.0,
+    session,
+    mem_id: UUID,
+    *,
+    rel_link: float = 0.0,
+    lineage: float = 0.0,
+    task: float = 0.0,
+    playbook: float = 0.0,
 ) -> None:
     """Directly stamp the four per-kind ref_authority_* columns.
 
@@ -580,9 +623,7 @@ async def test_mem_top_by_reference_authority_knob_off_raises_zero_db(
         await session.commit()
 
     def _tripwire(*_args, **_kwargs):
-        raise AssertionError(
-            "session_scope must not be entered on AUTHORITY_DISABLED"
-        )
+        raise AssertionError("session_scope must not be entered on AUTHORITY_DISABLED")
 
     monkeypatch.setattr(top_mod, "session_scope", _tripwire)
 
@@ -677,7 +718,9 @@ async def test_mem_top_by_reference_authority_default_status_excludes_non_active
         # Explicit opt-in → stale row included and ranks first
         resp_explicit = await memory_top(
             MemTopRequest(
-                env_ids=[env_id], by="reference_authority", limit=10,
+                env_ids=[env_id],
+                by="reference_authority",
+                limit=10,
                 statuses=[MemoryStatus.active, MemoryStatus.stale],
             ),
             ctx=ctx,
@@ -721,8 +764,11 @@ async def test_mem_top_by_reference_authority_tag_match_all(
         ctx = await _ctx_with_env(env_id)
         resp = await memory_top(
             MemTopRequest(
-                env_ids=[env_id], by="reference_authority", limit=10,
-                tags=["a", "b"], tag_match="all",
+                env_ids=[env_id],
+                by="reference_authority",
+                limit=10,
+                tags=["a", "b"],
+                tag_match="all",
             ),
             ctx=ctx,
             settings=_settings_authority_on(),
@@ -787,11 +833,16 @@ async def test_mem_top_by_reference_authority_stable_tiebreaker(
         env_id = await _mk_env(session)
         # Stagger created_at so tie-breaker can fire deterministically.
         m_old = await _mk_mem(
-            session, env_id, title="old",
+            session,
+            env_id,
+            title="old",
             created_at=now - dt.timedelta(hours=1),
         )
         m_new = await _mk_mem(
-            session, env_id, title="new", created_at=now,
+            session,
+            env_id,
+            title="new",
+            created_at=now,
         )
         await _set_authority(session, m_old, rel_link=0.5)
         await _set_authority(session, m_new, rel_link=0.5)

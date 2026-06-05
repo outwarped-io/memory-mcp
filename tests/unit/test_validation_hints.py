@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from memory_mcp.validation_hints import (

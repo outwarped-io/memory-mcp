@@ -29,6 +29,7 @@ from memory_mcp.identity import AgentContext
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def ctx_no_session() -> AgentContext:
     return AgentContext(agent_id=uuid4(), session_id=None)
@@ -48,6 +49,7 @@ def _reset_singleton() -> None:
 # ---------------------------------------------------------------------------
 # EnvSessionState
 # ---------------------------------------------------------------------------
+
 
 def test_session_state_attach_idempotent() -> None:
     async def go() -> None:
@@ -122,6 +124,7 @@ def test_get_env_session_state_is_singleton() -> None:
 # Pydantic schemas
 # ---------------------------------------------------------------------------
 
+
 def test_env_create_request_minimal() -> None:
     req = EnvCreateRequest(name="work")
     assert req.name == "work"
@@ -150,6 +153,7 @@ def test_attached_envs_response_empty() -> None:
 # ---------------------------------------------------------------------------
 # Tool-level guards (pure validation paths)
 # ---------------------------------------------------------------------------
+
 
 def test_env_attach_requires_session(ctx_no_session: AgentContext) -> None:
     async def go() -> None:
@@ -195,6 +199,7 @@ def test_env_get_requires_exactly_one_selector(ctx_with_session: AgentContext) -
 # require() to a deny-shim and assert each tool surface aborts cleanly without
 # touching the database (no engine init in unit tests proves this).
 # ---------------------------------------------------------------------------
+
 
 def test_rbac_deny_aborts_env_create(
     monkeypatch: pytest.MonkeyPatch,

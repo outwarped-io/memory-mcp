@@ -5,7 +5,6 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-
 from memory_mcp_schemas.dream import (
     DreamProposalsListRequest,
     DreamProposalsListResponse,
@@ -16,7 +15,6 @@ from memory_mcp_schemas.dream import (
     DreamStatusRequest,
     DreamStatusResponse,
 )
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -48,9 +46,7 @@ async def test_run(client, fake_session) -> None:
 
     out = await client.dream.run(request)
 
-    assert fake_session.calls == [
-        ("dream_run_", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("dream_run_", {"request": request.model_dump(mode="json")})]
     assert isinstance(out, DreamRunResponse)
 
 
@@ -70,9 +66,7 @@ async def test_status(client, fake_session) -> None:
 
     out = await client.dream.status(request)
 
-    assert fake_session.calls == [
-        ("dream_status_", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("dream_status_", {"request": request.model_dump(mode="json")})]
     assert isinstance(out, DreamStatusResponse)
 
 
@@ -107,7 +101,5 @@ async def test_review(client, fake_session) -> None:
 
     out = await client.dream.review(request)
 
-    assert fake_session.calls == [
-        ("dream_review_", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("dream_review_", {"request": request.model_dump(mode="json")})]
     assert isinstance(out, DreamReviewResponse)

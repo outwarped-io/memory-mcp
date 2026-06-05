@@ -37,6 +37,12 @@ import datetime as dt
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.enums import MemoryKind
+from memory_mcp_schemas.inbox import (
+    MemInboxOpenRequest,
+    MemInboxRequest,
+    MemInboxSendRequest,
+)
 
 from memory_mcp import entities as entities_mod
 from memory_mcp import envs as envs_mod
@@ -47,12 +53,6 @@ from memory_mcp.db.models import Agent, Environment
 from memory_mcp.errors import InvalidInputError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import MemoryWriteRequest, memory_write
-from memory_mcp_schemas.enums import MemoryKind
-from memory_mcp_schemas.inbox import (
-    MemInboxOpenRequest,
-    MemInboxRequest,
-    MemInboxSendRequest,
-)
 
 from .conftest import (
     SessionPairFactory,
@@ -301,7 +301,7 @@ async def test_expired_default_hidden(
         )
 
         # Plant an already-expired message bypassing inbox_send's TTL guard.
-        past = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)
+        past = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
         expired = await memory_write(
             MemoryWriteRequest(
                 kind=MemoryKind.message,

@@ -65,10 +65,7 @@ async def _mk_mem(
 ) -> UUID:
     mem_id = uuid4()
     await session.execute(
-        text(
-            "INSERT INTO memories (id, env_id, kind, status, body) "
-            "VALUES (:id, :env_id, :kind, :status, 'b')"
-        ),
+        text("INSERT INTO memories (id, env_id, kind, status, body) VALUES (:id, :env_id, :kind, :status, 'b')"),
         {"id": mem_id, "env_id": env_id, "kind": kind, "status": status},
     )
     return mem_id
@@ -77,10 +74,7 @@ async def _mk_mem(
 async def _mk_agent(session) -> UUID:
     agent_id = uuid4()
     await session.execute(
-        text(
-            "INSERT INTO agents (id, name) VALUES (:id, :name) "
-            "ON CONFLICT DO NOTHING"
-        ),
+        text("INSERT INTO agents (id, name) VALUES (:id, :name) ON CONFLICT DO NOTHING"),
         {"id": agent_id, "name": f"mig21-{agent_id.hex[:8]}"},
     )
     return agent_id
@@ -93,10 +87,7 @@ async def _mk_lineage(
     relation: str,
 ) -> None:
     await session.execute(
-        text(
-            "INSERT INTO memory_lineage (parent_memory_id, child_memory_id, relation) "
-            "VALUES (:p, :c, :r)"
-        ),
+        text("INSERT INTO memory_lineage (parent_memory_id, child_memory_id, relation) VALUES (:p, :c, :r)"),
         {"p": parent_id, "c": child_id, "r": relation},
     )
 
@@ -127,9 +118,7 @@ async def _read_counts(session, mem_id: UUID) -> dict[str, int]:
 
 
 @pytest.mark.asyncio
-async def test_migration_widens_lineage_check(
-    postgres_session_factories: SessionPairFactory, clean_db: None
-) -> None:
+async def test_migration_widens_lineage_check(postgres_session_factories: SessionPairFactory, clean_db: None) -> None:
     """Both ``split_from`` and ``derived_from`` are accepted by the CHECK after 0021."""
 
     factory, _ = postgres_session_factories()
@@ -146,8 +135,7 @@ async def test_migration_widens_lineage_check(
         rows = (
             await session.execute(
                 text(
-                    "SELECT child_memory_id, relation FROM memory_lineage "
-                    "WHERE parent_memory_id = :p ORDER BY relation"
+                    "SELECT child_memory_id, relation FROM memory_lineage WHERE parent_memory_id = :p ORDER BY relation"
                 ),
                 {"p": parent},
             )
@@ -404,8 +392,8 @@ async def test_recount_pass_parity_after_0021(
     should report zero drift on the same data.
     """
 
-    from memory_mcp.dream.passes import recount as recount_mod
     from memory_mcp import memories as memories_mod
+    from memory_mcp.dream.passes import recount as recount_mod
 
     monkeypatch.setattr(recount_mod, "session_scope", routed_session_scope)
     monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
@@ -428,10 +416,7 @@ async def test_recount_pass_parity_after_0021(
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[])
     async with factory() as session:
         await session.execute(
-            text(
-                "INSERT INTO agents (id, name) VALUES (:id, :name) "
-                "ON CONFLICT DO NOTHING"
-            ),
+            text("INSERT INTO agents (id, name) VALUES (:id, :name) ON CONFLICT DO NOTHING"),
             {"id": ctx.agent_id, "name": f"recount-{ctx.agent_id.hex[:8]}"},
         )
         await session.commit()

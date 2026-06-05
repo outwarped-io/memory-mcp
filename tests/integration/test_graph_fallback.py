@@ -10,14 +10,14 @@ import httpx
 import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-
-from memory_mcp.identity import AgentContext
 from memory_mcp_schemas.graph import (
     MemNeighborsRequest,
     MemNeighborsResponse,
     MemRelatedRequest,
     MemRelatedResponse,
 )
+
+from memory_mcp.identity import AgentContext
 
 
 async def _call_graph_tool(
@@ -73,17 +73,19 @@ async def _call_graph_tool(
             auth=auth,
         )
 
-    async with app.router.lifespan_context(app):
-        async with streamablehttp_client(
+    async with (
+        app.router.lifespan_context(app),
+        streamablehttp_client(
             "http://127.0.0.1:8080/mcp/",
             httpx_client_factory=httpx_client_factory,
-        ) as (read_stream, write_stream, _get_session_id):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                result = await session.call_tool(
-                    tool_name,
-                    {"request": request, "agent_id": str(uuid4())},
-                )
+        ) as (read_stream, write_stream, _get_session_id),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+        result = await session.call_tool(
+            tool_name,
+            {"request": request, "agent_id": str(uuid4())},
+        )
     return result, seen
 
 

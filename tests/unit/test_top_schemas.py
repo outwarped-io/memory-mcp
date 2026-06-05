@@ -11,10 +11,9 @@ Covers the wire-level contract additions introduced in Phase 1e-e:
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from memory_mcp_schemas.memories import MemoryResponse
 from memory_mcp_schemas.top import MemTopRequest
+from pydantic import ValidationError
 
 
 def test_memtop_request_accepts_reference_authority() -> None:

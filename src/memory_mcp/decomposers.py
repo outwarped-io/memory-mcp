@@ -46,6 +46,13 @@ import logging
 from typing import Any
 from uuid import UUID, uuid4
 
+from memory_mcp_schemas.decompose import (
+    DecomposeLineageRow,
+    DecomposeMode,
+    MemDecomposeChild,
+    MemDecomposeRequest,
+    MemDecomposeResponse,
+)
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -89,14 +96,6 @@ from memory_mcp.memories import (
     _upsert_tags,
     _validate_decision_meta_for_kind,
 )
-from memory_mcp_schemas.decompose import (
-    DecomposeLineageRow,
-    DecomposeMode,
-    MemDecomposeChild,
-    MemDecomposeRequest,
-    MemDecomposeResponse,
-)
-
 
 log = logging.getLogger(__name__)
 
@@ -316,9 +315,7 @@ def _is_decompose_dedupe_error(exc: IntegrityError) -> bool:
 # accept/reject path handles those). ``archived`` / ``retired`` /
 # ``superseded`` are excluded because they're already out of the active
 # graph — decomposing them produces orphan lineage.
-_VALID_SOURCE_STATUSES_FOR_DECOMPOSE: frozenset[MemoryStatus] = frozenset(
-    {MemoryStatus.active, MemoryStatus.stale}
-)
+_VALID_SOURCE_STATUSES_FOR_DECOMPOSE: frozenset[MemoryStatus] = frozenset({MemoryStatus.active, MemoryStatus.stale})
 
 
 def _validate_children(request: MemDecomposeRequest) -> None:
@@ -358,14 +355,12 @@ def _validate_children(request: MemDecomposeRequest) -> None:
     for idx, child in enumerate(request.children):
         if child.decision_meta is not None and child.kind != MemoryKind.decision:
             raise InvalidInputError(
-                f"decision_meta only valid for kind=decision "
-                f"(children[{idx}].kind={child.kind.value!r})"
+                f"decision_meta only valid for kind=decision (children[{idx}].kind={child.kind.value!r})"
             )
         canonical_hash = _hash_canonical_child(child)
         if canonical_hash in seen_hashes:
             raise InvalidInputError(
-                f"duplicate child content at children[{idx}] "
-                f"(canonical hash matches an earlier child)"
+                f"duplicate child content at children[{idx}] (canonical hash matches an earlier child)"
             )
         seen_hashes.add(canonical_hash)
 
@@ -486,15 +481,12 @@ async def _reconstruct_replay_from_operation(
             dst="decompose_replay",
         )
 
-    child_rows = (
-        await s.execute(select(Memory).where(Memory.id.in_(child_ids)))
-    ).scalars().all()
+    child_rows = (await s.execute(select(Memory).where(Memory.id.in_(child_ids)))).scalars().all()
     by_id = {m.id: m for m in child_rows}
     missing = [cid for cid in child_ids if cid not in by_id]
     if missing:  # pragma: no cover — children FK CASCADE keyed off envs only
         raise NotFoundError(
-            f"mem_decompose replay: child memories not found: "
-            f"{', '.join(str(m) for m in missing)}",
+            f"mem_decompose replay: child memories not found: {', '.join(str(m) for m in missing)}",
         )
     children = [by_id[cid] for cid in child_ids]
     for child in children:
@@ -558,11 +550,7 @@ async def _autowire_stage_a_decompose(
         from memory_mcp.autowire import autowire_fetch_candidates_decompose
 
         async with session_scope() as s:
-            row = (
-                await s.execute(
-                    select(Memory.env_id).where(Memory.id == request.source_id)
-                )
-            ).scalar_one_or_none()
+            row = (await s.execute(select(Memory.env_id).where(Memory.id == request.source_id))).scalar_one_or_none()
             if row is None:
                 return {}
             env_id = row
@@ -583,9 +571,7 @@ async def _autowire_stage_a_decompose(
                 settings=settings,
             )
     except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "autowire: decompose Stage A failed (%s); skipping", exc
-        )
+        log.warning("autowire: decompose Stage A failed (%s); skipping", exc)
         return {}
 
 
@@ -740,12 +726,16 @@ async def _decompose_in_session(
     fingerprint = _compute_request_fingerprint(request, env_id=env_id)
 
     # Step 5 — dedupe lookup BEFORE state validation (RD A.2).
-    existing_op = (await s.execute(
-        select(DecomposeOperation).where(
-            DecomposeOperation.env_id == env_id,
-            DecomposeOperation.dedupe_key == dedupe_key,
-        ).limit(1)
-    )).scalar_one_or_none()
+    existing_op = (
+        await s.execute(
+            select(DecomposeOperation)
+            .where(
+                DecomposeOperation.env_id == env_id,
+                DecomposeOperation.dedupe_key == dedupe_key,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     if existing_op is not None:
         if existing_op.request_fingerprint != fingerprint:
             raise InvalidInputError(
@@ -756,13 +746,14 @@ async def _decompose_in_session(
             )
         # Replay path. RBAC + env visibility enforced inside reconstructor.
         _validate_source(source, request, ctx, is_replay=True)
-        source_replay, children_replay, lineage_replay = (
-            await _reconstruct_replay_from_operation(
-                s, operation_row=existing_op, ctx=ctx,
-            )
+        source_replay, children_replay, lineage_replay = await _reconstruct_replay_from_operation(
+            s,
+            operation_row=existing_op,
+            ctx=ctx,
         )
         replay_auto_wired = await _resolve_auto_wired_for_replay(
-            s, child_ids=list(existing_op.child_ids),
+            s,
+            child_ids=list(existing_op.child_ids),
         )
         return await _build_response(
             s,
@@ -827,17 +818,18 @@ async def _decompose_in_session(
         if not _is_decompose_dedupe_error(exc):
             raise
         async with s.no_autoflush:
-            winner = (await s.execute(
-                select(DecomposeOperation).where(
-                    DecomposeOperation.env_id == env_id,
-                    DecomposeOperation.dedupe_key == dedupe_key,
-                ).limit(1)
-            )).scalar_one_or_none()
+            winner = (
+                await s.execute(
+                    select(DecomposeOperation)
+                    .where(
+                        DecomposeOperation.env_id == env_id,
+                        DecomposeOperation.dedupe_key == dedupe_key,
+                    )
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
         if winner is None:  # pragma: no cover — race recovery must surface a row
-            raise RuntimeError(
-                "mem_decompose: dedupe-key race recovery found no "
-                "matching operation row"
-            ) from exc
+            raise RuntimeError("mem_decompose: dedupe-key race recovery found no matching operation row") from exc
         if winner.request_fingerprint != fingerprint:
             # The winner had a different scope under the same caller
             # key — treat the same as the pre-lookup mismatch.
@@ -846,13 +838,14 @@ async def _decompose_in_session(
                 "(detected after race-loss to a concurrent decompose with "
                 "different request fingerprint)"
             ) from exc
-        source_replay, children_replay, lineage_replay = (
-            await _reconstruct_replay_from_operation(
-                s, operation_row=winner, ctx=ctx,
-            )
+        source_replay, children_replay, lineage_replay = await _reconstruct_replay_from_operation(
+            s,
+            operation_row=winner,
+            ctx=ctx,
         )
         replay_auto_wired = await _resolve_auto_wired_for_replay(
-            s, child_ids=list(winner.child_ids),
+            s,
+            child_ids=list(winner.child_ids),
         )
         return await _build_response(
             s,
@@ -1143,7 +1136,8 @@ async def memory_decompose(
     """
     settings = settings or get_settings()
     autowire_candidates_by_idx = await _autowire_stage_a_decompose(
-        request=request, settings=settings,
+        request=request,
+        settings=settings,
     )
     async with session_scope() as s:
         return await _decompose_in_session(

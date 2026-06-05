@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from memory_mcp_schemas.search import (
+    AutoContextHit,
+    AutoContextResponse,
+)
 from sqlalchemy import select
 
 from memory_mcp._filters import exclude_expired_clause
@@ -16,11 +19,6 @@ from memory_mcp.embeddings.base import Embedder
 from memory_mcp.errors import InvalidInputError
 from memory_mcp.search.api import _search_by_trigger
 
-
-from memory_mcp_schemas.search import (
-    AutoContextHit,
-    AutoContextResponse,
-)
 
 async def memory_auto_context(
     *,
@@ -53,15 +51,21 @@ async def memory_auto_context(
     ids = [memory_id for memory_id, _score in ranked_ids]
     scores = dict(ranked_ids)
     async with session_scope() as session:
-        rows = (await session.execute(
-            select(Memory).where(
-                Memory.id.in_(ids),
-                Memory.env_id == env_id,
-                # v0.17 — convenience surface always default-excludes
-                # expired memories. No opt-out.
-                exclude_expired_clause(),
+        rows = (
+            (
+                await session.execute(
+                    select(Memory).where(
+                        Memory.id.in_(ids),
+                        Memory.env_id == env_id,
+                        # v0.17 — convenience surface always default-excludes
+                        # expired memories. No opt-out.
+                        exclude_expired_clause(),
+                    )
+                )
             )
-        )).scalars().all()
+            .scalars()
+            .all()
+        )
     by_id = {m.id: m for m in rows}
 
     hits: list[AutoContextHit] = []
@@ -69,15 +73,17 @@ async def memory_auto_context(
         memory = by_id.get(memory_id)
         if memory is None or not memory.trigger_description:
             continue
-        hits.append(AutoContextHit(
-            memory_id=memory.id,
-            title=memory.title or "",
-            body=memory.body,
-            trigger_description=memory.trigger_description,
-            score=scores[memory.id],
-            salience=float(memory.salience),
-            kind=str(memory.kind),
-        ))
+        hits.append(
+            AutoContextHit(
+                memory_id=memory.id,
+                title=memory.title or "",
+                body=memory.body,
+                trigger_description=memory.trigger_description,
+                score=scores[memory.id],
+                salience=float(memory.salience),
+                kind=str(memory.kind),
+            )
+        )
 
     return AutoContextResponse(hits=hits, task_desc_used=task_desc_used)
 

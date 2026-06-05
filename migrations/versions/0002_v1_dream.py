@@ -63,10 +63,7 @@ def upgrade() -> None:
     """)
     op.execute("CREATE INDEX dream_runs_env_started_idx ON dream_runs(env_id, started_at DESC)")
     op.execute("CREATE INDEX dream_runs_mode_started_idx ON dream_runs(mode, started_at DESC)")
-    op.execute(
-        "CREATE INDEX dream_runs_running_idx ON dream_runs(env_id, mode) "
-        "WHERE status = 'running'"
-    )
+    op.execute("CREATE INDEX dream_runs_running_idx ON dream_runs(env_id, mode) WHERE status = 'running'")
 
     # ---- dream_proposals ---------------------------------------------------
     # ``kind`` distinguishes payload shape (see ``payload`` JSON contract in
@@ -103,9 +100,7 @@ def upgrade() -> None:
     op.execute("CREATE INDEX dream_proposals_env_status_idx ON dream_proposals(env_id, status)")
     op.execute("CREATE INDEX dream_proposals_env_kind_status_idx ON dream_proposals(env_id, kind, status)")
     op.execute("CREATE INDEX dream_proposals_run_idx ON dream_proposals(dream_run_id) WHERE dream_run_id IS NOT NULL")
-    op.execute(
-        "CREATE INDEX dream_proposals_created_idx ON dream_proposals(env_id, created_at DESC)"
-    )
+    op.execute("CREATE INDEX dream_proposals_created_idx ON dream_proposals(env_id, created_at DESC)")
 
     # Idempotency: a pass over an unchanged input must not produce duplicate
     # open proposals for the same logical cluster. ``dedupe_key`` is set by

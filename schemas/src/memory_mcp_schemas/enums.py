@@ -13,6 +13,7 @@ from enum import StrEnum
 # Enums (mirror the migration CHECK constraints)
 # ---------------------------------------------------------------------------
 
+
 class MemoryKind(StrEnum):
     fact = "fact"
     procedure = "procedure"
@@ -143,25 +144,31 @@ _LIFECYCLE_TRANSITIONS: dict[MemoryStatus, frozenset[MemoryStatus]] = {
     # Archiving a proposal would muddle the dream-review workflow, so it's
     # disallowed (callers archive after acceptance, or simply reject).
     MemoryStatus.proposed: frozenset({MemoryStatus.active, MemoryStatus.retired}),
-    MemoryStatus.active: frozenset({
-        MemoryStatus.stale,
-        MemoryStatus.archived,
-        MemoryStatus.superseded,
-        MemoryStatus.retired,
-    }),
-    MemoryStatus.stale: frozenset({
-        MemoryStatus.active,
-        MemoryStatus.archived,
-        MemoryStatus.superseded,
-        MemoryStatus.retired,
-    }),
+    MemoryStatus.active: frozenset(
+        {
+            MemoryStatus.stale,
+            MemoryStatus.archived,
+            MemoryStatus.superseded,
+            MemoryStatus.retired,
+        }
+    ),
+    MemoryStatus.stale: frozenset(
+        {
+            MemoryStatus.active,
+            MemoryStatus.archived,
+            MemoryStatus.superseded,
+            MemoryStatus.retired,
+        }
+    ),
     # An archived memory may still be superseded — corrects the rubber-duck
     # gate-3 finding.  Reactivation goes through admin tools.
-    MemoryStatus.archived: frozenset({
-        MemoryStatus.active,
-        MemoryStatus.superseded,
-        MemoryStatus.retired,
-    }),
+    MemoryStatus.archived: frozenset(
+        {
+            MemoryStatus.active,
+            MemoryStatus.superseded,
+            MemoryStatus.retired,
+        }
+    ),
     MemoryStatus.superseded: frozenset({MemoryStatus.retired}),
     MemoryStatus.retired: frozenset(),
 }
@@ -175,22 +182,28 @@ def is_valid_transition(src: MemoryStatus, dst: MemoryStatus) -> bool:
 
 
 _TASK_TRANSITIONS: dict[TaskStatus, frozenset[TaskStatus]] = {
-    TaskStatus.pending: frozenset({
-        TaskStatus.in_progress,
-        TaskStatus.blocked,
-        TaskStatus.cancelled,
-    }),
-    TaskStatus.in_progress: frozenset({
-        TaskStatus.blocked,
-        TaskStatus.done,
-        TaskStatus.cancelled,
-        TaskStatus.pending,
-    }),
-    TaskStatus.blocked: frozenset({
-        TaskStatus.pending,
-        TaskStatus.in_progress,
-        TaskStatus.cancelled,
-    }),
+    TaskStatus.pending: frozenset(
+        {
+            TaskStatus.in_progress,
+            TaskStatus.blocked,
+            TaskStatus.cancelled,
+        }
+    ),
+    TaskStatus.in_progress: frozenset(
+        {
+            TaskStatus.blocked,
+            TaskStatus.done,
+            TaskStatus.cancelled,
+            TaskStatus.pending,
+        }
+    ),
+    TaskStatus.blocked: frozenset(
+        {
+            TaskStatus.pending,
+            TaskStatus.in_progress,
+            TaskStatus.cancelled,
+        }
+    ),
     TaskStatus.done: frozenset(),
     TaskStatus.cancelled: frozenset(),
 }
@@ -206,6 +219,7 @@ def is_valid_task_transition(src: TaskStatus, dst: TaskStatus) -> bool:
 # ---------------------------------------------------------------------------
 # Dream worker enums (Phase 2.2)
 # ---------------------------------------------------------------------------
+
 
 class DreamMode(StrEnum):
     decay = "decay"

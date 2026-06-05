@@ -13,7 +13,6 @@ import re
 
 from memory_mcp.context_pack.models import ContextPackSectionName
 
-
 MAX_TOKEN_BUDGET = 100_000
 MIN_TOKEN_BUDGET = 200
 

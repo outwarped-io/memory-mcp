@@ -48,6 +48,7 @@ def _settings(**overrides: Any) -> Settings:
 # Factory
 # ---------------------------------------------------------------------------
 
+
 def test_factory_returns_null_client_by_default() -> None:
     client = build_llm_client(_settings())
     assert isinstance(client, NullLLMClient)
@@ -90,6 +91,7 @@ def test_openai_compatible_requires_base_url() -> None:
 # Null backend — every generative call MUST raise LLM_UNAVAILABLE.
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_null_summarize_raises_llm_unavailable() -> None:
     client = NullLLMClient(_settings())
@@ -117,6 +119,7 @@ async def test_null_probe_returns_skipped() -> None:
 # Ollama backend
 # ---------------------------------------------------------------------------
 
+
 def _ollama_handler_factory(
     *,
     chat_response: dict[str, Any] | None = None,
@@ -138,7 +141,8 @@ def _ollama_handler_factory(
                 return httpx.Response(chat_status, content=chat_body_text)
             return httpx.Response(
                 chat_status,
-                json=chat_response or {
+                json=chat_response
+                or {
                     "model": "test-model",
                     "message": {"role": "assistant", "content": "default-response"},
                     "done": True,
@@ -207,9 +211,7 @@ async def test_ollama_chat_passes_messages_through() -> None:
 
 @pytest.mark.asyncio
 async def test_ollama_uses_settings_defaults_for_max_tokens_and_temperature() -> None:
-    client, captured = _make_ollama(
-        settings_overrides={"llm_max_tokens": 123, "llm_temperature": 0.9}
-    )
+    client, captured = _make_ollama(settings_overrides={"llm_max_tokens": 123, "llm_temperature": 0.9})
     try:
         await client.summarize("x")
     finally:
@@ -269,9 +271,7 @@ async def test_ollama_handles_unexpected_response_shape() -> None:
 
 @pytest.mark.asyncio
 async def test_ollama_probe_reports_ok_when_model_present() -> None:
-    client, _ = _make_ollama(
-        tags_response={"models": [{"name": "test-model"}, {"name": "other"}]}
-    )
+    client, _ = _make_ollama(tags_response={"models": [{"name": "test-model"}, {"name": "other"}]})
     try:
         result = await client.probe()
     finally:
@@ -296,6 +296,7 @@ async def test_ollama_probe_reports_error_on_5xx() -> None:
 # OpenAI-compatible backend
 # ---------------------------------------------------------------------------
 
+
 def _make_openai(
     *,
     chat_response: dict[str, Any] | None = None,
@@ -316,7 +317,8 @@ def _make_openai(
                 return httpx.Response(chat_status, content=chat_body_text)
             return httpx.Response(
                 chat_status,
-                json=chat_response or {
+                json=chat_response
+                or {
                     "id": "x",
                     "choices": [
                         {
@@ -344,9 +346,7 @@ def _make_openai(
 @pytest.mark.asyncio
 async def test_openai_compatible_summarize_round_trip() -> None:
     client, captured = _make_openai(
-        chat_response={
-            "choices": [{"message": {"role": "assistant", "content": "hello world"}}]
-        }
+        chat_response={"choices": [{"message": {"role": "assistant", "content": "hello world"}}]}
     )
     try:
         result = await client.summarize("ping", max_tokens=42, temperature=0.1)
@@ -396,9 +396,7 @@ async def test_openai_compatible_handles_unexpected_shape() -> None:
 
 @pytest.mark.asyncio
 async def test_openai_compatible_handles_non_string_content() -> None:
-    client, _ = _make_openai(
-        chat_response={"choices": [{"message": {"role": "assistant", "content": None}}]}
-    )
+    client, _ = _make_openai(chat_response={"choices": [{"message": {"role": "assistant", "content": None}}]})
     try:
         with pytest.raises(LLMUnavailableError, match="not a string"):
             await client.summarize("x")
@@ -409,6 +407,7 @@ async def test_openai_compatible_handles_non_string_content() -> None:
 # ---------------------------------------------------------------------------
 # probe_llm — readyz integration helper
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_probe_llm_skipped_when_summarizer_template() -> None:

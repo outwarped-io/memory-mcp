@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.env_ops import EnvDeleteRequest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -25,9 +26,7 @@ from memory_mcp.env_ops.delete import RefsBlockingDeleteError, delete_env
 from memory_mcp.envs import env_get
 from memory_mcp.errors import InvalidInputError
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.env_ops import EnvDeleteRequest
-
-from tests.env_ops.test_roundtrip import _truncate, postgres_factory
+from tests.env_ops.test_roundtrip import _truncate, postgres_factory  # noqa: F401
 
 
 @pytest.fixture
@@ -248,10 +247,9 @@ async def _env_row_counts(session: AsyncSession, env_id: UUID) -> dict[str, int]
         "tasks": await _count(session, select(func.count()).select_from(Task).where(Task.env_id == env_id)),
         "memory_lineage": await _count(
             session,
-            select(func.count()).select_from(MemoryLineage).where(
-                (MemoryLineage.parent_memory_id.in_(memory_ids))
-                | (MemoryLineage.child_memory_id.in_(memory_ids))
-            ),
+            select(func.count())
+            .select_from(MemoryLineage)
+            .where((MemoryLineage.parent_memory_id.in_(memory_ids)) | (MemoryLineage.child_memory_id.in_(memory_ids))),
         ),
     }
 

@@ -189,7 +189,9 @@ class TestLLMFailedAcceptInvariants:
             },
         )
         monkeypatch.setattr(
-            dream_api, "_lock_proposal", AsyncMock(return_value=proposal),
+            dream_api,
+            "_lock_proposal",
+            AsyncMock(return_value=proposal),
         )
 
         merged = _make_memory_response(env_id=proposal.env_id)
@@ -203,10 +205,14 @@ class TestLLMFailedAcceptInvariants:
             AsyncMock(side_effect=AssertionError("must not be called")),
         )
         monkeypatch.setattr(
-            dream_api, "_finalize_proposal_status", AsyncMock(return_value=None),
+            dream_api,
+            "_finalize_proposal_status",
+            AsyncMock(return_value=None),
         )
         monkeypatch.setattr(
-            dream_api, "_to_response", lambda mem, tag_names: merged,
+            dream_api,
+            "_to_response",
+            lambda mem, tag_names: merged,
         )
 
         out = await dream_review(
@@ -240,7 +246,9 @@ class TestLLMFailedAcceptInvariants:
             },
         )
         monkeypatch.setattr(
-            dream_api, "_lock_proposal", AsyncMock(return_value=proposal),
+            dream_api,
+            "_lock_proposal",
+            AsyncMock(return_value=proposal),
         )
 
         promoted = _make_memory_response(env_id=proposal.env_id)
@@ -252,10 +260,14 @@ class TestLLMFailedAcceptInvariants:
         )
         monkeypatch.setattr(dream_api, "_accept_promotion", accept_promo)
         monkeypatch.setattr(
-            dream_api, "_finalize_proposal_status", AsyncMock(return_value=None),
+            dream_api,
+            "_finalize_proposal_status",
+            AsyncMock(return_value=None),
         )
         monkeypatch.setattr(
-            dream_api, "_to_response", lambda mem, tag_names: promoted,
+            dream_api,
+            "_to_response",
+            lambda mem, tag_names: promoted,
         )
 
         out = await dream_review(
@@ -324,7 +336,8 @@ class _StubSummarizer:
         )
 
     async def summarize_promotion(
-        self, cluster: PromotionCluster,
+        self,
+        cluster: PromotionCluster,
     ) -> PromotionSummary:
         return PromotionSummary(
             suggested_title="t",
@@ -355,21 +368,21 @@ async def test_dedupe_summarizer_call_increments_metrics() -> None:
     )
 
     before_calls = _read_counter(
-        dream_summarizer_calls_total, kind="template", outcome="ok",
+        dream_summarizer_calls_total,
+        kind="template",
+        outcome="ok",
     )
-    before_obs = (
-        dream_summarizer_latency_seconds.labels(kind="template")._sum.get()
-    )
+    before_obs = dream_summarizer_latency_seconds.labels(kind="template")._sum.get()
 
     summary = await dedupe_mod._instrumented_summarize_merge(summarizer, cluster)
 
     assert summary.suggested_merged_title == "t"
     after_calls = _read_counter(
-        dream_summarizer_calls_total, kind="template", outcome="ok",
+        dream_summarizer_calls_total,
+        kind="template",
+        outcome="ok",
     )
-    after_obs = (
-        dream_summarizer_latency_seconds.labels(kind="template")._sum.get()
-    )
+    after_obs = dream_summarizer_latency_seconds.labels(kind="template")._sum.get()
     assert after_calls == before_calls + 1
     assert after_obs >= before_obs  # latency observation recorded
 
@@ -395,7 +408,9 @@ async def test_dedupe_llm_failed_summary_increments_fallback_counter() -> None:
 
     before = _read_counter(dream_llm_fallbacks_total, **{"pass": "dedupe"})
     before_fallback_outcome = _read_counter(
-        dream_summarizer_calls_total, kind="llm", outcome="fallback",
+        dream_summarizer_calls_total,
+        kind="llm",
+        outcome="fallback",
     )
 
     summary = await dedupe_mod._instrumented_summarize_merge(summarizer, cluster)
@@ -403,7 +418,9 @@ async def test_dedupe_llm_failed_summary_increments_fallback_counter() -> None:
 
     after = _read_counter(dream_llm_fallbacks_total, **{"pass": "dedupe"})
     after_fallback_outcome = _read_counter(
-        dream_summarizer_calls_total, kind="llm", outcome="fallback",
+        dream_summarizer_calls_total,
+        kind="llm",
+        outcome="fallback",
     )
     assert after == before + 1
     assert after_fallback_outcome == before_fallback_outcome + 1
@@ -424,14 +441,19 @@ async def test_promote_summarizer_call_increments_metrics() -> None:
         ],
     )
     before = _read_counter(
-        dream_summarizer_calls_total, kind="template", outcome="ok",
+        dream_summarizer_calls_total,
+        kind="template",
+        outcome="ok",
     )
     summary = await promote_mod._instrumented_summarize_promotion(
-        summarizer, cluster,
+        summarizer,
+        cluster,
     )
     assert summary.suggested_title == "t"
     after = _read_counter(
-        dream_summarizer_calls_total, kind="template", outcome="ok",
+        dream_summarizer_calls_total,
+        kind="template",
+        outcome="ok",
     )
     assert after == before + 1
 
@@ -483,11 +505,15 @@ async def test_dedupe_summarizer_exception_increments_error_counter() -> None:
     )
 
     before = _read_counter(
-        dream_summarizer_calls_total, kind="template", outcome="error",
+        dream_summarizer_calls_total,
+        kind="template",
+        outcome="error",
     )
     with pytest.raises(RuntimeError, match="boom"):
         await dedupe_mod._instrumented_summarize_merge(_Failing(), cluster)
     after = _read_counter(
-        dream_summarizer_calls_total, kind="template", outcome="error",
+        dream_summarizer_calls_total,
+        kind="template",
+        outcome="error",
     )
     assert after == before + 1

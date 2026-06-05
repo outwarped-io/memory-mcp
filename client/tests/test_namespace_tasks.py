@@ -5,7 +5,6 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-
 from memory_mcp_schemas.enums import TaskRelationKind, TaskStatus
 from memory_mcp_schemas.tasks import (
     TaskCreateRequest,
@@ -17,8 +16,8 @@ from memory_mcp_schemas.tasks import (
     TaskResponse,
     TaskTreeResponse,
 )
-from tests.conftest import make_task_payload
 
+from tests.conftest import make_task_payload
 
 pytestmark = pytest.mark.asyncio
 

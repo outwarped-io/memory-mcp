@@ -87,7 +87,7 @@ def test_dashboard_json_parses() -> None:
 
 def _known_metric_names() -> set[str]:
     registry_names = _registry_metric_names()
-    if EXPECTED_V010_METRICS <= registry_names:
+    if registry_names >= EXPECTED_V010_METRICS:
         return registry_names
     return EXPECTED_V010_METRICS
 

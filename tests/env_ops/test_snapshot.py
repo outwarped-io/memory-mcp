@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from memory_mcp_schemas.env_ops import EnvRestoreRequest, EnvSnapshotRequest, RestoreMode
 from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -24,7 +25,6 @@ from memory_mcp.env_ops import import_ as importer
 from memory_mcp.env_ops import snapshot as snapshot_ops
 from memory_mcp.env_ops.snapshot import create_snapshot, restore_snapshot
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.env_ops import EnvRestoreRequest, EnvSnapshotRequest, RestoreMode
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -59,7 +59,9 @@ class _MemoryVectorStore:
     async def get_vector(self, *, env_id: UUID, id: str, vector_name: str = "body") -> list[float] | None:
         return self.vectors.get((env_id, UUID(id), vector_name))
 
-    async def get_vectors(self, *, env_id: UUID, ids: list[UUID], vector_name: str = "body") -> dict[UUID, list[float] | None]:
+    async def get_vectors(
+        self, *, env_id: UUID, ids: list[UUID], vector_name: str = "body"
+    ) -> dict[UUID, list[float] | None]:
         return {memory_id: self.vectors.get((env_id, memory_id, vector_name)) for memory_id in ids}
 
     async def close(self) -> None:
@@ -135,11 +137,15 @@ async def snapshot_db(
 
 
 @pytest.mark.asyncio
-async def test_snapshot_creates_archive_and_db_row(snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path]) -> None:
+async def test_snapshot_creates_archive_and_db_row(
+    snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path],
+) -> None:
     session, _store, ctx, _root = snapshot_db
     env_id = await _create_env_with_memories(session, count=2)
 
-    response = await create_snapshot(EnvSnapshotRequest(env_id=env_id, label="test1", include_embeddings=False), ctx=ctx)
+    response = await create_snapshot(
+        EnvSnapshotRequest(env_id=env_id, label="test1", include_embeddings=False), ctx=ctx
+    )
 
     assert Path(response.path).is_file()
     row = await session.scalar(select(Snapshot).where(Snapshot.id == response.snapshot_id))
@@ -149,7 +155,9 @@ async def test_snapshot_creates_archive_and_db_row(snapshot_db: tuple[AsyncSessi
 
 
 @pytest.mark.asyncio
-async def test_snapshot_label_unique_per_env(snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path]) -> None:
+async def test_snapshot_label_unique_per_env(
+    snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path],
+) -> None:
     session, _store, ctx, _root = snapshot_db
     env_id = await _create_env_with_memories(session, count=1)
     await create_snapshot(EnvSnapshotRequest(env_id=env_id, label="dup", include_embeddings=False), ctx=ctx)
@@ -160,7 +168,9 @@ async def test_snapshot_label_unique_per_env(snapshot_db: tuple[AsyncSession, _M
 
 
 @pytest.mark.asyncio
-async def test_snapshot_label_can_repeat_across_envs(snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path]) -> None:
+async def test_snapshot_label_can_repeat_across_envs(
+    snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path],
+) -> None:
     session, _store, ctx, _root = snapshot_db
     env_a = await _create_env_with_memories(session, name="env-a", count=1)
     env_b = await _create_env_with_memories(session, name="env-b", count=1)
@@ -177,7 +187,9 @@ async def test_restore_to_new_env(snapshot_db: tuple[AsyncSession, _MemoryVector
     env_id = await _create_env_with_memories(session, count=3)
     original_ids = set((await session.execute(select(Memory.id).where(Memory.env_id == env_id))).scalars().all())
     snap = await create_snapshot(EnvSnapshotRequest(env_id=env_id, label="new-env", include_embeddings=False), ctx=ctx)
-    await session.execute(update(Environment).where(Environment.id == env_id).values(status="deleted", deleted_at=func.now()))
+    await session.execute(
+        update(Environment).where(Environment.id == env_id).values(status="deleted", deleted_at=func.now())
+    )
     await session.commit()
 
     out = await restore_snapshot(
@@ -185,16 +197,22 @@ async def test_restore_to_new_env(snapshot_db: tuple[AsyncSession, _MemoryVector
         ctx=ctx,
     )
 
-    restored_ids = set((await session.execute(select(Memory.id).where(Memory.env_id == out.target_env_id))).scalars().all())
+    restored_ids = set(
+        (await session.execute(select(Memory.id).where(Memory.env_id == out.target_env_id))).scalars().all()
+    )
     assert len(restored_ids) == 3
     assert restored_ids.isdisjoint(original_ids)
 
 
 @pytest.mark.asyncio
-async def test_restore_in_place_preserves_uuids(snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path]) -> None:
+async def test_restore_in_place_preserves_uuids(
+    snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path],
+) -> None:
     session, _store, ctx, _root = snapshot_db
     env_id = await _create_env_with_memories(session, count=3)
-    original_ids = list((await session.execute(select(Memory.id).where(Memory.env_id == env_id).order_by(Memory.title))).scalars().all())
+    original_ids = list(
+        (await session.execute(select(Memory.id).where(Memory.env_id == env_id).order_by(Memory.title))).scalars().all()
+    )
     snap = await create_snapshot(EnvSnapshotRequest(env_id=env_id, label="in-place", include_embeddings=False), ctx=ctx)
     u4 = uuid4()
     session.add(_memory(u4, env_id, "extra"))
@@ -212,22 +230,30 @@ async def test_restore_in_place_preserves_uuids(snapshot_db: tuple[AsyncSession,
 
 
 @pytest.mark.asyncio
-async def test_restore_in_place_requires_confirm(snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path]) -> None:
+async def test_restore_in_place_requires_confirm(
+    snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path],
+) -> None:
     session, _store, ctx, _root = snapshot_db
     env_id = await _create_env_with_memories(session, count=1)
     snap = await create_snapshot(EnvSnapshotRequest(env_id=env_id, label="confirm", include_embeddings=False), ctx=ctx)
 
     with pytest.raises(Exception) as exc:
-        await restore_snapshot(EnvRestoreRequest(snapshot_id=snap.snapshot_id, mode=RestoreMode.replace_env_in_place), ctx=ctx)
+        await restore_snapshot(
+            EnvRestoreRequest(snapshot_id=snap.snapshot_id, mode=RestoreMode.replace_env_in_place), ctx=ctx
+        )
     assert getattr(exc.value, "code", "") == "CONFIRM_DESTROY_REQUIRED"
 
 
 @pytest.mark.asyncio
-async def test_restore_in_place_rebuilds_external_refs(snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path]) -> None:
+async def test_restore_in_place_rebuilds_external_refs(
+    snapshot_db: tuple[AsyncSession, _MemoryVectorStore, AgentContext, Path],
+) -> None:
     session, _store, ctx, _root = snapshot_db
     env_a = await _create_env_with_memories(session, name="env-a", count=3)
     env_c = await _create_env_with_memories(session, name="env-c", count=1)
-    u2 = (await session.execute(select(Memory.id).where(Memory.env_id == env_a).order_by(Memory.title).offset(1).limit(1))).scalar_one()
+    u2 = (
+        await session.execute(select(Memory.id).where(Memory.env_id == env_a).order_by(Memory.title).offset(1).limit(1))
+    ).scalar_one()
     c_mem = (await session.execute(select(Memory.id).where(Memory.env_id == env_c).limit(1))).scalar_one()
     session.add(MemoryLineage(parent_memory_id=c_mem, child_memory_id=u2, relation="copied_from"))
     await session.commit()
@@ -242,7 +268,9 @@ async def test_restore_in_place_rebuilds_external_refs(snapshot_db: tuple[AsyncS
 
     assert await session.scalar(select(Memory.id).where(Memory.id == u2)) == u2
     edge_count = await session.scalar(
-        select(func.count()).select_from(MemoryLineage).where(
+        select(func.count())
+        .select_from(MemoryLineage)
+        .where(
             MemoryLineage.parent_memory_id == c_mem,
             MemoryLineage.child_memory_id == u2,
             MemoryLineage.relation == "copied_from",

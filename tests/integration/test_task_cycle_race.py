@@ -43,19 +43,25 @@ async def _create_env_with_tasks(factory, *, scenario: str, iteration: int):
         task_b = Task(env_id=env.id, title="B")
         session.add_all([task_a, task_b])
         await session.flush()
-        session.add_all([
-            GraphNode(env_id=env.id, node_type="task", task_id=task_a.id),
-            GraphNode(env_id=env.id, node_type="task", task_id=task_b.id),
-        ])
+        session.add_all(
+            [
+                GraphNode(env_id=env.id, node_type="task", task_id=task_a.id),
+                GraphNode(env_id=env.id, node_type="task", task_id=task_b.id),
+            ]
+        )
         await session.commit()
         return env.id, task_a.id, task_b.id
 
 
 async def _relation_count(factory, env_id) -> int:
     async with factory() as session:
-        stmt = select(func.count()).select_from(Relation).where(
-            Relation.env_id == env_id,
-            Relation.type == TaskRelationKind.depends_on.value,
+        stmt = (
+            select(func.count())
+            .select_from(Relation)
+            .where(
+                Relation.env_id == env_id,
+                Relation.type == TaskRelationKind.depends_on.value,
+            )
         )
         return int((await session.execute(stmt)).scalar_one())
 

@@ -188,10 +188,7 @@ async def _load_observation_rows(
         )
         rows = (await s.execute(stmt)).all()
 
-    return [
-        _ObservationRow(id=r[0], body=r[1] or "", created_at=r[2])
-        for r in rows
-    ]
+    return [_ObservationRow(id=r[0], body=r[1] or "", created_at=r[2]) for r in rows]
 
 
 async def _load_observation_entity_refs(
@@ -231,13 +228,11 @@ async def _load_observation_entity_refs(
             src_node.c.node_type == "entity",
         )
 
-        stmt = (
-            select(
-                # Project (memory_id, entity_id) regardless of direction.
-                # CASE WHEN src is memory THEN src.memory_id ELSE dst.memory_id END
-                # is what we need — express as func/literal_column or use
-                # SQLAlchemy's case().
-            )
+        stmt = select(
+            # Project (memory_id, entity_id) regardless of direction.
+            # CASE WHEN src is memory THEN src.memory_id ELSE dst.memory_id END
+            # is what we need — express as func/literal_column or use
+            # SQLAlchemy's case().
         )
         # Build with case() expressions for portability.
         from sqlalchemy import case
@@ -252,9 +247,11 @@ async def _load_observation_entity_refs(
         ).label("entity_id")
 
         join_clause = Relation.__table__.join(
-            src_node, src_node.c.id == Relation.src_node_id,
+            src_node,
+            src_node.c.id == Relation.src_node_id,
         ).join(
-            dst_node, dst_node.c.id == Relation.dst_node_id,
+            dst_node,
+            dst_node.c.id == Relation.dst_node_id,
         )
         ref_subq = (
             select(memory_id_col, entity_id_col)
@@ -272,21 +269,15 @@ async def _load_observation_entity_refs(
         # Final join to entities for canonical_name. Name is captured at
         # emission time — staleness is acceptable; acceptance re-reads
         # canonical state.
-        stmt = (
-            select(
-                ref_subq.c.memory_id,
-                ref_subq.c.entity_id,
-                Entity.canonical_name,
-            )
-            .join(Entity, Entity.id == ref_subq.c.entity_id)
-        )
+        stmt = select(
+            ref_subq.c.memory_id,
+            ref_subq.c.entity_id,
+            Entity.canonical_name,
+        ).join(Entity, Entity.id == ref_subq.c.entity_id)
 
         rows = (await s.execute(stmt)).all()
 
-    return [
-        _EntityRefRow(memory_id=r[0], entity_id=r[1], entity_name=r[2])
-        for r in rows
-    ]
+    return [_EntityRefRow(memory_id=r[0], entity_id=r[1], entity_name=r[2]) for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -396,8 +387,9 @@ async def _insert_proposal(
 
     if inserted_id is None:
         log.debug(
-            "promote: open proposal already exists "
-            "(env %s, dedupe_key %s)", env_id, dedupe_key,
+            "promote: open proposal already exists (env %s, dedupe_key %s)",
+            env_id,
+            dedupe_key,
         )
         return False
     return True
@@ -443,7 +435,9 @@ async def run_promote(
 
     # 1. Load recent observations.
     observations = await _load_observation_rows(
-        env_id=env_id, cutoff=cutoff, cap=cap * 5,
+        env_id=env_id,
+        cutoff=cutoff,
+        cap=cap * 5,
     )
     if not observations:
         return PromotePassResult(
@@ -472,10 +466,7 @@ async def run_promote(
         entity_to_obs.setdefault(r.entity_id, set()).add(r.memory_id)
         entity_names[r.entity_id] = r.entity_name
 
-    eligible_entities = [
-        eid for eid, obs_ids in entity_to_obs.items()
-        if len(obs_ids) >= min_size
-    ]
+    eligible_entities = [eid for eid, obs_ids in entity_to_obs.items() if len(obs_ids) >= min_size]
 
     # Deterministic processing order: by entity_id string. Reviewers
     # should not see a randomized cluster order across runs.
@@ -491,9 +482,7 @@ async def run_promote(
     for entity_id in eligible_entities:
         if proposals_emitted >= cap:
             # Remaining eligible clusters are explicitly capped.
-            proposals_skipped_capped = entity_clusters_found - (
-                proposals_emitted + proposals_skipped_existing
-            )
+            proposals_skipped_capped = entity_clusters_found - (proposals_emitted + proposals_skipped_existing)
             items_capped = True
             break
 
@@ -610,8 +599,10 @@ async def _instrumented_summarize_promotion(
                 dream_summarizer_calls_total,
                 dream_summarizer_latency_seconds,
             )
+
             dream_summarizer_calls_total.labels(
-                kind=kind_label, outcome=outcome,
+                kind=kind_label,
+                outcome=outcome,
             ).inc()
             dream_summarizer_latency_seconds.labels(
                 kind=kind_label,
@@ -626,6 +617,7 @@ async def _instrumented_summarize_promotion(
             dream_summarizer_calls_total,
             dream_summarizer_latency_seconds,
         )
+
         dream_summarizer_latency_seconds.labels(kind=kind_label).observe(
             time.perf_counter() - started,
         )
@@ -633,7 +625,8 @@ async def _instrumented_summarize_promotion(
             outcome = "fallback"
             dream_llm_fallbacks_total.labels(**{"pass": "promote"}).inc()
         dream_summarizer_calls_total.labels(
-            kind=kind_label, outcome=outcome,
+            kind=kind_label,
+            outcome=outcome,
         ).inc()
     except Exception:  # noqa: BLE001
         pass

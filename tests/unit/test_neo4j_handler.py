@@ -140,9 +140,7 @@ def test_entity_tombstone_calls_delete_subgraph() -> None:
     assert kwargs["env_id"] == env_id
     nodes = kwargs["nodes"]
     assert len(nodes) == 1
-    assert nodes[0] == GraphNodeRef(
-        env_id=env_id, kind="entity", record_id=entity_id
-    )
+    assert nodes[0] == GraphNodeRef(env_id=env_id, kind="entity", record_id=entity_id)
 
 
 def test_entity_unexpected_op_raises() -> None:

@@ -116,13 +116,10 @@ def _patch_insert(
 
     Pass ``exists=True`` to test the pre-summarize skip path.
     """
-    insert_mock = (
-        AsyncMock(return_value=True)
-        if side_effect is None
-        else AsyncMock(side_effect=side_effect)
-    )
+    insert_mock = AsyncMock(return_value=True) if side_effect is None else AsyncMock(side_effect=side_effect)
     monkeypatch.setattr(
-        "memory_mcp.dream.passes.promote._insert_proposal", insert_mock,
+        "memory_mcp.dream.passes.promote._insert_proposal",
+        insert_mock,
     )
     monkeypatch.setattr(
         "memory_mcp.dream.passes.promote._open_proposal_exists",
@@ -179,7 +176,8 @@ class TestPureHelpers:
 class TestClusterFormation:
     @pytest.mark.asyncio
     async def test_three_observations_one_entity_emits_one_proposal(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         eid = uuid4()
@@ -222,7 +220,8 @@ class TestClusterFormation:
 
     @pytest.mark.asyncio
     async def test_below_min_cluster_size_skipped(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         eid = uuid4()
@@ -248,7 +247,8 @@ class TestClusterFormation:
 
     @pytest.mark.asyncio
     async def test_observation_referencing_two_entities_contributes_to_both(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Non-transitive clustering: an observation referencing entities
         A and B contributes to the A-cluster and the B-cluster
@@ -285,7 +285,8 @@ class TestClusterFormation:
 
     @pytest.mark.asyncio
     async def test_relation_multiplicity_does_not_inflate_cluster(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Rubber-duck blocker #2 from p2.2-promote critique.
 
@@ -322,7 +323,8 @@ class TestClusterFormation:
 
     @pytest.mark.asyncio
     async def test_refs_for_unloaded_observations_are_dropped(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Defensive: a ref pointing at a memory_id we never loaded
         (e.g., an observation outside the recent window that the JOIN
@@ -366,7 +368,8 @@ class TestClusterFormation:
 class TestIdempotency:
     @pytest.mark.asyncio
     async def test_pre_summarize_skip_uses_cross_status_check(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Rubber-duck blocker #1 from p2.2-promote critique.
 
@@ -381,10 +384,7 @@ class TestIdempotency:
         env_id = uuid4()
         eid = uuid4()
         obs = [_make_obs() for _ in range(3)]
-        refs = [
-            _EntityRefRow(memory_id=o.id, entity_id=eid, entity_name="Foo")
-            for o in obs
-        ]
+        refs = [_EntityRefRow(memory_id=o.id, entity_id=eid, entity_name="Foo") for o in obs]
         _patch_loaders(monkeypatch, observations=obs, refs=refs)
         insert_mock = _patch_insert(monkeypatch, exists=True)
 
@@ -408,7 +408,8 @@ class TestIdempotency:
 
     @pytest.mark.asyncio
     async def test_db_on_conflict_returns_false_counts_as_skipped(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When ``_insert_proposal`` returns ``False`` (interleaved-worker
         race: another worker beat us to the same open proposal), the
@@ -417,10 +418,7 @@ class TestIdempotency:
         env_id = uuid4()
         eid = uuid4()
         obs = [_make_obs() for _ in range(3)]
-        refs = [
-            _EntityRefRow(memory_id=o.id, entity_id=eid, entity_name="Foo")
-            for o in obs
-        ]
+        refs = [_EntityRefRow(memory_id=o.id, entity_id=eid, entity_name="Foo") for o in obs]
         _patch_loaders(monkeypatch, observations=obs, refs=refs)
         insert_mock = _patch_insert(monkeypatch, side_effect=[False])
 
@@ -444,7 +442,8 @@ class TestIdempotency:
 class TestBatchCap:
     @pytest.mark.asyncio
     async def test_cap_stops_emission_and_records_skipped_capped(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When the cap is hit, remaining eligible clusters surface as
         ``proposals_skipped_capped``. The accounting invariant
@@ -464,9 +463,13 @@ class TestBatchCap:
             obs_per_entity[eid] = ids_for_entity
             for oid in ids_for_entity:
                 all_obs.append(_make_obs(memory_id=oid, body=f"e{i}"))
-                refs.append(_EntityRefRow(
-                    memory_id=oid, entity_id=eid, entity_name=f"E{i}",
-                ))
+                refs.append(
+                    _EntityRefRow(
+                        memory_id=oid,
+                        entity_id=eid,
+                        entity_name=f"E{i}",
+                    )
+                )
         _patch_loaders(monkeypatch, observations=all_obs, refs=refs)
         insert_mock = _patch_insert(monkeypatch)
 
@@ -486,9 +489,7 @@ class TestBatchCap:
         # Accounting invariant.
         assert (
             result.entity_clusters_found
-            == result.proposals_emitted
-            + result.proposals_skipped_existing
-            + result.proposals_skipped_capped
+            == result.proposals_emitted + result.proposals_skipped_existing + result.proposals_skipped_capped
         )
         assert insert_mock.await_count == 2
 
@@ -501,7 +502,8 @@ class TestBatchCap:
 class TestTruncation:
     @pytest.mark.asyncio
     async def test_evidence_truncated_full_set_preserved_in_payload(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When ``observations_per_cluster`` is smaller than the cluster:
 
@@ -515,15 +517,14 @@ class TestTruncation:
         obs_ids = [uuid4() for _ in range(5)]
         obs = []
         for i, oid in enumerate(obs_ids):
-            obs.append(_make_obs(
-                memory_id=oid,
-                body=f"obs {i}",
-                created_at=NOW - dt.timedelta(days=4 - i),  # newer last
-            ))
-        refs = [
-            _EntityRefRow(memory_id=oid, entity_id=eid, entity_name="Foo")
-            for oid in obs_ids
-        ]
+            obs.append(
+                _make_obs(
+                    memory_id=oid,
+                    body=f"obs {i}",
+                    created_at=NOW - dt.timedelta(days=4 - i),  # newer last
+                )
+            )
+        refs = [_EntityRefRow(memory_id=oid, entity_id=eid, entity_name="Foo") for oid in obs_ids]
         _patch_loaders(monkeypatch, observations=obs, refs=refs)
         insert_mock = _patch_insert(monkeypatch)
 
@@ -546,10 +547,7 @@ class TestTruncation:
         evidence_set = set(payload["evidence_observation_ids"])
         assert evidence_set == {str(oid) for oid in obs_ids[2:]}
         # Dedupe key uses the truncated evidence (sorted).
-        assert all(
-            oid in call["dedupe_key"]
-            for oid in (str(o) for o in obs_ids[2:])
-        )
+        assert all(oid in call["dedupe_key"] for oid in (str(o) for o in obs_ids[2:]))
         # Older two observations are NOT in the dedupe key.
         for old_oid in obs_ids[:2]:
             assert str(old_oid) not in call["dedupe_key"]
@@ -563,7 +561,8 @@ class TestTruncation:
 class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_empty_env_clean_result(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         _patch_loaders(monkeypatch, observations=[], refs=[])
@@ -584,7 +583,8 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_observations_with_no_entity_refs_are_ignored(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         # 5 observations, zero refs.
@@ -605,15 +605,13 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_summarizer_kind_recorded_on_result_and_payload(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         eid = uuid4()
         obs = [_make_obs() for _ in range(3)]
-        refs = [
-            _EntityRefRow(memory_id=o.id, entity_id=eid, entity_name="Foo")
-            for o in obs
-        ]
+        refs = [_EntityRefRow(memory_id=o.id, entity_id=eid, entity_name="Foo") for o in obs]
         _patch_loaders(monkeypatch, observations=obs, refs=refs)
         insert_mock = _patch_insert(monkeypatch)
 
@@ -622,7 +620,8 @@ class TestEdgeCases:
             kind = SummarizerKind.template
 
             async def summarize_promotion(
-                self, cluster: PromotionCluster,
+                self,
+                cluster: PromotionCluster,
             ) -> PromotionSummary:
                 return PromotionSummary(
                     suggested_title=f"About {cluster.source_entity_name}",
@@ -634,7 +633,8 @@ class TestEdgeCases:
                 )
 
             async def summarize_merge(
-                self, cluster: Any,
+                self,
+                cluster: Any,
             ) -> Any:
                 raise NotImplementedError
 
@@ -657,7 +657,8 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_existing_proposal_skipped_no_summarizer_call(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """``test_pre_summarize_skip_uses_cross_status_check`` covers the
         same invariant with a real ``TemplateSummarizer``; this version
@@ -667,10 +668,7 @@ class TestEdgeCases:
         env_id = uuid4()
         eid = uuid4()
         obs = [_make_obs() for _ in range(3)]
-        refs = [
-            _EntityRefRow(memory_id=o.id, entity_id=eid, entity_name="Foo")
-            for o in obs
-        ]
+        refs = [_EntityRefRow(memory_id=o.id, entity_id=eid, entity_name="Foo") for o in obs]
         _patch_loaders(monkeypatch, observations=obs, refs=refs)
         insert_mock = _patch_insert(monkeypatch, exists=True)
 
@@ -723,7 +721,8 @@ class TestResultInvariant:
 
     @pytest.mark.asyncio
     async def test_invariant_holds_with_mix_of_outcomes(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """3 eligible clusters; 1 emits, 1 has prior proposal, 1 races
         — but cap=10 so no capped. Still: emitted + skipped_existing ==
@@ -738,9 +737,13 @@ class TestResultInvariant:
             for _ in range(3):
                 oid = uuid4()
                 obs.append(_make_obs(memory_id=oid))
-                refs.append(_EntityRefRow(
-                    memory_id=oid, entity_id=eid, entity_name=f"E{i}",
-                ))
+                refs.append(
+                    _EntityRefRow(
+                        memory_id=oid,
+                        entity_id=eid,
+                        entity_name=f"E{i}",
+                    )
+                )
         _patch_loaders(monkeypatch, observations=obs, refs=refs)
 
         # First insert succeeds; second is a race-loss; third succeeds.
@@ -748,7 +751,8 @@ class TestResultInvariant:
         # vary `_open_proposal_exists`. Use side_effect here.
         insert_mock = AsyncMock(side_effect=[True, False, True])
         monkeypatch.setattr(
-            "memory_mcp.dream.passes.promote._insert_proposal", insert_mock,
+            "memory_mcp.dream.passes.promote._insert_proposal",
+            insert_mock,
         )
         monkeypatch.setattr(
             "memory_mcp.dream.passes.promote._open_proposal_exists",
@@ -769,9 +773,7 @@ class TestResultInvariant:
         # Invariant.
         assert (
             result.entity_clusters_found
-            == result.proposals_emitted
-            + result.proposals_skipped_existing
-            + result.proposals_skipped_capped
+            == result.proposals_emitted + result.proposals_skipped_existing + result.proposals_skipped_capped
         )
 
 

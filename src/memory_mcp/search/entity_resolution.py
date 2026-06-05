@@ -59,27 +59,30 @@ async def resolve_query_entities(
     # Two parallel-shape queries — kept separate to preserve provenance
     # (canonical vs alias) for tie-breaking. SQLAlchemy `.in_()` handles
     # parameter binding safely (rubber-duck MAJOR 9).
-    canonical_rows = (await session.execute(
-        select(Entity.id, Entity.env_id, Entity.normalized_name).where(
-            Entity.normalized_name.in_(norms),
-            Entity.env_id.in_(env_id_list),
+    canonical_rows = (
+        await session.execute(
+            select(Entity.id, Entity.env_id, Entity.normalized_name).where(
+                Entity.normalized_name.in_(norms),
+                Entity.env_id.in_(env_id_list),
+            )
         )
-    )).all()
-    alias_rows = (await session.execute(
-        select(
-            EntityAlias.entity_id, EntityAlias.env_id,
-            EntityAlias.normalized_alias,
-        ).where(
-            EntityAlias.normalized_alias.in_(norms),
-            EntityAlias.env_id.in_(env_id_list),
+    ).all()
+    alias_rows = (
+        await session.execute(
+            select(
+                EntityAlias.entity_id,
+                EntityAlias.env_id,
+                EntityAlias.normalized_alias,
+            ).where(
+                EntityAlias.normalized_alias.in_(norms),
+                EntityAlias.env_id.in_(env_id_list),
+            )
         )
-    )).all()
+    ).all()
 
     # Build per-env, per-mention candidate map preserving mention order.
     # Insertion-ordered dicts give deterministic iteration in Python 3.7+.
-    by_env_mention: dict[UUID, dict[str, list[UUID]]] = {
-        eid: {m: [] for m in norms} for eid in env_id_list
-    }
+    by_env_mention: dict[UUID, dict[str, list[UUID]]] = {eid: {m: [] for m in norms} for eid in env_id_list}
     for entity_id, env_id, norm_name in canonical_rows:
         by_env_mention[env_id][norm_name].append(entity_id)
     for entity_id, env_id, norm_alias in alias_rows:
@@ -105,15 +108,9 @@ async def resolve_query_entities(
                 env_seen.add(entity_id)
                 env_entities.append(entity_id)
                 total += 1
-                if (
-                    len(env_entities) >= per_env_cap
-                    or total >= total_cap
-                ):
+                if len(env_entities) >= per_env_cap or total >= total_cap:
                     break
-            if (
-                len(env_entities) >= per_env_cap
-                or total >= total_cap
-            ):
+            if len(env_entities) >= per_env_cap or total >= total_cap:
                 break
         if env_entities:
             out[env_id] = env_entities

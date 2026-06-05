@@ -64,18 +64,14 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     # Entity nodes — keyed by (env_id, id). env_id is part of the key so
     # the same entity-id in two envs is a separate node, preserving the
     # env-scoping invariant.
-    "CREATE CONSTRAINT entity_id_per_env IF NOT EXISTS "
-    "FOR (e:Entity) REQUIRE (e.env_id, e.id) IS UNIQUE",
+    "CREATE CONSTRAINT entity_id_per_env IF NOT EXISTS FOR (e:Entity) REQUIRE (e.env_id, e.id) IS UNIQUE",
     # Memory nodes — projected lazily when a relation references one.
-    "CREATE CONSTRAINT memory_id_per_env IF NOT EXISTS "
-    "FOR (m:Memory) REQUIRE (m.env_id, m.id) IS UNIQUE",
+    "CREATE CONSTRAINT memory_id_per_env IF NOT EXISTS FOR (m:Memory) REQUIRE (m.env_id, m.id) IS UNIQUE",
     # Task nodes — projected directly from task aggregate events.
-    "CREATE CONSTRAINT task_id_per_env IF NOT EXISTS "
-    "FOR (t:Task) REQUIRE (t.env_id, t.id) IS UNIQUE",
+    "CREATE CONSTRAINT task_id_per_env IF NOT EXISTS FOR (t:Task) REQUIRE (t.env_id, t.id) IS UNIQUE",
     # Helpful read indexes
     "CREATE INDEX entity_kind IF NOT EXISTS FOR (e:Entity) ON (e.kind)",
-    "CREATE INDEX entity_normalized_name IF NOT EXISTS "
-    "FOR (e:Entity) ON (e.normalized_name)",
+    "CREATE INDEX entity_normalized_name IF NOT EXISTS FOR (e:Entity) ON (e.normalized_name)",
     "CREATE INDEX task_status IF NOT EXISTS FOR (t:Task) ON (t.status)",
     # Relationship-property index for typed traversal — see edge
     # representation note in the module docstring.
@@ -245,17 +241,12 @@ class Neo4jGraphStore:
         bad = RESERVED_ATTRS & attrs.keys()
         if bad:
             raise ValueError(
-                f"upsert_node: attrs must not contain reserved keys {sorted(bad)}; "
-                "identity is fixed by GraphNodeRef"
+                f"upsert_node: attrs must not contain reserved keys {sorted(bad)}; identity is fixed by GraphNodeRef"
             )
         label = _LABEL_BY_KIND[node.kind]
         # Cypher cannot parameterize labels — but ``label`` is selected
         # from a closed Literal-typed dict, never from caller input.
-        cypher = (
-            f"MERGE (n:{label} {{env_id: $env_id, id: $rid}}) "
-            "SET n += $attrs "
-            "RETURN n"
-        )
+        cypher = f"MERGE (n:{label} {{env_id: $env_id, id: $rid}}) SET n += $attrs RETURN n"
         async with self._driver.driver.session() as session:
             result = await session.run(
                 cypher,
@@ -304,8 +295,7 @@ class Neo4jGraphStore:
         for n in nodes:
             if n.env_id != env_id:
                 raise ValueError(
-                    f"delete_subgraph: node env_id {n.env_id} != {env_id}; "
-                    "cross-env deletion is not supported"
+                    f"delete_subgraph: node env_id {n.env_id} != {env_id}; cross-env deletion is not supported"
                 )
         if not nodes:
             return
@@ -320,9 +310,7 @@ class Neo4jGraphStore:
                     continue
                 label = _LABEL_BY_KIND[kind]
                 result = await session.run(
-                    f"MATCH (n:{label} {{env_id: $env_id}}) "
-                    "WHERE n.id IN $ids "
-                    "DETACH DELETE n",
+                    f"MATCH (n:{label} {{env_id: $env_id}}) WHERE n.id IN $ids DETACH DELETE n",
                     env_id=str(env_id),
                     ids=ids,
                 )
@@ -347,17 +335,19 @@ class Neo4jGraphStore:
             raise ValueError(f"limit must be >= 1, got {limit}")
 
         shape = _query_shape_key(
-            node=node, hops=hops, direction=direction,
-            edge_types=edge_types, kinds=kinds, limit=limit,
+            node=node,
+            hops=hops,
+            direction=direction,
+            edge_types=edge_types,
+            kinds=kinds,
+            limit=limit,
         )
 
         offset = 0
         if cursor is not None:
             decoded = _decode_cursor(cursor)
             if decoded.get("shape") != shape:
-                raise ValueError(
-                    "cursor query-shape mismatch — cursors are not portable across calls"
-                )
+                raise ValueError("cursor query-shape mismatch — cursors are not portable across calls")
             offset = int(decoded.get("offset", 0))
 
         # Direction is rendered as the relationship arrow in the MATCH
@@ -396,11 +386,7 @@ class Neo4jGraphStore:
             "SKIP $skip LIMIT $lim"
         )
 
-        term_labels = (
-            [_LABEL_BY_KIND[k] for k in kinds]
-            if kinds
-            else list(_LABEL_BY_KIND.values())
-        )
+        term_labels = [_LABEL_BY_KIND[k] for k in kinds] if kinds else list(_LABEL_BY_KIND.values())
         params = {
             "env_id": str(node.env_id),
             "rid": str(node.record_id),
@@ -421,9 +407,7 @@ class Neo4jGraphStore:
 
         hits: list[NeighborHit] = []
         for rec in records:
-            term_kind: NodeKind = (
-                "entity" if rec["term_label"] == "Entity" else "memory"
-            )
+            term_kind: NodeKind = "entity" if rec["term_label"] == "Entity" else "memory"
             terminal = GraphNodeRef(
                 env_id=node.env_id,
                 kind=term_kind,
@@ -431,12 +415,8 @@ class Neo4jGraphStore:
             )
             steps: list[GraphPathStep] = []
             for i, etype in enumerate(rec["rel_types"]):
-                src_kind: NodeKind = (
-                    "entity" if rec["src_labels"][i] == "Entity" else "memory"
-                )
-                dst_kind: NodeKind = (
-                    "entity" if rec["dst_labels"][i] == "Entity" else "memory"
-                )
+                src_kind: NodeKind = "entity" if rec["src_labels"][i] == "Entity" else "memory"
+                dst_kind: NodeKind = "entity" if rec["dst_labels"][i] == "Entity" else "memory"
                 steps.append(
                     GraphPathStep(
                         src=GraphNodeRef(

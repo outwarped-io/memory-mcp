@@ -5,11 +5,11 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
+from memory_mcp_schemas.stats import MemStatsRequest, MemStatsResponse
 from pydantic import ValidationError
 
 from memory_mcp.env_resolve import _resolve_env_refs
 from memory_mcp.errors import EnvRefBothProvidedError
-from memory_mcp_schemas.stats import MemStatsRequest, MemStatsResponse
 
 
 def test_request_defaults() -> None:

@@ -5,17 +5,16 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.env_ops import EnvImportRequest, ExportFormat, ImportMode
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from test_roundtrip import _create_target_env, _export, postgres_factory, roundtrip_db  # noqa: F401
 
 from memory_mcp import entities as entities_mod
 from memory_mcp.db.models import Entity, EntityAlias, Environment, Memory, MemoryTag, Tag
 from memory_mcp.env_ops import import_ as importer
 from memory_mcp.env_ops.import_ import import_env
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.env_ops import EnvImportRequest, ExportFormat, ImportMode
-
-from test_roundtrip import _create_target_env, _export, postgres_factory, roundtrip_db
 
 
 @pytest.fixture
@@ -50,15 +49,23 @@ async def test_import_overwrite_replaces_tag_with_same_name(
     await session.commit()
 
     await import_env(
-        EnvImportRequest(source_path=src.output_path, target_env_id=target.id, mode=ImportMode.overwrite, dry_run=False),
+        EnvImportRequest(
+            source_path=src.output_path, target_env_id=target.id, mode=ImportMode.overwrite, dry_run=False
+        ),
         ctx=ctx,
     )
 
     tags = (await session.execute(select(Tag).where(Tag.env_id == target.id, Tag.name == "x"))).scalars().all()
     assert len(tags) == 1
     assert tags[0].id != old_tag_id
-    assert await _count(session, select(MemoryTag).where(MemoryTag.env_id == target.id, MemoryTag.tag_id == old_tag_id)) == 0
-    assert await _count(session, select(MemoryTag).where(MemoryTag.env_id == target.id, MemoryTag.tag_id == tags[0].id)) == 1
+    assert (
+        await _count(session, select(MemoryTag).where(MemoryTag.env_id == target.id, MemoryTag.tag_id == old_tag_id))
+        == 0
+    )
+    assert (
+        await _count(session, select(MemoryTag).where(MemoryTag.env_id == target.id, MemoryTag.tag_id == tags[0].id))
+        == 1
+    )
 
 
 @pytest.mark.asyncio
@@ -104,7 +111,10 @@ async def test_import_merge_unions_tags(
     tags = (await session.execute(select(Tag).where(Tag.env_id == target.id, Tag.name == "x"))).scalars().all()
     assert len(tags) == 1
     assert tags[0].id == old_tag_id
-    assert await _count(session, select(MemoryTag).where(MemoryTag.env_id == target.id, MemoryTag.tag_id == old_tag_id)) == 1
+    assert (
+        await _count(session, select(MemoryTag).where(MemoryTag.env_id == target.id, MemoryTag.tag_id == old_tag_id))
+        == 1
+    )
 
 
 @pytest.mark.asyncio
@@ -141,11 +151,15 @@ async def test_import_overwrite_deletes_dst_entity_and_replaces(
     src_env_id = await _create_entity_env(session, canonical="Source E1", normalized="e1", aliases=["source alias"])
     src = await _export(src_env_id, tmp_path / "overwrite_entity_src", ExportFormat.directory, ctx)
     target = await _create_target_env("overwrite-entity", ctx)
-    old_entity_id = await _add_entity(session, target.id, canonical="Dest E1", normalized="e1", aliases=["old a", "old b"])
+    old_entity_id = await _add_entity(
+        session, target.id, canonical="Dest E1", normalized="e1", aliases=["old a", "old b"]
+    )
     await session.commit()
 
     await import_env(
-        EnvImportRequest(source_path=src.output_path, target_env_id=target.id, mode=ImportMode.overwrite, dry_run=False),
+        EnvImportRequest(
+            source_path=src.output_path, target_env_id=target.id, mode=ImportMode.overwrite, dry_run=False
+        ),
         ctx=ctx,
     )
 
@@ -171,7 +185,9 @@ async def test_import_overwrite_cascade_on_memory_not_triggered(
     await session.commit()
 
     await import_env(
-        EnvImportRequest(source_path=src.output_path, target_env_id=target.id, mode=ImportMode.overwrite, dry_run=False),
+        EnvImportRequest(
+            source_path=src.output_path, target_env_id=target.id, mode=ImportMode.overwrite, dry_run=False
+        ),
         ctx=ctx,
     )
 
@@ -279,10 +295,7 @@ async def _add_entity(
     )
     await session.flush()
     session.add_all(
-        [
-            EntityAlias(entity_id=entity_id, env_id=env_id, alias=alias, normalized_alias=alias)
-            for alias in aliases
-        ]
+        [EntityAlias(entity_id=entity_id, env_id=env_id, alias=alias, normalized_alias=alias) for alias in aliases]
     )
     await session.flush()
     return entity_id

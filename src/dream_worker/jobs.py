@@ -54,10 +54,10 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from memory_mcp_schemas.dream import DreamMode, DreamPassOutcome
 from sqlalchemy import select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from memory_mcp_schemas.dream import DreamMode, DreamPassOutcome
 from dream_worker.decision_conflicts import run_decision_conflict_pass
 from memory_mcp.config import Settings, get_settings
 from memory_mcp.db.models import DreamRun, Environment, ProjectionState
@@ -79,8 +79,6 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Public types
 # ---------------------------------------------------------------------------
-
-
 
 
 # Stable advisory-lock namespace ids (first 32-bit slot). Different per
@@ -134,7 +132,10 @@ def _env_lock_key(env_id: UUID) -> int:
 
 
 async def _try_acquire_lock_in_session(
-    session: Any, *, mode: DreamMode, env_id: UUID,
+    session: Any,
+    *,
+    mode: DreamMode,
+    env_id: UUID,
 ) -> bool:
     """Try to take the per-(mode, env) session-scoped advisory lock.
 
@@ -151,7 +152,10 @@ async def _try_acquire_lock_in_session(
 
 
 async def _release_lock_in_session(
-    session: Any, *, mode: DreamMode, env_id: UUID,
+    session: Any,
+    *,
+    mode: DreamMode,
+    env_id: UUID,
 ) -> None:
     mode_key = _MODE_LOCK_KEY[mode]
     env_key = _env_lock_key(env_id)
@@ -418,25 +422,24 @@ async def run_dream_pass(
         # Decay needs this; we enforce it for all modes for uniformity.
         # The runner constructs per-env contexts so this is the runner's
         # bug if it ever fires.
-        raise ValueError(
-            f"run_dream_pass: actor_ctx.attached_env_ids must include {env_id}"
-        )
+        raise ValueError(f"run_dream_pass: actor_ctx.attached_env_ids must include {env_id}")
 
-    summarizer_kind = (
-        summarizer.kind.value if hasattr(summarizer, "kind") else None
-    )
+    summarizer_kind = summarizer.kind.value if hasattr(summarizer, "kind") else None
 
     # 1. Acquire advisory lock. We hold a dedicated session for the
     # WHOLE pass duration so the lock is bound to a single connection.
     # The lock is released in the same session in the ``finally`` arm.
     async with session_scope() as lock_session:
         locked = await _try_acquire_lock_in_session(
-            lock_session, mode=mode, env_id=env_id,
+            lock_session,
+            mode=mode,
+            env_id=env_id,
         )
         if not locked:
             log.info(
                 "dream_worker: %s/%s lock held by another worker — skipping",
-                mode.value, env_id,
+                mode.value,
+                env_id,
             )
             return DreamPassReport(
                 env_id=env_id,
@@ -472,7 +475,9 @@ async def run_dream_pass(
             )
         except Exception as exc:  # noqa: BLE001
             log.exception(
-                "dream_worker: %s/%s pass failed", mode.value, env_id,
+                "dream_worker: %s/%s pass failed",
+                mode.value,
+                env_id,
             )
             outcome = DreamPassOutcome.failed
             last_error = f"{type(exc).__name__}: {exc}"
@@ -497,7 +502,9 @@ async def run_dream_pass(
 
         # 6. Release lock (still in same session).
         await _release_lock_in_session(
-            lock_session, mode=mode, env_id=env_id,
+            lock_session,
+            mode=mode,
+            env_id=env_id,
         )
 
     duration = time.perf_counter() - started
@@ -507,6 +514,7 @@ async def run_dream_pass(
             dream_run_duration_seconds,
             dream_runs_total,
         )
+
         dream_run_duration_seconds.labels(mode=mode.value).observe(duration)
         dream_runs_total.labels(mode=mode.value, outcome=outcome.value).inc()
         # Pull "items_processed" out of pass summaries when available.

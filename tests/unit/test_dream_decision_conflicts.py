@@ -8,7 +8,6 @@ import pytest
 from dream_worker import decision_conflicts as dc
 from memory_mcp.identity import AgentContext
 
-
 ENV_A = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 ENV_B = UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 DECISION_A = UUID("00000000-0000-0000-0000-00000000000a")
@@ -65,16 +64,18 @@ async def _patch_rows_and_collect(
             return False
         keys.add(key)
         a_id, b_id = sorted([a_id, b_id], key=str)
-        proposals.append({
-            "env_id": env_id,
-            "dream_run_id": dream_run_id,
-            "dedupe_key": key,
-            "payload": {
-                "decision_a": str(a_id),
-                "decision_b": str(b_id),
-                "cosine": float(cosine),
-            },
-        })
+        proposals.append(
+            {
+                "env_id": env_id,
+                "dream_run_id": dream_run_id,
+                "dedupe_key": key,
+                "payload": {
+                    "decision_a": str(a_id),
+                    "decision_b": str(b_id),
+                    "cosine": float(cosine),
+                },
+            }
+        )
         return True
 
     monkeypatch.setattr(dc, "_load_accepted_decisions", _load)

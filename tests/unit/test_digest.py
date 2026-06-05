@@ -152,10 +152,7 @@ async def test_small_env_digest_writes_session_digest(monkeypatch: pytest.Monkey
 def test_large_env_truncates_older_low_salience_without_verbatim_body() -> None:
     env_id = uuid4()
     high = _snap("IMPORTANT current architecture summary", env_id=env_id, salience=0.99)
-    lows = [
-        _snap(f"LOW_SECRET_{i} " + ("x" * 500), env_id=env_id, salience=0.01, offset=-i)
-        for i in range(20)
-    ]
+    lows = [_snap(f"LOW_SECRET_{i} " + ("x" * 500), env_id=env_id, salience=0.01, offset=-i) for i in range(20)]
 
     context = build_digest_context([high, *lows], [], max_chars=350)
     sections = build_template_sections(
@@ -287,7 +284,9 @@ async def test_llm_digest_fills_missing_required_sections_from_template(monkeypa
 
     import memory_mcp.llm.base as llm_base
 
-    monkeypatch.setattr(digest_api, "_load_digest_inputs", AsyncMock(return_value=_inputs(env_id=env_id, memories=[memory])))
+    monkeypatch.setattr(
+        digest_api, "_load_digest_inputs", AsyncMock(return_value=_inputs(env_id=env_id, memories=[memory]))
+    )
     monkeypatch.setattr(digest_api, "_bounded_llm_probe", AsyncMock(return_value={"status": "ok"}))
     monkeypatch.setattr(llm_base, "get_llm_client", fake_get_llm_client)
     monkeypatch.setattr(digest_api, "memory_write", fake_write)

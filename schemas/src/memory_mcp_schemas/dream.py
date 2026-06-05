@@ -35,12 +35,20 @@ DreamReviewAction = Literal["accept", "reject", "defer", "amend"]
 
 
 DreamProposalKind = Literal[
-    "merge_candidate", "promotion_candidate", "decay_candidate", "decision_conflict_candidate",
+    "merge_candidate",
+    "promotion_candidate",
+    "decay_candidate",
+    "decision_conflict_candidate",
 ]
 
 
 DreamProposalStatus = Literal[
-    "open", "accepted", "rejected", "amended", "deferred", "expired",
+    "open",
+    "accepted",
+    "rejected",
+    "amended",
+    "deferred",
+    "expired",
 ]
 
 

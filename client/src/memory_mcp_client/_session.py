@@ -111,7 +111,7 @@ def _error_text(result: Any) -> str:
     return repr(result)
 
 
-async def call_tool(
+async def call_tool[T: BaseModel](
     session: _ClientSessionProtocol,
     name: str,
     payload: dict[str, Any],

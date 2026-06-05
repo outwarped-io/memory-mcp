@@ -17,9 +17,15 @@ import base64
 import datetime as dt
 import json
 import random
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
+from memory_mcp_schemas.inbox import (
+    DEFAULT_TTL_DAYS,
+    INBOX_TAG,
+    MAX_TTL_DAYS,
+    REFERENCE_SCHEME,
+)
 
 from memory_mcp.errors import InvalidCursorError, InvalidInputError
 from memory_mcp.inbox import (
@@ -34,13 +40,6 @@ from memory_mcp.inbox import (
     generate_slug,
     parse_reference,
 )
-from memory_mcp_schemas.inbox import (
-    DEFAULT_TTL_DAYS,
-    INBOX_TAG,
-    MAX_TTL_DAYS,
-    REFERENCE_SCHEME,
-)
-
 
 # ---------------------------------------------------------------------------
 # Reference parsing
@@ -142,10 +141,7 @@ class TestParseReference:
 
 class TestFormatReference:
     def test_basic(self) -> None:
-        assert (
-            format_reference("workspace", "quiet-otter")
-            == "mem-inbox://workspace/quiet-otter"
-        )
+        assert format_reference("workspace", "quiet-otter") == "mem-inbox://workspace/quiet-otter"
 
     def test_round_trip(self) -> None:
         ref = format_reference("cdp", "incident-handoff")
@@ -260,7 +256,7 @@ class TestGenerateSlug:
 
 class TestCursorRoundTrip:
     def test_encode_returns_url_safe_ascii(self) -> None:
-        now = dt.datetime(2026, 6, 3, 14, 30, 0, tzinfo=dt.timezone.utc)
+        now = dt.datetime(2026, 6, 3, 14, 30, 0, tzinfo=dt.UTC)
         cursor = encode_cursor(now, uuid4())
         # Padding stripped.
         assert "=" not in cursor
@@ -268,7 +264,7 @@ class TestCursorRoundTrip:
         assert all(c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_" for c in cursor)
 
     def test_round_trip_preserves_timestamp_and_id(self) -> None:
-        when = dt.datetime(2026, 6, 3, 14, 30, 45, 123456, tzinfo=dt.timezone.utc)
+        when = dt.datetime(2026, 6, 3, 14, 30, 45, 123456, tzinfo=dt.UTC)
         mem_id = uuid4()
         decoded_when, decoded_id = decode_cursor(encode_cursor(when, mem_id))
         assert decoded_when == when
@@ -288,7 +284,7 @@ class TestCursorRoundTrip:
     def test_round_trip_microsecond_precision(self) -> None:
         # The default isoformat preserves microseconds; we rely on this
         # for accurate keyset pagination.
-        when = dt.datetime(2026, 6, 3, 14, 30, 45, 999999, tzinfo=dt.timezone.utc)
+        when = dt.datetime(2026, 6, 3, 14, 30, 45, 999999, tzinfo=dt.UTC)
         mem_id = uuid4()
         decoded_when, _ = decode_cursor(encode_cursor(when, mem_id))
         assert decoded_when.microsecond == 999999
@@ -304,7 +300,7 @@ class TestCursorRoundTrip:
                 rng.randint(0, 59),
                 rng.randint(0, 59),
                 rng.randint(0, 999999),
-                tzinfo=dt.timezone.utc,
+                tzinfo=dt.UTC,
             )
             mem_id = uuid4()
             decoded_when, decoded_id = decode_cursor(encode_cursor(when, mem_id))
@@ -333,17 +329,13 @@ class TestCursorErrors:
             decode_cursor(bad)
 
     def test_json_bad_uuid_rejected(self) -> None:
-        payload = json.dumps(
-            {"t": "2026-06-03T00:00:00+00:00", "i": "not-a-uuid"}
-        ).encode("utf-8")
+        payload = json.dumps({"t": "2026-06-03T00:00:00+00:00", "i": "not-a-uuid"}).encode("utf-8")
         bad = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
         with pytest.raises(InvalidCursorError, match="INVALID_CURSOR"):
             decode_cursor(bad)
 
     def test_json_bad_timestamp_rejected(self) -> None:
-        payload = json.dumps(
-            {"t": "nonsense", "i": str(uuid4())}
-        ).encode("utf-8")
+        payload = json.dumps({"t": "nonsense", "i": str(uuid4())}).encode("utf-8")
         bad = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
         with pytest.raises(InvalidCursorError, match="INVALID_CURSOR"):
             decode_cursor(bad)
@@ -394,7 +386,7 @@ class TestSchemaConstantsAlignment:
         # Tag policy is workspace-wide kebab-case (memory-mcp policy
         # §7). Misalignment would mean inbox messages are tagged
         # differently from the rest of the substrate.
-        assert INBOX_TAG == INBOX_TAG.lower()
+        assert INBOX_TAG.lower() == INBOX_TAG
         assert " " not in INBOX_TAG
         assert "_" not in INBOX_TAG
 

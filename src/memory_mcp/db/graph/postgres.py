@@ -121,8 +121,7 @@ class PostgresGraphStore:
         bad = RESERVED_ATTRS & attrs.keys()
         if bad:
             raise ValueError(
-                f"upsert_node: attrs must not contain reserved keys {sorted(bad)}; "
-                "identity is fixed by GraphNodeRef"
+                f"upsert_node: attrs must not contain reserved keys {sorted(bad)}; identity is fixed by GraphNodeRef"
             )
         # No-op: canonical Postgres is the projection. The originating
         # tool already wrote `graph_nodes` + node-type rows in the
@@ -145,8 +144,7 @@ class PostgresGraphStore:
         for n in nodes:
             if n.env_id != env_id:
                 raise ValueError(
-                    f"delete_subgraph: node env_id {n.env_id} != {env_id}; "
-                    "cross-env deletion is not supported"
+                    f"delete_subgraph: node env_id {n.env_id} != {env_id}; cross-env deletion is not supported"
                 )
         # No-op: canonical deletion (entity_merge / memory_delete_hard)
         # cascades through graph_nodes + relations FKs.
@@ -171,16 +169,18 @@ class PostgresGraphStore:
             raise ValueError(f"limit must be >= 1, got {limit}")
 
         shape = _query_shape_key(
-            node=node, hops=hops, direction=direction,
-            edge_types=edge_types, kinds=kinds, limit=limit,
+            node=node,
+            hops=hops,
+            direction=direction,
+            edge_types=edge_types,
+            kinds=kinds,
+            limit=limit,
         )
         offset = 0
         if cursor is not None:
             decoded = _decode_cursor(cursor)
             if decoded.get("shape") != shape:
-                raise ValueError(
-                    "cursor query-shape mismatch — cursors are not portable across calls"
-                )
+                raise ValueError("cursor query-shape mismatch — cursors are not portable across calls")
             offset = int(decoded.get("offset", 0))
 
         # Build the recursive-CTE.  Each row in `walk` is a path of
@@ -193,10 +193,8 @@ class PostgresGraphStore:
         #   in:   dst=current, src=next
         #   both: union of the two
         edge_join_clauses = {
-            "out": "JOIN relations e ON e.src_node_id = w.term_node_id "
-                   "JOIN graph_nodes nx ON nx.id = e.dst_node_id ",
-            "in":  "JOIN relations e ON e.dst_node_id = w.term_node_id "
-                   "JOIN graph_nodes nx ON nx.id = e.src_node_id ",
+            "out": "JOIN relations e ON e.src_node_id = w.term_node_id JOIN graph_nodes nx ON nx.id = e.dst_node_id ",
+            "in": "JOIN relations e ON e.dst_node_id = w.term_node_id JOIN graph_nodes nx ON nx.id = e.src_node_id ",
         }
 
         if direction == "both":
@@ -239,10 +237,7 @@ class PostgresGraphStore:
         etype_filter = ""
         if edge_types:
             etype_filter = (
-                "AND NOT EXISTS ("
-                "  SELECT 1 FROM unnest(w.path_edge_types) AS et "
-                "  WHERE et <> ALL(:edge_types) "
-                ") "
+                "AND NOT EXISTS (  SELECT 1 FROM unnest(w.path_edge_types) AS et   WHERE et <> ALL(:edge_types) ) "
             )
 
         # Terminal-kind filter applied via JOIN on graph_nodes (we
@@ -347,9 +342,7 @@ class PostgresGraphStore:
                 dst_ref = id_to_ref.get(r["path_dst_ids"][i])
                 if src_ref is None or dst_ref is None:
                     continue
-                steps.append(
-                    GraphPathStep(src=src_ref, dst=dst_ref, edge_type=etype)
-                )
+                steps.append(GraphPathStep(src=src_ref, dst=dst_ref, edge_type=etype))
             hits.append(
                 NeighborHit(
                     node=terminal,

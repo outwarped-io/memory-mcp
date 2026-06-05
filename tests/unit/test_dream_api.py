@@ -184,12 +184,15 @@ class TestDreamRun:
         fake_store = MagicMock()
         fake_store.close = AsyncMock(return_value=None)
         monkeypatch.setattr(
-            dream_api, "QdrantVectorStore", lambda *_a, **_kw: fake_store,
+            dream_api,
+            "QdrantVectorStore",
+            lambda *_a, **_kw: fake_store,
         )
 
     @pytest.mark.asyncio
     async def test_no_envs_returns_empty(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.setattr(dream_api, "list_active_envs", AsyncMock(return_value=[]))
         out = await dream_run(DreamRunRequest(), ctx=_ctx())
@@ -197,17 +200,18 @@ class TestDreamRun:
         assert out.reports == []
 
     def test_all_modes_registry_has_four_modes(self) -> None:
-        assert dream_api._ALL_MODES == (
+        assert (
             DreamMode.decay,
             DreamMode.dedupe,
             DreamMode.promote,
             DreamMode.decision_conflicts,
             DreamMode.recount,
-        )
+        ) == dream_api._ALL_MODES
 
     @pytest.mark.asyncio
     async def test_single_env_default_modes_include_decision_conflicts(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env = uuid4()
         called: list[tuple[UUID, DreamMode]] = []
@@ -215,12 +219,15 @@ class TestDreamRun:
         async def fake_pass(eid: UUID, mode: DreamMode, **_: Any) -> DreamPassReport:
             called.append((eid, mode))
             return DreamPassReport(
-                env_id=eid, mode=mode, outcome=DreamPassOutcome.done,
+                env_id=eid,
+                mode=mode,
+                outcome=DreamPassOutcome.done,
             )
 
         monkeypatch.setattr(dream_api, "run_dream_pass", fake_pass)
         out = await dream_run(
-            DreamRunRequest(env_id=env, wait=True), ctx=_ctx(env),
+            DreamRunRequest(env_id=env, wait=True),
+            ctx=_ctx(env),
         )
         assert {(c[0], c[1]) for c in called} == {
             (env, DreamMode.decay),
@@ -233,13 +240,16 @@ class TestDreamRun:
 
     @pytest.mark.asyncio
     async def test_explicit_decision_conflicts_receives_vector_store(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env = uuid4()
         fake_store = MagicMock(name="vector_store")
         fake_store.close = AsyncMock(return_value=None)
         monkeypatch.setattr(
-            dream_api, "QdrantVectorStore", lambda *_a, **_kw: fake_store,
+            dream_api,
+            "QdrantVectorStore",
+            lambda *_a, **_kw: fake_store,
         )
         run_pass = AsyncMock(
             return_value=DreamPassReport(
@@ -265,7 +275,8 @@ class TestDreamRun:
 
     @pytest.mark.asyncio
     async def test_attached_envs_used_when_no_explicit_env(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         a, b = uuid4(), uuid4()
         called: list[UUID] = []
@@ -273,18 +284,22 @@ class TestDreamRun:
         async def fake_pass(eid: UUID, _mode: DreamMode, **_: Any) -> DreamPassReport:
             called.append(eid)
             return DreamPassReport(
-                env_id=eid, mode=DreamMode.decay, outcome=DreamPassOutcome.done,
+                env_id=eid,
+                mode=DreamMode.decay,
+                outcome=DreamPassOutcome.done,
             )
 
         monkeypatch.setattr(dream_api, "run_dream_pass", fake_pass)
         await dream_run(
-            DreamRunRequest(modes=[DreamMode.decay], wait=True), ctx=_ctx(a, b),
+            DreamRunRequest(modes=[DreamMode.decay], wait=True),
+            ctx=_ctx(a, b),
         )
         assert set(called) == {a, b}
 
     @pytest.mark.asyncio
     async def test_per_pair_failure_isolated(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env = uuid4()
         modes_seen: list[DreamMode] = []
@@ -294,12 +309,15 @@ class TestDreamRun:
             if mode is DreamMode.dedupe:
                 raise RuntimeError("synthetic dedupe failure")
             return DreamPassReport(
-                env_id=eid, mode=mode, outcome=DreamPassOutcome.done,
+                env_id=eid,
+                mode=mode,
+                outcome=DreamPassOutcome.done,
             )
 
         monkeypatch.setattr(dream_api, "run_dream_pass", fake_pass)
         out = await dream_run(
-            DreamRunRequest(env_id=env, wait=True), ctx=_ctx(env),
+            DreamRunRequest(env_id=env, wait=True),
+            ctx=_ctx(env),
         )
         # Subsequent modes still ran:
         assert {
@@ -319,7 +337,8 @@ class TestDreamRun:
 
     @pytest.mark.asyncio
     async def test_wait_false_returns_schedule_and_tracks_task(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env = uuid4()
         coordinator_started = asyncio.Event()
@@ -329,7 +348,9 @@ class TestDreamRun:
             coordinator_started.set()
             await coordinator_release.wait()
             return DreamPassReport(
-                env_id=eid, mode=mode, outcome=DreamPassOutcome.done,
+                env_id=eid,
+                mode=mode,
+                outcome=DreamPassOutcome.done,
             )
 
         monkeypatch.setattr(dream_api, "run_dream_pass", fake_pass)
@@ -344,17 +365,13 @@ class TestDreamRun:
             ]
             assert out.reports == []
             await asyncio.wait_for(coordinator_started.wait(), timeout=1.0)
-            assert get_active_background_tasks(), (
-                "background coordinator must be tracked while in flight"
-            )
+            assert get_active_background_tasks(), "background coordinator must be tracked while in flight"
         finally:
             coordinator_release.set()
             # Drain background work so subsequent tests don't see lingering tasks.
             for task in list(get_active_background_tasks()):
                 await asyncio.wait_for(task, timeout=2.0)
-        assert not get_active_background_tasks(), (
-            "completed background tasks must be removed from the registry"
-        )
+        assert not get_active_background_tasks(), "completed background tasks must be removed from the registry"
 
 
 # ---------------------------------------------------------------------------
@@ -365,42 +382,55 @@ class TestDreamRun:
 class TestDreamStatus:
     @pytest.mark.asyncio
     async def test_aggregates_runs_counts_and_heartbeats(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env = uuid4()
         # Stub the three loaders directly so we don't have to hand-build
         # SQLAlchemy result objects for every query.
         monkeypatch.setattr(
-            dream_api, "_load_last_runs_per_mode", AsyncMock(return_value=[]),
+            dream_api,
+            "_load_last_runs_per_mode",
+            AsyncMock(return_value=[]),
         )
         monkeypatch.setattr(
-            dream_api, "_load_open_proposal_counts",
-            AsyncMock(return_value={
-                "merge_candidate": 3,
-                "promotion_candidate": 1,
-                "decay_candidate": 0,
-            }),
+            dream_api,
+            "_load_open_proposal_counts",
+            AsyncMock(
+                return_value={
+                    "merge_candidate": 3,
+                    "promotion_candidate": 1,
+                    "decay_candidate": 0,
+                }
+            ),
         )
         monkeypatch.setattr(
-            dream_api, "_load_dream_heartbeats", AsyncMock(return_value=[]),
+            dream_api,
+            "_load_dream_heartbeats",
+            AsyncMock(return_value=[]),
         )
         monkeypatch.setattr(
-            dream_api, "_bounded_llm_probe", AsyncMock(return_value={"status": "ok"}),
+            dream_api,
+            "_bounded_llm_probe",
+            AsyncMock(return_value={"status": "ok"}),
         )
         monkeypatch.setattr(
-            dream_api, "session_scope",
+            dream_api,
+            "session_scope",
             lambda: _session_scope_returning(_FakeSession()),
         )
 
         out = await dream_status(
-            DreamStatusRequest(env_id=env), ctx=_ctx(env),
+            DreamStatusRequest(env_id=env),
+            ctx=_ctx(env),
         )
         assert out.open_proposal_counts["merge_candidate"] == 3
         assert out.llm_status == {"status": "ok"}
 
     @pytest.mark.asyncio
     async def test_llm_probe_timeout_reports_error(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         async def slow_probe(*_a: Any, **_kw: Any) -> dict[str, Any]:
             await asyncio.sleep(10.0)
@@ -409,6 +439,7 @@ class TestDreamStatus:
         # Patch the imported probe_llm symbol used inside _bounded_llm_probe.
         # The function imports lazily, so we patch the module attribute.
         from memory_mcp.llm import base as llm_base
+
         monkeypatch.setattr(llm_base, "probe_llm", slow_probe)
 
         # Use a tiny timeout via monkeypatch on asyncio.wait_for so
@@ -421,6 +452,7 @@ class TestDreamStatus:
         monkeypatch.setattr(dream_api.asyncio, "wait_for", fast_wait_for)
 
         from memory_mcp.config import Settings
+
         result = await dream_api._bounded_llm_probe(
             Settings(_env_file=None),  # type: ignore[call-arg]
         )
@@ -463,7 +495,8 @@ class TestDreamProposalsList:
 
     @pytest.mark.asyncio
     async def test_reused_cursor_with_changed_filters_rejected(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         # Build a cursor under one filter shape, then call with a different one.
         old_hash = _filters_hash(DreamProposalsListRequest(status="open"))
@@ -475,7 +508,8 @@ class TestDreamProposalsList:
             }
         )
         monkeypatch.setattr(
-            dream_api, "session_scope",
+            dream_api,
+            "session_scope",
             lambda: _session_scope_returning(_FakeSession()),
         )
         with pytest.raises(InvalidInputError, match="different filter"):
@@ -486,7 +520,8 @@ class TestDreamProposalsList:
 
     @pytest.mark.asyncio
     async def test_returns_items_and_next_cursor_when_more_available(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         # Seed 3 fake rows for limit=2 → expect 2 items + a cursor.
         rows = [_FakeProposal() for _ in range(3)]
@@ -494,7 +529,13 @@ class TestDreamProposalsList:
         # the cursor encoding picks up a stable last id.
         for i, r in enumerate(rows):
             r.created_at = dt.datetime(
-                2026, 5, 10, 12, 0, i, tzinfo=dt.UTC,
+                2026,
+                5,
+                10,
+                12,
+                0,
+                i,
+                tzinfo=dt.UTC,
             )
 
         s = _FakeSession()
@@ -503,11 +544,14 @@ class TestDreamProposalsList:
         s.results.append(result_mock)
 
         monkeypatch.setattr(
-            dream_api, "session_scope", lambda: _session_scope_returning(s),
+            dream_api,
+            "session_scope",
+            lambda: _session_scope_returning(s),
         )
 
         out = await dream_proposals_list(
-            DreamProposalsListRequest(limit=2), ctx=_ctx(),
+            DreamProposalsListRequest(limit=2),
+            ctx=_ctx(),
         )
         assert len(out.items) == 2
         assert out.next_cursor is not None
@@ -547,9 +591,13 @@ class TestDreamReview:
     ) -> None:
         # _lock_proposal returns None when row missing.
         monkeypatch.setattr(
-            dream_api, "_lock_proposal", AsyncMock(side_effect=NotFoundError(
-                "dream_proposal not found",
-            )),
+            dream_api,
+            "_lock_proposal",
+            AsyncMock(
+                side_effect=NotFoundError(
+                    "dream_proposal not found",
+                )
+            ),
         )
         with pytest.raises(NotFoundError):
             await dream_review(
@@ -565,7 +613,9 @@ class TestDreamReview:
     ) -> None:
         proposal = _FakeProposal(status="accepted")
         monkeypatch.setattr(
-            dream_api, "_lock_proposal", AsyncMock(return_value=proposal),
+            dream_api,
+            "_lock_proposal",
+            AsyncMock(return_value=proposal),
         )
         with pytest.raises(InvalidTransitionError):
             await dream_review(
@@ -581,7 +631,9 @@ class TestDreamReview:
     ) -> None:
         proposal = _FakeProposal(status="open")
         monkeypatch.setattr(
-            dream_api, "_lock_proposal", AsyncMock(return_value=proposal),
+            dream_api,
+            "_lock_proposal",
+            AsyncMock(return_value=proposal),
         )
         # Spy on the accept handlers — they must NOT be called for reject.
         accept_merge = AsyncMock()
@@ -589,12 +641,16 @@ class TestDreamReview:
         monkeypatch.setattr(dream_api, "_accept_merge", accept_merge)
         monkeypatch.setattr(dream_api, "_accept_promotion", accept_promo)
         monkeypatch.setattr(
-            dream_api, "_finalize_proposal_status", AsyncMock(return_value=None),
+            dream_api,
+            "_finalize_proposal_status",
+            AsyncMock(return_value=None),
         )
 
         out = await dream_review(
             DreamReviewRequest(
-                proposal_id=proposal.id, action="reject", notes="not useful",
+                proposal_id=proposal.id,
+                action="reject",
+                notes="not useful",
             ),
             ctx=_ctx(),
         )
@@ -611,7 +667,9 @@ class TestDreamReview:
     ) -> None:
         proposal = _FakeProposal(kind="merge_candidate", status="open")
         monkeypatch.setattr(
-            dream_api, "_lock_proposal", AsyncMock(return_value=proposal),
+            dream_api,
+            "_lock_proposal",
+            AsyncMock(return_value=proposal),
         )
 
         # Synthesize a merged Memory ORM-like object the handler "would" return.
@@ -644,10 +702,13 @@ class TestDreamReview:
         monkeypatch.setattr(dream_api, "_accept_merge", accept_merge)
         monkeypatch.setattr(dream_api, "_accept_promotion", accept_promo)
         monkeypatch.setattr(
-            dream_api, "_finalize_proposal_status", AsyncMock(return_value=None),
+            dream_api,
+            "_finalize_proposal_status",
+            AsyncMock(return_value=None),
         )
         monkeypatch.setattr(
-            dream_api, "_to_response",
+            dream_api,
+            "_to_response",
             lambda mem, tag_names: _make_memory_response(env_id=proposal.env_id),
         )
 
@@ -668,7 +729,9 @@ class TestDreamReview:
     ) -> None:
         proposal = _FakeProposal(kind="promotion_candidate", status="open")
         monkeypatch.setattr(
-            dream_api, "_lock_proposal", AsyncMock(return_value=proposal),
+            dream_api,
+            "_lock_proposal",
+            AsyncMock(return_value=proposal),
         )
 
         new_memory = MagicMock()
@@ -680,10 +743,13 @@ class TestDreamReview:
         monkeypatch.setattr(dream_api, "_accept_merge", accept_merge)
         monkeypatch.setattr(dream_api, "_accept_promotion", accept_promo)
         monkeypatch.setattr(
-            dream_api, "_finalize_proposal_status", AsyncMock(return_value=None),
+            dream_api,
+            "_finalize_proposal_status",
+            AsyncMock(return_value=None),
         )
         monkeypatch.setattr(
-            dream_api, "_to_response",
+            dream_api,
+            "_to_response",
             lambda *a, **kw: _make_memory_response(env_id=proposal.env_id),
         )
 
@@ -704,14 +770,17 @@ class TestDreamReview:
     ) -> None:
         proposal = _FakeProposal(kind="merge_candidate", status="open")
         monkeypatch.setattr(
-            dream_api, "_lock_proposal", AsyncMock(return_value=proposal),
+            dream_api,
+            "_lock_proposal",
+            AsyncMock(return_value=proposal),
         )
         accept_merge = AsyncMock(
             side_effect=VersionConflictError(expected=1, actual=2),
         )
         monkeypatch.setattr(dream_api, "_accept_merge", accept_merge)
         monkeypatch.setattr(
-            dream_api, "_finalize_proposal_status",
+            dream_api,
+            "_finalize_proposal_status",
             AsyncMock(side_effect=AssertionError("must not be called on failure")),
         )
 
@@ -730,10 +799,14 @@ class TestDreamReview:
         # Schema enum forbids this in real DB; defense-in-depth here.
         proposal = _FakeProposal(kind="unknown_kind", status="open")
         monkeypatch.setattr(
-            dream_api, "_lock_proposal", AsyncMock(return_value=proposal),
+            dream_api,
+            "_lock_proposal",
+            AsyncMock(return_value=proposal),
         )
         monkeypatch.setattr(
-            dream_api, "_finalize_proposal_status", AsyncMock(return_value=None),
+            dream_api,
+            "_finalize_proposal_status",
+            AsyncMock(return_value=None),
         )
         with pytest.raises(InvalidInputError, match="unknown proposal kind"):
             await dream_review(
@@ -749,14 +822,18 @@ class TestDreamReview:
     ) -> None:
         proposal = _FakeProposal(kind="decay_candidate", status="open")
         monkeypatch.setattr(
-            dream_api, "_lock_proposal", AsyncMock(return_value=proposal),
+            dream_api,
+            "_lock_proposal",
+            AsyncMock(return_value=proposal),
         )
         accept_merge = AsyncMock(side_effect=AssertionError("must not be called"))
         accept_promo = AsyncMock(side_effect=AssertionError("must not be called"))
         monkeypatch.setattr(dream_api, "_accept_merge", accept_merge)
         monkeypatch.setattr(dream_api, "_accept_promotion", accept_promo)
         monkeypatch.setattr(
-            dream_api, "_finalize_proposal_status", AsyncMock(return_value=None),
+            dream_api,
+            "_finalize_proposal_status",
+            AsyncMock(return_value=None),
         )
 
         out = await dream_review(
@@ -779,10 +856,12 @@ class TestAcceptMergePayloadValidation:
 
     @pytest.mark.asyncio
     async def test_missing_primary_id_raises_invalid_input(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         proposal = _FakeProposal(
-            kind="merge_candidate", payload={"candidate_ids": [str(uuid4())]},
+            kind="merge_candidate",
+            payload={"candidate_ids": [str(uuid4())]},
         )
         with pytest.raises(InvalidInputError, match="missing or malformed"):
             await dream_api._accept_merge(

@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from memory_mcp_client.api._base import _BaseAPI
 from memory_mcp_schemas.decisions import AdrExportResponse
+
+from memory_mcp_client.api._base import _BaseAPI
 
 
 class DecisionsAPI(_BaseAPI):

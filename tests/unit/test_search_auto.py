@@ -15,7 +15,7 @@ from memory_mcp.db.models import Memory
 from memory_mcp.errors import InvalidInputError
 from memory_mcp.identity import AgentContext
 from memory_mcp.search import api as search_api
-from memory_mcp.search.api import MemorySearchRequest, MemorySearchResponse, _resolve_auto_mode, memory_search
+from memory_mcp.search.api import MemorySearchRequest, _resolve_auto_mode, memory_search
 
 
 @pytest.mark.parametrize(
@@ -138,14 +138,16 @@ def test_memory_search_auto_plain_query_uses_hybrid_mode(monkeypatch) -> None:
     monkeypatch.setattr(search_api, "_hydrate_memories", AsyncMock(return_value={}))
     monkeypatch.setattr(search_api, "_projection_status", AsyncMock(return_value=[]))
 
-    resp = asyncio.run(memory_search(
-        req,
-        ctx=ctx,
-        settings=_settings(),
-        vector_store=MagicMock(),
-        embedder=MagicMock(),
-        graph_store=MagicMock(),
-    ))
+    resp = asyncio.run(
+        memory_search(
+            req,
+            ctx=ctx,
+            settings=_settings(),
+            vector_store=MagicMock(),
+            embedder=MagicMock(),
+            graph_store=MagicMock(),
+        )
+    )
 
     assert resp.mode == "auto"
     assert resp.effective_mode == "hybrid"

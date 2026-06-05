@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.search import MemorySearchRequest
 from pydantic import BaseModel, ConfigDict
 
 from memory_mcp import env_resolve
@@ -15,7 +16,6 @@ from memory_mcp.errors import (
     EnvRefAmbiguousError,
     EnvRefBothProvidedError,
 )
-from memory_mcp_schemas.search import MemorySearchRequest
 
 
 class SingleEnvRequest(BaseModel):

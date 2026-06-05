@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from memory_mcp_client.api._base import _BaseAPI
 from memory_mcp_schemas.env_ops import (
     EnvCloneRequest,
     EnvCloneResponse,
@@ -28,6 +27,8 @@ from memory_mcp_schemas.env_ops import (
     EnvSnapshotRequest,
     EnvSnapshotResponse,
 )
+
+from memory_mcp_client.api._base import _BaseAPI
 
 
 class EnvOpsAPI(_BaseAPI):
@@ -60,9 +61,7 @@ class EnvOpsAPI(_BaseAPI):
             request = EnvExportRequest(**kwargs)
         return await self._call(
             "env_export_",
-            self._request_payload(
-                request, agent_id=agent_id, attached_env_ids=attached_env_ids
-            ),
+            self._request_payload(request, agent_id=agent_id, attached_env_ids=attached_env_ids),
             model=EnvExportResponse,
         )
 
@@ -79,9 +78,7 @@ class EnvOpsAPI(_BaseAPI):
             request = EnvImportRequest(**kwargs)
         return await self._call(
             "env_import_",
-            self._request_payload(
-                request, agent_id=agent_id, attached_env_ids=attached_env_ids
-            ),
+            self._request_payload(request, agent_id=agent_id, attached_env_ids=attached_env_ids),
             model=EnvImportReport,
         )
 
@@ -98,9 +95,7 @@ class EnvOpsAPI(_BaseAPI):
             request = EnvDiffRequest(**kwargs)
         return await self._call(
             "env_diff_",
-            self._request_payload(
-                request, agent_id=agent_id, attached_env_ids=attached_env_ids
-            ),
+            self._request_payload(request, agent_id=agent_id, attached_env_ids=attached_env_ids),
             model=EnvDiffResponse,
         )
 
@@ -117,9 +112,7 @@ class EnvOpsAPI(_BaseAPI):
             request = EnvCloneRequest(**kwargs)
         return await self._call(
             "env_clone_",
-            self._request_payload(
-                request, agent_id=agent_id, attached_env_ids=attached_env_ids
-            ),
+            self._request_payload(request, agent_id=agent_id, attached_env_ids=attached_env_ids),
             model=EnvCloneResponse,
         )
 
@@ -136,9 +129,7 @@ class EnvOpsAPI(_BaseAPI):
             request = EnvMergeRequest(**kwargs)
         return await self._call(
             "env_merge_",
-            self._request_payload(
-                request, agent_id=agent_id, attached_env_ids=attached_env_ids
-            ),
+            self._request_payload(request, agent_id=agent_id, attached_env_ids=attached_env_ids),
             model=EnvMergeResponse,
         )
 
@@ -155,9 +146,7 @@ class EnvOpsAPI(_BaseAPI):
             request = EnvMigrateRequest(**kwargs)
         return await self._call(
             "env_migrate_",
-            self._request_payload(
-                request, agent_id=agent_id, attached_env_ids=attached_env_ids
-            ),
+            self._request_payload(request, agent_id=agent_id, attached_env_ids=attached_env_ids),
             model=EnvMigrateResponse,
         )
 
@@ -174,9 +163,7 @@ class EnvOpsAPI(_BaseAPI):
             request = EnvSnapshotRequest(**kwargs)
         return await self._call(
             "env_snapshot_",
-            self._request_payload(
-                request, agent_id=agent_id, attached_env_ids=attached_env_ids
-            ),
+            self._request_payload(request, agent_id=agent_id, attached_env_ids=attached_env_ids),
             model=EnvSnapshotResponse,
         )
 
@@ -193,9 +180,7 @@ class EnvOpsAPI(_BaseAPI):
             request = EnvRestoreRequest(**kwargs)
         return await self._call(
             "env_restore_",
-            self._request_payload(
-                request, agent_id=agent_id, attached_env_ids=attached_env_ids
-            ),
+            self._request_payload(request, agent_id=agent_id, attached_env_ids=attached_env_ids),
             model=EnvRestoreResponse,
         )
 
@@ -212,9 +197,7 @@ class EnvOpsAPI(_BaseAPI):
             request = EnvDeleteRequest(**kwargs)
         return await self._call(
             "env_delete_",
-            self._request_payload(
-                request, agent_id=agent_id, attached_env_ids=attached_env_ids
-            ),
+            self._request_payload(request, agent_id=agent_id, attached_env_ids=attached_env_ids),
             model=EnvDeleteResponse,
         )
 
@@ -231,8 +214,6 @@ class EnvOpsAPI(_BaseAPI):
             request = EnvRenameRequest(**kwargs)
         return await self._call(
             "env_rename_",
-            self._request_payload(
-                request, agent_id=agent_id, attached_env_ids=attached_env_ids
-            ),
+            self._request_payload(request, agent_id=agent_id, attached_env_ids=attached_env_ids),
             model=EnvRenameResponse,
         )

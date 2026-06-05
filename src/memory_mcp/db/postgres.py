@@ -43,10 +43,7 @@ def init_engine(settings: Settings) -> AsyncEngine:
     if _engine is not None:
         existing_url = _engine.url.render_as_string(hide_password=False)
         if existing_url != settings.postgres_url:
-            raise RuntimeError(
-                "init_engine called twice with different URLs; "
-                "call dispose_engine() first"
-            )
+            raise RuntimeError("init_engine called twice with different URLs; call dispose_engine() first")
         return _engine
 
     _engine = create_async_engine(

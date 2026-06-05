@@ -17,4 +17,3 @@ __all__ = [
     "EmbeddingModelMismatchError",
     "get_embedder",
 ]
-

@@ -58,6 +58,7 @@ depends_on: str | Sequence[str] | None = None
 # upgrade
 # ---------------------------------------------------------------------------
 
+
 def upgrade() -> None:
     # Required extensions.
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")  # gen_random_uuid()
@@ -342,7 +343,9 @@ def upgrade() -> None:
             redaction_reason  text
         )
     """)
-    op.execute("CREATE INDEX audit_record_idx       ON audit_log(record_type, record_id, at DESC) WHERE record_id IS NOT NULL")
+    op.execute(
+        "CREATE INDEX audit_record_idx       ON audit_log(record_type, record_id, at DESC) WHERE record_id IS NOT NULL"
+    )
     op.execute("CREATE INDEX audit_env_at_idx       ON audit_log(env_id, at DESC) WHERE env_id IS NOT NULL")
     op.execute("CREATE INDEX audit_agent_at_idx     ON audit_log(by_agent_id, at DESC) WHERE by_agent_id IS NOT NULL")
     op.execute("CREATE INDEX audit_subject_hash_idx ON audit_log(subject_hash) WHERE subject_hash IS NOT NULL")
@@ -422,20 +425,14 @@ def upgrade() -> None:
         )
     """)
     # Hot path: pick up next pending events for a sink in event_id order.
-    op.execute(
-        "CREATE INDEX outbox_delivery_pending_idx "
-        "ON outbox_delivery(sink, event_id) WHERE status = 'pending'"
-    )
+    op.execute("CREATE INDEX outbox_delivery_pending_idx ON outbox_delivery(sink, event_id) WHERE status = 'pending'")
     # Lease reaper: find expired leases per sink ordered by lease expiry.
     op.execute(
         "CREATE INDEX outbox_delivery_expired_lease_idx "
         "ON outbox_delivery(sink, locked_until, event_id) WHERE status = 'in_flight'"
     )
     # Admin: list dead deliveries per sink in event order.
-    op.execute(
-        "CREATE INDEX outbox_delivery_dead_idx "
-        "ON outbox_delivery(sink, event_id) WHERE status = 'dead'"
-    )
+    op.execute("CREATE INDEX outbox_delivery_dead_idx ON outbox_delivery(sink, event_id) WHERE status = 'dead'")
 
     op.execute("""
         CREATE TABLE projection_state (
@@ -454,6 +451,7 @@ def upgrade() -> None:
 # ---------------------------------------------------------------------------
 # downgrade
 # ---------------------------------------------------------------------------
+
 
 def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS projection_state CASCADE")

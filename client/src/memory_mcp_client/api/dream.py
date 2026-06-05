@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from memory_mcp_client.api._base import _BaseAPI
 from memory_mcp_schemas.dream import (
     DreamProposalsListRequest,
     DreamProposalsListResponse,
@@ -16,6 +15,8 @@ from memory_mcp_schemas.dream import (
     DreamStatusRequest,
     DreamStatusResponse,
 )
+
+from memory_mcp_client.api._base import _BaseAPI
 
 
 def _payload(

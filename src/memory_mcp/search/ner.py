@@ -56,10 +56,21 @@ _NLP_CACHE_LOCK = asyncio.Lock()
 # the entities table. ``DATE`` / ``TIME`` / ``PERCENT`` / ``CARDINAL`` /
 # ``ORDINAL`` / ``MONEY`` / ``QUANTITY`` are deliberately excluded —
 # they almost never identify a domain entity.
-_USEFUL_ENT_LABELS: frozenset[str] = frozenset({
-    "PERSON", "ORG", "GPE", "LOC", "PRODUCT",
-    "WORK_OF_ART", "EVENT", "FAC", "NORP", "LAW", "LANGUAGE",
-})
+_USEFUL_ENT_LABELS: frozenset[str] = frozenset(
+    {
+        "PERSON",
+        "ORG",
+        "GPE",
+        "LOC",
+        "PRODUCT",
+        "WORK_OF_ART",
+        "EVENT",
+        "FAC",
+        "NORP",
+        "LAW",
+        "LANGUAGE",
+    }
+)
 
 
 # Regex identifier fallback. We match tokens that "look like a name":
@@ -108,8 +119,7 @@ async def _get_pipeline(model_name: str) -> Any | None:
             nlp = spacy.load(model_name, disable=["parser", "lemmatizer"])
         except (OSError, ImportError) as exc:
             log.warning(
-                "graph_search: spaCy model %r unavailable (%s); "
-                "falling back to regex identifier extraction",
+                "graph_search: spaCy model %r unavailable (%s); falling back to regex identifier extraction",
                 model_name,
                 exc,
             )
@@ -152,9 +162,7 @@ async def extract_query_mentions(
         try:
             # spaCy is sync; offload to a thread so we never block the
             # event loop on tokenization.
-            doc = await asyncio.get_running_loop().run_in_executor(
-                None, nlp, q
-            )
+            doc = await asyncio.get_running_loop().run_in_executor(None, nlp, q)
         except Exception as exc:  # noqa: BLE001 — defensive
             log.warning(
                 "graph_search: spaCy NER raised %s; falling back to regex",

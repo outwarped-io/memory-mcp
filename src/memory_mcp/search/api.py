@@ -62,34 +62,8 @@ import datetime as dt
 import logging
 import re
 from collections.abc import Callable, Sequence
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
-
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from memory_mcp.config import Settings, get_settings
-from memory_mcp.db.graph.base import GraphStore
-from memory_mcp.db.models import Environment, Memory, Outbox, ProjectionState, Tag
-from memory_mcp.db.postgres import session_scope
-from memory_mcp.db.types import MemoryKind, OutboxSink
-from memory_mcp.db.vector.base import VectorStore
-from memory_mcp.embeddings.base import Embedder, get_embedder
-from memory_mcp.errors import GraphBackendUnavailableError, InvalidInputError
-from memory_mcp.identity import AgentContext
-from memory_mcp.memories import MemoryResponse, _to_response
-from memory_mcp._filters import is_expired
-from memory_mcp.search.graph import graph_search
-from memory_mcp.search.lex import lex_search
-from memory_mcp.search.ranking import (
-    FusedHit,
-    RankedHit,
-    apply_salience_boost,
-    reciprocal_rank_fuse,
-    sort_hits,
-)
-from memory_mcp.search.sem import sem_search
 
 from memory_mcp_schemas.search import (
     ConsistencyMode,
@@ -100,6 +74,30 @@ from memory_mcp_schemas.search import (
     ProjectionStatusEntry,
     SearchMode,
 )
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from memory_mcp._filters import is_expired
+from memory_mcp.config import Settings, get_settings
+from memory_mcp.db.graph.base import GraphStore
+from memory_mcp.db.models import Environment, Memory, Outbox, ProjectionState, Tag
+from memory_mcp.db.postgres import session_scope
+from memory_mcp.db.types import OutboxSink
+from memory_mcp.db.vector.base import VectorStore
+from memory_mcp.embeddings.base import Embedder, get_embedder
+from memory_mcp.errors import GraphBackendUnavailableError, InvalidInputError
+from memory_mcp.identity import AgentContext
+from memory_mcp.memories import _to_response
+from memory_mcp.search.graph import graph_search
+from memory_mcp.search.lex import lex_search
+from memory_mcp.search.ranking import (
+    FusedHit,
+    RankedHit,
+    apply_salience_boost,
+    reciprocal_rank_fuse,
+    sort_hits,
+)
+from memory_mcp.search.sem import sem_search
 
 log = logging.getLogger(__name__)
 
@@ -213,18 +211,20 @@ async def _projection_status(
     if not env_ids:
         return []
     sink_values = [s.value for s in sinks]
-    rows = (await session.execute(
-        select(
-            ProjectionState.env_id,
-            ProjectionState.sink,
-            ProjectionState.last_event_id,
-            ProjectionState.lag_seconds,
-            ProjectionState.status,
-        ).where(
-            ProjectionState.env_id.in_(env_ids),
-            ProjectionState.sink.in_(sink_values),
+    rows = (
+        await session.execute(
+            select(
+                ProjectionState.env_id,
+                ProjectionState.sink,
+                ProjectionState.last_event_id,
+                ProjectionState.lag_seconds,
+                ProjectionState.status,
+            ).where(
+                ProjectionState.env_id.in_(env_ids),
+                ProjectionState.sink.in_(sink_values),
+            )
         )
-    )).all()
+    ).all()
     return [
         ProjectionStatusEntry(
             env_id=r[0],
@@ -248,11 +248,11 @@ async def _capture_watermarks(
     """
     if not env_ids:
         return {}
-    rows = (await session.execute(
-        select(Outbox.env_id, func.max(Outbox.event_id))
-        .where(Outbox.env_id.in_(env_ids))
-        .group_by(Outbox.env_id)
-    )).all()
+    rows = (
+        await session.execute(
+            select(Outbox.env_id, func.max(Outbox.event_id)).where(Outbox.env_id.in_(env_ids)).group_by(Outbox.env_id)
+        )
+    ).all()
     by_env: dict[UUID, int | None] = dict.fromkeys(env_ids, None)
     for env_id, max_id in rows:
         by_env[env_id] = int(max_id) if max_id is not None else None
@@ -284,21 +284,20 @@ async def _wait_for_watermarks(
     deadline = asyncio.get_running_loop().time() + max_wait_seconds
     while True:
         async with session_factory() as s:
-            rows = (await s.execute(
-                select(
-                    ProjectionState.env_id,
-                    ProjectionState.sink,
-                    ProjectionState.last_event_id,
+            rows = (
+                await s.execute(
+                    select(
+                        ProjectionState.env_id,
+                        ProjectionState.sink,
+                        ProjectionState.last_event_id,
+                    ).where(
+                        ProjectionState.env_id.in_(list(pending.keys())),
+                        ProjectionState.sink.in_(sink_values),
+                    )
                 )
-                .where(
-                    ProjectionState.env_id.in_(list(pending.keys())),
-                    ProjectionState.sink.in_(sink_values),
-                )
-            )).all()
+            ).all()
         # Build ``{(env_id, sink): last_event_id}`` snapshot.
-        seen: dict[tuple[UUID, str], int | None] = {
-            (r[0], r[1]): r[2] for r in rows
-        }
+        seen: dict[tuple[UUID, str], int | None] = {(r[0], r[1]): r[2] for r in rows}
         all_ok = True
         for env_id, target in pending.items():
             for sink_value in sink_values:
@@ -339,12 +338,14 @@ async def _bulk_load_tag_names(
         return {}
     from memory_mcp.db.models import MemoryTag  # local to avoid circular
 
-    rows = (await session.execute(
-        select(MemoryTag.memory_id, Tag.name)
-        .join(Tag, MemoryTag.tag_id == Tag.id)
-        .where(MemoryTag.memory_id.in_(memory_ids))
-        .order_by(MemoryTag.memory_id, Tag.name)
-    )).all()
+    rows = (
+        await session.execute(
+            select(MemoryTag.memory_id, Tag.name)
+            .join(Tag, MemoryTag.tag_id == Tag.id)
+            .where(MemoryTag.memory_id.in_(memory_ids))
+            .order_by(MemoryTag.memory_id, Tag.name)
+        )
+    ).all()
     out: dict[UUID, list[str]] = {mid: [] for mid in memory_ids}
     for mid, name in rows:
         out[mid].append(name)
@@ -384,7 +385,11 @@ def _passes_post_filters(
 
 
 async def _do_lex(
-    session: AsyncSession, req: MemorySearchRequest, env_ids: list[UUID], statuses: list[str], leg_limit: int,
+    session: AsyncSession,
+    req: MemorySearchRequest,
+    env_ids: list[UUID],
+    statuses: list[str],
+    leg_limit: int,
 ) -> list[RankedHit]:
     return await lex_search(
         session,
@@ -455,9 +460,9 @@ async def _search_by_trigger(
     emb = embedder or get_embedder(settings)
 
     async with session_scope() as session:
-        model_id = (await session.execute(
-            select(Environment.default_embedding_model_id).where(Environment.id == env_id)
-        )).scalar_one_or_none()
+        model_id = (
+            await session.execute(select(Environment.default_embedding_model_id).where(Environment.id == env_id))
+        ).scalar_one_or_none()
         if model_id is None:
             return []
         if model_id != emb.model_id:
@@ -492,14 +497,20 @@ async def _search_by_trigger(
         return []
 
     async with session_scope() as session:
-        rows = (await session.execute(
-            select(Memory).where(
-                Memory.id.in_(list(scores.keys())),
-                Memory.env_id == env_id,
-                Memory.trigger_description.is_not(None),
-                Memory.status.in_(["proposed", "active", "stale"]),
+        rows = (
+            (
+                await session.execute(
+                    select(Memory).where(
+                        Memory.id.in_(list(scores.keys())),
+                        Memory.env_id == env_id,
+                        Memory.trigger_description.is_not(None),
+                        Memory.status.in_(["proposed", "active", "stale"]),
+                    )
+                )
             )
-        )).scalars().all()
+            .scalars()
+            .all()
+        )
 
     ordered = sorted(
         rows,
@@ -620,23 +631,27 @@ def _step_drop_filters(req: MemorySearchRequest) -> MemorySearchRequest | None:
         or req.updated_after is not None
     ):
         return None
-    return req.model_copy(update={
-        "kinds": None,
-        "tags": None,
-        "created_after": None,
-        "created_before": None,
-        "updated_after": None,
-    })
+    return req.model_copy(
+        update={
+            "kinds": None,
+            "tags": None,
+            "created_after": None,
+            "created_before": None,
+            "updated_after": None,
+        }
+    )
 
 
 def _step_widen_lifecycle(req: MemorySearchRequest) -> MemorySearchRequest | None:
     """Step 3: include stale + archived. No-op when already widened."""
     if req.include_stale and req.include_archived:
         return None
-    return req.model_copy(update={
-        "include_stale": True,
-        "include_archived": True,
-    })
+    return req.model_copy(
+        update={
+            "include_stale": True,
+            "include_archived": True,
+        }
+    )
 
 
 def _step_boost_limit(req: MemorySearchRequest) -> MemorySearchRequest | None:
@@ -644,10 +659,12 @@ def _step_boost_limit(req: MemorySearchRequest) -> MemorySearchRequest | None:
     new_limit = min(req.limit * 5, 100)
     if not req.follow_superseded and new_limit == req.limit:
         return None
-    return req.model_copy(update={
-        "follow_superseded": False,
-        "limit": new_limit,
-    })
+    return req.model_copy(
+        update={
+            "follow_superseded": False,
+            "limit": new_limit,
+        }
+    )
 
 
 _FALLBACK_STEPS: tuple[
@@ -672,9 +689,7 @@ async def _memory_search_pass(
 ) -> MemorySearchResponse:
     settings = settings or get_settings()
     requested_mode: SearchMode = req.mode
-    dispatched_mode: SearchMode = (
-        _resolve_auto_mode(req.query) if requested_mode == "auto" else requested_mode
-    )
+    dispatched_mode: SearchMode = _resolve_auto_mode(req.query) if requested_mode == "auto" else requested_mode
     env_ids = _resolve_env_ids(req.env_ids, ctx)
     final_statuses = _statuses_to_query(req)
     # Retrieval-time statuses: when follow_superseded is on, we MUST include
@@ -710,11 +725,7 @@ async def _memory_search_pass(
         fresh_sinks.append(OutboxSink.neo4j)
 
     # ---- consistency: fresh — capture watermark, wait, or degrade -------
-    if (
-        dispatched_mode in ("hybrid", "sem", "graph")
-        and req.consistency == "fresh"
-        and env_ids
-    ):
+    if dispatched_mode in ("hybrid", "sem", "graph") and req.consistency == "fresh" and env_ids:
         async with session_scope() as ws:
             watermarks = await _capture_watermarks(ws, env_ids)
         ok = await _wait_for_watermarks(
@@ -725,8 +736,7 @@ async def _memory_search_pass(
         )
         if not ok:
             log.info(
-                "memory_search consistency=fresh timed out across sinks=%s; "
-                "degrading to canonical",
+                "memory_search consistency=fresh timed out across sinks=%s; degrading to canonical",
                 [s.value for s in fresh_sinks],
             )
             consistency_used = "canonical"
@@ -740,24 +750,40 @@ async def _memory_search_pass(
     if not env_ids:
         # No envs visible to caller. Return an empty response.
         return MemorySearchResponse(
-            hits=[], mode=req.mode, effective_mode=effective_mode,
-            consistency_used=consistency_used, projection_status=[],
+            hits=[],
+            mode=req.mode,
+            effective_mode=effective_mode,
+            consistency_used=consistency_used,
+            projection_status=[],
         )
 
     # ---- retrieve --------------------------------------------------------
     if effective_mode == "lex":
         async with session_scope() as session:
-            ranked_lists = [await _do_lex(
-                session, req, env_ids, retrieval_statuses, leg_limit,
-            )]
+            ranked_lists = [
+                await _do_lex(
+                    session,
+                    req,
+                    env_ids,
+                    retrieval_statuses,
+                    leg_limit,
+                )
+            ]
     elif effective_mode == "sem":
         vs = vector_store or _default_vector_store(settings)
         emb = embedder or get_embedder(settings)
         async with session_scope() as session:
-            ranked_lists = [await _do_sem(
-                session, req, env_ids, retrieval_statuses, leg_limit,
-                vector_store=vs, embedder=emb,
-            )]
+            ranked_lists = [
+                await _do_sem(
+                    session,
+                    req,
+                    env_ids,
+                    retrieval_statuses,
+                    leg_limit,
+                    vector_store=vs,
+                    embedder=emb,
+                )
+            ]
     elif effective_mode == "graph":
         # Rubber-duck BLOCKER 2: mode=graph propagates backend errors.
         try:
@@ -768,10 +794,16 @@ async def _memory_search_pass(
             ) from exc
         try:
             async with session_scope() as session:
-                ranked_lists = [await _do_graph(
-                    session, req, env_ids, leg_limit,
-                    graph_store=gs, settings=settings,
-                )]
+                ranked_lists = [
+                    await _do_graph(
+                        session,
+                        req,
+                        env_ids,
+                        leg_limit,
+                        graph_store=gs,
+                        settings=settings,
+                    )
+                ]
         except GraphBackendUnavailableError:
             raise
         except Exception as exc:
@@ -785,14 +817,23 @@ async def _memory_search_pass(
         async def _lex_leg() -> list[RankedHit]:
             async with session_scope() as s:
                 return await _do_lex(
-                    s, req, env_ids, retrieval_statuses, leg_limit,
+                    s,
+                    req,
+                    env_ids,
+                    retrieval_statuses,
+                    leg_limit,
                 )
 
         async def _sem_leg() -> list[RankedHit]:
             async with session_scope() as s:
                 return await _do_sem(
-                    s, req, env_ids, retrieval_statuses, leg_limit,
-                    vector_store=vs, embedder=emb,
+                    s,
+                    req,
+                    env_ids,
+                    retrieval_statuses,
+                    leg_limit,
+                    vector_store=vs,
+                    embedder=emb,
                 )
 
         async def _graph_leg() -> list[RankedHit]:
@@ -802,27 +843,31 @@ async def _memory_search_pass(
                 gs = graph_store or await _default_graph_store(settings)
             except Exception as exc:  # noqa: BLE001
                 log.warning(
-                    "memory_search hybrid: graph store unavailable (%s); "
-                    "graph leg disabled for this request",
+                    "memory_search hybrid: graph store unavailable (%s); graph leg disabled for this request",
                     exc,
                 )
                 return []
             try:
                 async with session_scope() as s:
                     return await _do_graph(
-                        s, req, env_ids, leg_limit,
-                        graph_store=gs, settings=settings,
+                        s,
+                        req,
+                        env_ids,
+                        leg_limit,
+                        graph_store=gs,
+                        settings=settings,
                     )
             except Exception as exc:  # noqa: BLE001
                 log.warning(
-                    "memory_search hybrid: graph leg failed (%s); "
-                    "continuing with lex+sem",
+                    "memory_search hybrid: graph leg failed (%s); continuing with lex+sem",
                     exc,
                 )
                 return []
 
         ranked_lists = await asyncio.gather(
-            _lex_leg(), _sem_leg(), _graph_leg(),
+            _lex_leg(),
+            _sem_leg(),
+            _graph_leg(),
         )
     else:
         raise ValueError(f"unsupported mode: {effective_mode!r}")
@@ -891,12 +936,14 @@ async def _memory_search_pass(
         out_hits: list[MemorySearchHit] = []
         for h in sorted_hits:
             m = memories[h.memory_id]
-            out_hits.append(MemorySearchHit(
-                memory=_to_response(m, tag_map.get(h.memory_id, [])),
-                score=h.score,
-                sources=h.sources,
-                raw_scores=h.raw_scores,
-            ))
+            out_hits.append(
+                MemorySearchHit(
+                    memory=_to_response(m, tag_map.get(h.memory_id, [])),
+                    score=h.score,
+                    sources=h.sources,
+                    raw_scores=h.raw_scores,
+                )
+            )
 
         # Multi-sink projection status — include both qdrant and neo4j
         # when the graph leg can contribute, so the client can see the
@@ -931,18 +978,18 @@ async def _serve_by_ids(
     ids = list(dict.fromkeys(req.ids or []))
     if not ids:
         return MemorySearchResponse(
-            hits=[], mode=response_mode, effective_mode="id",
-            consistency_used="canonical", projection_status=[],
+            hits=[],
+            mode=response_mode,
+            effective_mode="id",
+            consistency_used="canonical",
+            projection_status=[],
         )
     async with session_scope() as session:
         memories = await _hydrate_memories(session, ids, env_ids)
         resolved: dict[UUID, UUID] = {}
         if req.follow_superseded:
             # Build a fake fused map to reuse follow logic.
-            fused: dict[UUID, FusedHit] = {
-                mid: FusedHit(memory_id=mid, score=1.0, sources=["id"])
-                for mid in memories
-            }
+            fused: dict[UUID, FusedHit] = {mid: FusedHit(memory_id=mid, score=1.0, sources=["id"]) for mid in memories}
             resolved = await _follow_superseded(session, fused, memories, env_ids)
         # Resolved-id sequence: each requested id maps to its successor (if
         # any) or itself. De-duplicate while preserving request order so a
@@ -973,8 +1020,11 @@ async def _serve_by_ids(
         for m in ordered[: req.limit]
     ]
     return MemorySearchResponse(
-        hits=hits, mode=response_mode, effective_mode="id",
-        consistency_used="canonical", projection_status=proj,
+        hits=hits,
+        mode=response_mode,
+        effective_mode="id",
+        consistency_used="canonical",
+        projection_status=proj,
         truncated=len(ordered) > req.limit,
     )
 
@@ -1072,9 +1122,7 @@ def _default_vector_store(settings: Settings) -> VectorStore:
 
             _DEFAULT_VECTOR_STORE = QdrantVectorStore(settings)
         else:
-            raise NotImplementedError(
-                f"vector_backend={settings.vector_backend!r} not implemented in v1"
-            )
+            raise NotImplementedError(f"vector_backend={settings.vector_backend!r} not implemented in v1")
     return _DEFAULT_VECTOR_STORE
 
 

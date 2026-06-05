@@ -43,15 +43,17 @@ async def playbook_invoke(
     rbac.require("read", env_id, ctx)
 
     async with session_scope() as session:
-        playbook = (await session.execute(
-            select(Memory).where(
-                Memory.env_id == env_id,
-                Memory.kind == "playbook",
-                Memory.macro.is_not(None),
-                func.lower(Memory.macro) == normalized_macro,
-                Memory.status.in_(list(_VISIBLE_STATUSES)),
+        playbook = (
+            await session.execute(
+                select(Memory).where(
+                    Memory.env_id == env_id,
+                    Memory.kind == "playbook",
+                    Memory.macro.is_not(None),
+                    func.lower(Memory.macro) == normalized_macro,
+                    Memory.status.in_(list(_VISIBLE_STATUSES)),
+                )
             )
-        )).scalar_one_or_none()
+        ).scalar_one_or_none()
         if playbook is None:
             raise NotFoundError(
                 f"playbook macro {normalized_macro!r} not found",
@@ -81,22 +83,26 @@ async def playbook_invoke(
         refs_by_id: dict[UUID, Memory] = {}
         missing_refs: list[UUID] = []
         if ordered_refs:
-            rows = (await session.execute(
-                select(Memory).where(
-                    Memory.env_id == env_id,
-                    Memory.id.in_(ordered_refs),
-                    Memory.status.in_(list(_VISIBLE_STATUSES)),
+            rows = (
+                (
+                    await session.execute(
+                        select(Memory).where(
+                            Memory.env_id == env_id,
+                            Memory.id.in_(ordered_refs),
+                            Memory.status.in_(list(_VISIBLE_STATUSES)),
+                        )
+                    )
                 )
-            )).scalars().all()
+                .scalars()
+                .all()
+            )
             refs_by_id = {row.id: row for row in rows}
             missing_refs = [memory_id for memory_id in ordered_refs if memory_id not in refs_by_id]
 
         tasks_by_id: dict[UUID, Task] = {}
         missing_task_refs: list[UUID] = []
         if ordered_task_refs:
-            task_rows = (await session.execute(
-                select(Task).where(Task.id.in_(ordered_task_refs))
-            )).scalars().all()
+            task_rows = (await session.execute(select(Task).where(Task.id.in_(ordered_task_refs)))).scalars().all()
             tasks_by_id = {row.id: row for row in task_rows}
             missing_task_refs = [
                 task_id
@@ -104,11 +110,11 @@ async def playbook_invoke(
                 if task_id not in tasks_by_id or tasks_by_id[task_id].env_id != env_id
             ]
 
-        resolved_steps = [
-            _resolve_step(step, refs_by_id, tasks_by_id, env_id)
-            for step in steps
+        resolved_steps = [_resolve_step(step, refs_by_id, tasks_by_id, env_id) for step in steps]
+        memories_for_tags = [
+            playbook,
+            *[refs_by_id[memory_id] for memory_id in ordered_refs if memory_id in refs_by_id],
         ]
-        memories_for_tags = [playbook, *[refs_by_id[memory_id] for memory_id in ordered_refs if memory_id in refs_by_id]]
         tags_by_id = await _load_tags(session, [memory.id for memory in memories_for_tags])
 
         return PlaybookInvokeResponse(

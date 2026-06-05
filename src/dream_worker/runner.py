@@ -80,8 +80,7 @@ async def _run(settings: Settings | None = None) -> None:
     )
 
     logger.info(
-        "dream_worker starting enabled=%s summarizer=%s llm_backend=%s "
-        "agent_id=%s",
+        "dream_worker starting enabled=%s summarizer=%s llm_backend=%s agent_id=%s",
         settings.dream_enabled,
         settings.dream_summarizer,
         settings.llm_backend,
@@ -101,8 +100,7 @@ async def _run(settings: Settings | None = None) -> None:
         scheduler.start()
     else:
         logger.info(
-            "dream_worker DREAM_ENABLED=false — entering heartbeat-only "
-            "idle loop (no jobs registered)",
+            "dream_worker DREAM_ENABLED=false — entering heartbeat-only idle loop (no jobs registered)",
         )
 
     # SIGTERM/SIGINT handling.

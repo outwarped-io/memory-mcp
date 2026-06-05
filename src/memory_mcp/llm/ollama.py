@@ -87,12 +87,8 @@ class OllamaLLMClient:
             "stream": False,
             "options": {
                 # ``num_predict`` is Ollama's name for "max tokens to generate".
-                "num_predict": (
-                    max_tokens if max_tokens is not None else self._settings.llm_max_tokens
-                ),
-                "temperature": (
-                    temperature if temperature is not None else self._settings.llm_temperature
-                ),
+                "num_predict": (max_tokens if max_tokens is not None else self._settings.llm_max_tokens),
+                "temperature": (temperature if temperature is not None else self._settings.llm_temperature),
             },
         }
         try:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import tarfile
 import tempfile
 from collections import defaultdict
@@ -12,6 +11,19 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from memory_mcp_schemas.env_ops import (
+    EnvExportRequest,
+    EnvImportReport,
+    EnvImportRequest,
+    EnvRestoreRequest,
+    EnvRestoreResponse,
+    EnvSnapshotRequest,
+    EnvSnapshotResponse,
+    ExportFormat,
+    ImportMode,
+    MemoryVectorRecord,
+    RestoreMode,
+)
 from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,19 +63,6 @@ from memory_mcp.env_ops.import_ import (
 from memory_mcp.errors import AlreadyExistsError, InvalidInputError, NotFoundError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import _projection_payload
-from memory_mcp_schemas.env_ops import (
-    EnvExportRequest,
-    EnvImportRequest,
-    EnvImportReport,
-    EnvRestoreRequest,
-    EnvRestoreResponse,
-    EnvSnapshotRequest,
-    EnvSnapshotResponse,
-    ExportFormat,
-    ImportMode,
-    MemoryVectorRecord,
-    RestoreMode,
-)
 
 SCHEMA_VERSION = "0.8.0"
 _SNAPSHOT_WARN_BYTES = 10 * 1024 * 1024 * 1024
@@ -306,12 +305,16 @@ async def _external_lineage_rows(session: AsyncSession, memory_ids: set[UUID]) -
     if not memory_ids:
         return []
     rows = (
-        await session.execute(
-            select(MemoryLineage).where(
-                or_(MemoryLineage.parent_memory_id.in_(memory_ids), MemoryLineage.child_memory_id.in_(memory_ids))
+        (
+            await session.execute(
+                select(MemoryLineage).where(
+                    or_(MemoryLineage.parent_memory_id.in_(memory_ids), MemoryLineage.child_memory_id.in_(memory_ids))
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out: list[dict[str, Any]] = []
     for row in rows:
         parent_in = row.parent_memory_id in memory_ids
@@ -321,9 +324,13 @@ async def _external_lineage_rows(session: AsyncSession, memory_ids: set[UUID]) -
     return out
 
 
-async def _restore_external_lineage(session: AsyncSession, rows: list[dict[str, Any]], counts: defaultdict[str, int]) -> None:
+async def _restore_external_lineage(
+    session: AsyncSession, rows: list[dict[str, Any]], counts: defaultdict[str, int]
+) -> None:
     for row in rows:
-        if not await _memories_exist(session, _required_uuid(row, "parent_memory_id"), _required_uuid(row, "child_memory_id")):
+        if not await _memories_exist(
+            session, _required_uuid(row, "parent_memory_id"), _required_uuid(row, "child_memory_id")
+        ):
             continue
         session.add(
             MemoryLineage(
@@ -396,7 +403,9 @@ async def _apply_memories(
             id=memory_id,
             env_id=env_id,
             kind=row["kind"],
-            status="active" if row.get("status") == "superseded" and row.get("superseded_by") else row.get("status", "active"),
+            status="active"
+            if row.get("status") == "superseded" and row.get("superseded_by")
+            else row.get("status", "active"),
             title=row.get("title"),
             body=row["body"],
             trigger_description=row.get("trigger_description"),
@@ -460,7 +469,9 @@ async def _apply_memory_sources(root: Path, session: AsyncSession, counts: defau
         counts["memory_sources"] += 1
 
 
-async def _apply_tasks(root: Path, session: AsyncSession, env_id: UUID, ctx: AgentContext, counts: defaultdict[str, int]) -> None:
+async def _apply_tasks(
+    root: Path, session: AsyncSession, env_id: UUID, ctx: AgentContext, counts: defaultdict[str, int]
+) -> None:
     async for row in _rows(root, "tasks"):
         session.add(
             Task(
@@ -539,7 +550,9 @@ async def _apply_external_memory_lineage(
 ) -> None:
     _ = env_id
     async for row in _rows(root, "external_memory_lineage"):
-        if not await _memories_exist(session, _required_uuid(row, "parent_memory_id"), _required_uuid(row, "child_memory_id")):
+        if not await _memories_exist(
+            session, _required_uuid(row, "parent_memory_id"), _required_uuid(row, "child_memory_id")
+        ):
             continue
         session.add(
             MemoryLineage(
@@ -573,7 +586,9 @@ async def _apply_dream_runs(root: Path, session: AsyncSession, env_id: UUID, cou
         counts["dream_runs"] += 1
 
 
-async def _apply_dream_proposals(root: Path, session: AsyncSession, env_id: UUID, counts: defaultdict[str, int]) -> None:
+async def _apply_dream_proposals(
+    root: Path, session: AsyncSession, env_id: UUID, counts: defaultdict[str, int]
+) -> None:
     async for row in _rows(root, "dream_proposals"):
         session.add(
             DreamProposal(
@@ -655,7 +670,9 @@ async def _restore_embeddings(
                 env_id=env_id,
                 point_id=record.memory_id,
                 vector={record.vector_name: record.vector},
-                payload=_projection_payload(memory, tag_names=tag_names.get(record.memory_id, []), embedding_model_id=target_model_id),
+                payload=_projection_payload(
+                    memory, tag_names=tag_names.get(record.memory_id, []), embedding_model_id=target_model_id
+                ),
             )
     finally:
         if store is not None:

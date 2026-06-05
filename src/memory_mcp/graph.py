@@ -55,16 +55,20 @@ import asyncio
 import datetime as dt
 import logging
 from collections.abc import Sequence
-from typing import Any
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import (
-    AliasChoices,
-    BaseModel,
-    ConfigDict,
-    Field,
-    field_validator,
+from memory_mcp_schemas.graph import (
+    EntityNeighborsRequest,
+    EntityNeighborsResponse,
+    MemNeighborsRequest,
+    MemNeighborsResponse,
+    MemRelatedHit,
+    MemRelatedRequest,
+    MemRelatedResponse,
+    NeighborHitResponse,
+    NeighborNodeResponse,
+    NeighborPathStepResponse,
 )
 from sqlalchemy import and_, distinct, func, or_, select, tuple_
 from sqlalchemy.orm import aliased
@@ -95,28 +99,13 @@ from memory_mcp.search.api import (
     _wait_for_watermarks,
 )
 
-from memory_mcp_schemas.graph import (
-    EntityNeighborsRequest,
-    EntityNeighborsResponse,
-    MemNeighborsRequest,
-    MemNeighborsResponse,
-    MemRelatedHit,
-    MemRelatedRequest,
-    MemRelatedResponse,
-    NeighborHitResponse,
-    NeighborNodeResponse,
-    NeighborPathStepResponse,
-)
-
 log = logging.getLogger(__name__)
 
 # Memories in these statuses are visible by default to graph-traversal
 # callers. Mirrors the default visibility used by ``mem_search`` (see
 # ``memory_mcp.search.api``). Hits whose terminal or path-transit
 # references a memory in a non-default-visible status are dropped.
-_DEFAULT_VISIBLE_MEMORY_STATUSES: frozenset[str] = frozenset(
-    {"proposed", "active", "stale"}
-)
+_DEFAULT_VISIBLE_MEMORY_STATUSES: frozenset[str] = frozenset({"proposed", "active", "stale"})
 
 
 __all__ = [
@@ -151,12 +140,8 @@ def _collect_record_ids(
         target = entity_ids if hit.node.kind == "entity" else memory_ids
         target.add(hit.node.record_id)
         for step in hit.path:
-            (entity_ids if step.src.kind == "entity" else memory_ids).add(
-                step.src.record_id
-            )
-            (entity_ids if step.dst.kind == "entity" else memory_ids).add(
-                step.dst.record_id
-            )
+            (entity_ids if step.src.kind == "entity" else memory_ids).add(step.src.record_id)
+            (entity_ids if step.dst.kind == "entity" else memory_ids).add(step.dst.record_id)
     return entity_ids, memory_ids
 
 
@@ -200,17 +185,9 @@ def _project_hits(
     """
     out: list[NeighborHitResponse] = []
     for hit in hits:
-        if (
-            hit.node.kind == "entity"
-            and start_entity_id is not None
-            and hit.node.record_id == start_entity_id
-        ):
+        if hit.node.kind == "entity" and start_entity_id is not None and hit.node.record_id == start_entity_id:
             continue
-        if (
-            hit.node.kind == "memory"
-            and start_memory_id is not None
-            and hit.node.record_id == start_memory_id
-        ):
+        if hit.node.kind == "memory" and start_memory_id is not None and hit.node.record_id == start_memory_id:
             continue
 
         if hit.node.kind == "memory" and not _is_memory_visible(
@@ -296,23 +273,25 @@ async def _finalize_neighbor_hits(
     if entity_ids_to_lookup or memory_ids_to_lookup:
         async with session_scope() as s:
             if entity_ids_to_lookup:
-                rows = (await s.execute(
-                    select(Entity.id, Entity.canonical_name).where(
-                        Entity.id.in_(entity_ids_to_lookup),
-                        Entity.env_id == env_id,
+                rows = (
+                    await s.execute(
+                        select(Entity.id, Entity.canonical_name).where(
+                            Entity.id.in_(entity_ids_to_lookup),
+                            Entity.env_id == env_id,
+                        )
                     )
-                )).all()
+                ).all()
                 entities_by_id = {row[0]: row[1] for row in rows}
             if memory_ids_to_lookup:
-                rows = (await s.execute(
-                    select(Memory.id, Memory.title, Memory.status).where(
-                        Memory.id.in_(memory_ids_to_lookup),
-                        Memory.env_id == env_id,
+                rows = (
+                    await s.execute(
+                        select(Memory.id, Memory.title, Memory.status).where(
+                            Memory.id.in_(memory_ids_to_lookup),
+                            Memory.env_id == env_id,
+                        )
                     )
-                )).all()
-                memories_by_id = {
-                    row[0]: (row[1], str(row[2])) for row in rows
-                }
+                ).all()
+                memories_by_id = {row[0]: (row[1], str(row[2])) for row in rows}
 
     return _project_hits(
         hits=hits,
@@ -386,23 +365,20 @@ async def _hydrate_memory_responses(
     ]
     if not include_retired:
         clauses.append(Memory.status.in_(list(_DEFAULT_VISIBLE_MEMORY_STATUSES)))
-    rows = (await session.execute(
-        select(Memory).where(*clauses)
-    )).scalars().all()
+    rows = (await session.execute(select(Memory).where(*clauses))).scalars().all()
     memories_by_id = {m.id: m for m in rows}
-    tag_rows = (await session.execute(
-        select(MemoryTag.memory_id, Tag.name)
-        .join(Tag, Tag.id == MemoryTag.tag_id)
-        .where(MemoryTag.memory_id.in_(list(memories_by_id)))
-        .order_by(MemoryTag.memory_id, Tag.name)
-    )).all()
+    tag_rows = (
+        await session.execute(
+            select(MemoryTag.memory_id, Tag.name)
+            .join(Tag, Tag.id == MemoryTag.tag_id)
+            .where(MemoryTag.memory_id.in_(list(memories_by_id)))
+            .order_by(MemoryTag.memory_id, Tag.name)
+        )
+    ).all()
     tags_by_id: dict[UUID, list[str]] = {mid: [] for mid in memories_by_id}
     for mid, name in tag_rows:
         tags_by_id[mid].append(name)
-    return {
-        mid: _to_response(memory, tags_by_id.get(mid, []))
-        for mid, memory in memories_by_id.items()
-    }
+    return {mid: _to_response(memory, tags_by_id.get(mid, [])) for mid, memory in memories_by_id.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -547,9 +523,7 @@ async def entity_neighbors(
 
     rbac.require("read", env_id, ctx)
 
-    kinds: list[Literal["entity", "memory"]] | None = (
-        None if request.kind == "both" else [request.kind]
-    )
+    kinds: list[Literal["entity", "memory"]] | None = None if request.kind == "both" else [request.kind]
 
     gs = graph_store or await _get_default_graph_store(settings)
     start = GraphNodeRef(
@@ -562,10 +536,7 @@ async def entity_neighbors(
     # for the neo4j sink to catch up. Only relevant for the Neo4j
     # backend — the Postgres recursive-CTE fallback reads the canonical
     # ``relations`` table directly and is therefore already consistent.
-    if (
-        request.consistency == "fresh"
-        and settings.graph_backend == "neo4j"
-    ):
+    if request.consistency == "fresh" and settings.graph_backend == "neo4j":
         async with session_scope() as ws:
             watermarks = await _capture_watermarks(ws, [env_id])
         await _wait_for_watermarks(
@@ -615,9 +586,7 @@ async def _memory_neighbors_pass(
     graph_store: GraphStore,
     include_retired: bool = False,
 ) -> MemNeighborsResponse:
-    kinds: list[Literal["entity", "memory"]] | None = (
-        None if request.kind == "both" else [request.kind]
-    )
+    kinds: list[Literal["entity", "memory"]] | None = None if request.kind == "both" else [request.kind]
     start = GraphNodeRef(
         env_id=env_id,
         kind="memory",
@@ -680,27 +649,25 @@ async def memory_neighbors(
                 memory_id=str(request.memory_id),
             )
 
-        graph_node = (await s.execute(
-            select(GraphNode).where(
-                GraphNode.env_id == env_id,
-                GraphNode.node_type == "memory",
-                GraphNode.memory_id == request.memory_id,
+        graph_node = (
+            await s.execute(
+                select(GraphNode).where(
+                    GraphNode.env_id == env_id,
+                    GraphNode.node_type == "memory",
+                    GraphNode.memory_id == request.memory_id,
+                )
             )
-        )).scalar_one_or_none()
+        ).scalar_one_or_none()
         if graph_node is None:
             raise NotFoundError(
-                f"memory {request.memory_id} has no graph edges — "
-                "use mem_sources_browse / mem_lineage instead",
+                f"memory {request.memory_id} has no graph edges — use mem_sources_browse / mem_lineage instead",
                 memory_id=str(request.memory_id),
             )
 
     rbac.require("read", env_id, ctx)
     gs = graph_store or await _get_default_graph_store(settings)
 
-    if (
-        request.consistency == "fresh"
-        and settings.graph_backend == "neo4j"
-    ):
+    if request.consistency == "fresh" and settings.graph_backend == "neo4j":
         async with session_scope() as ws:
             watermarks = await _capture_watermarks(ws, [env_id])
         await _wait_for_watermarks(
@@ -783,12 +750,14 @@ async def _memory_related_shared_entity(
     env_id: UUID,
     include_retired: bool = False,
 ) -> MemRelatedResponse:
-    filter_fingerprint = compute_filter_fingerprint({
-        "memory_id": request.memory_id,
-        "relation": request.relation,
-        "env_id": env_id,
-        "limit": request.limit,
-    })
+    filter_fingerprint = compute_filter_fingerprint(
+        {
+            "memory_id": request.memory_id,
+            "relation": request.relation,
+            "env_id": env_id,
+            "limit": request.limit,
+        }
+    )
 
     cursor_overlap: int | None = None
     cursor_updated_at: dt.datetime | None = None
@@ -805,42 +774,44 @@ async def _memory_related_shared_entity(
     shared_entity = aliased(GraphNode)
 
     async with session_scope() as s:
-        seed_entity_rows = (await s.execute(
-            select(distinct(seed_entity.entity_id))
-            .select_from(seed_mem)
-            .join(
-                Relation,
-                and_(
-                    Relation.env_id == env_id,
-                    or_(
-                        Relation.src_node_id == seed_mem.id,
-                        Relation.dst_node_id == seed_mem.id,
-                    ),
-                ),
-            )
-            .join(
-                seed_entity,
-                and_(
-                    seed_entity.env_id == env_id,
-                    seed_entity.node_type == "entity",
-                    or_(
-                        and_(
-                            Relation.src_node_id == seed_entity.id,
+        seed_entity_rows = (
+            await s.execute(
+                select(distinct(seed_entity.entity_id))
+                .select_from(seed_mem)
+                .join(
+                    Relation,
+                    and_(
+                        Relation.env_id == env_id,
+                        or_(
+                            Relation.src_node_id == seed_mem.id,
                             Relation.dst_node_id == seed_mem.id,
                         ),
-                        and_(
-                            Relation.dst_node_id == seed_entity.id,
-                            Relation.src_node_id == seed_mem.id,
+                    ),
+                )
+                .join(
+                    seed_entity,
+                    and_(
+                        seed_entity.env_id == env_id,
+                        seed_entity.node_type == "entity",
+                        or_(
+                            and_(
+                                Relation.src_node_id == seed_entity.id,
+                                Relation.dst_node_id == seed_mem.id,
+                            ),
+                            and_(
+                                Relation.dst_node_id == seed_entity.id,
+                                Relation.src_node_id == seed_mem.id,
+                            ),
                         ),
                     ),
-                ),
+                )
+                .where(
+                    seed_mem.env_id == env_id,
+                    seed_mem.node_type == "memory",
+                    seed_mem.memory_id == request.memory_id,
+                )
             )
-            .where(
-                seed_mem.env_id == env_id,
-                seed_mem.node_type == "memory",
-                seed_mem.memory_id == request.memory_id,
-            )
-        )).all()
+        ).all()
         seed_entity_ids = [row[0] for row in seed_entity_rows if row[0] is not None]
         if not seed_entity_ids:
             return MemRelatedResponse(hits=[], next_cursor=None, note="ok")
@@ -899,21 +870,14 @@ async def _memory_related_shared_entity(
             .group_by(Memory.id, Memory.updated_at)
         )
         if not include_retired:
-            stmt = stmt.where(
-                Memory.status.in_(list(_DEFAULT_VISIBLE_MEMORY_STATUSES))
-            )
-        if (
-            cursor_overlap is not None
-            and cursor_updated_at is not None
-            and cursor_id is not None
-        ):
+            stmt = stmt.where(Memory.status.in_(list(_DEFAULT_VISIBLE_MEMORY_STATUSES)))
+        if cursor_overlap is not None and cursor_updated_at is not None and cursor_id is not None:
             stmt = stmt.having(
                 or_(
                     overlap < cursor_overlap,
                     and_(
                         overlap == cursor_overlap,
-                        tuple_(Memory.updated_at, Memory.id)
-                        < tuple_(cursor_updated_at, cursor_id),
+                        tuple_(Memory.updated_at, Memory.id) < tuple_(cursor_updated_at, cursor_id),
                     ),
                 )
             )
@@ -979,11 +943,7 @@ async def _memory_related_semantic(
             env_id=env_id,
             query_vector=vec,
             limit=request.limit + 1,
-            filters=(
-                None
-                if include_retired
-                else {"status": list(_DEFAULT_VISIBLE_MEMORY_STATUSES)}
-            ),
+            filters=(None if include_retired else {"status": list(_DEFAULT_VISIBLE_MEMORY_STATUSES)}),
         )
     except Exception as exc:  # noqa: BLE001 — vector search degrades to a note
         log.warning(

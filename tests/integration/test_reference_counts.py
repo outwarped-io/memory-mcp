@@ -21,6 +21,7 @@ pytestmark = pytest.mark.integration
 # Raw-SQL helpers
 # ---------------------------------------------------------------------------
 
+
 async def _mk_env(session) -> UUID:
     env_id = uuid4()
     await session.execute(
@@ -36,10 +37,7 @@ async def _mk_env(session) -> UUID:
 async def _mk_mem(session, env_id: UUID, *, kind: str = "fact", status: str = "active") -> UUID:
     mem_id = uuid4()
     await session.execute(
-        text(
-            "INSERT INTO memories (id, env_id, kind, status, body) "
-            "VALUES (:id, :env_id, :kind, :status, 'b')"
-        ),
+        text("INSERT INTO memories (id, env_id, kind, status, body) VALUES (:id, :env_id, :kind, :status, 'b')"),
         {"id": mem_id, "env_id": env_id, "kind": kind, "status": status},
     )
     return mem_id
@@ -49,8 +47,7 @@ async def _mk_task(session, env_id: UUID) -> UUID:
     task_id = uuid4()
     await session.execute(
         text(
-            "INSERT INTO tasks (id, env_id, status, title, description) "
-            "VALUES (:id, :env_id, 'pending', 't', 'task')"
+            "INSERT INTO tasks (id, env_id, status, title, description) VALUES (:id, :env_id, 'pending', 't', 'task')"
         ),
         {"id": task_id, "env_id": env_id},
     )
@@ -60,10 +57,7 @@ async def _mk_task(session, env_id: UUID) -> UUID:
 async def _mk_gn_for_memory(session, env_id: UUID, memory_id: UUID) -> UUID:
     gn_id = uuid4()
     await session.execute(
-        text(
-            "INSERT INTO graph_nodes (id, env_id, node_type, memory_id) "
-            "VALUES (:id, :env_id, 'memory', :memory_id)"
-        ),
+        text("INSERT INTO graph_nodes (id, env_id, node_type, memory_id) VALUES (:id, :env_id, 'memory', :memory_id)"),
         {"id": gn_id, "env_id": env_id, "memory_id": memory_id},
     )
     return gn_id
@@ -72,10 +66,7 @@ async def _mk_gn_for_memory(session, env_id: UUID, memory_id: UUID) -> UUID:
 async def _mk_gn_for_task(session, env_id: UUID, task_id: UUID) -> UUID:
     gn_id = uuid4()
     await session.execute(
-        text(
-            "INSERT INTO graph_nodes (id, env_id, node_type, task_id) "
-            "VALUES (:id, :env_id, 'task', :task_id)"
-        ),
+        text("INSERT INTO graph_nodes (id, env_id, node_type, task_id) VALUES (:id, :env_id, 'task', :task_id)"),
         {"id": gn_id, "env_id": env_id, "task_id": task_id},
     )
     return gn_id
@@ -124,10 +115,9 @@ async def _read_counts(session, mem_id: UUID) -> dict[str, int]:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
-async def test_rel_link_insert_increments(
-    postgres_session_factories: SessionPairFactory, clean_db: None
-) -> None:
+async def test_rel_link_insert_increments(postgres_session_factories: SessionPairFactory, clean_db: None) -> None:
     factory, _ = postgres_session_factories()
     async with factory() as session:
         env_id = await _mk_env(session)
@@ -147,9 +137,7 @@ async def test_rel_link_insert_increments(
 
 
 @pytest.mark.asyncio
-async def test_rel_link_delete_decrements(
-    postgres_session_factories: SessionPairFactory, clean_db: None
-) -> None:
+async def test_rel_link_delete_decrements(postgres_session_factories: SessionPairFactory, clean_db: None) -> None:
     factory, _ = postgres_session_factories()
     async with factory() as session:
         env_id = await _mk_env(session)
@@ -169,9 +157,7 @@ async def test_rel_link_delete_decrements(
 
 
 @pytest.mark.asyncio
-async def test_task_edge_uses_task_counter(
-    postgres_session_factories: SessionPairFactory, clean_db: None
-) -> None:
+async def test_task_edge_uses_task_counter(postgres_session_factories: SessionPairFactory, clean_db: None) -> None:
     factory, _ = postgres_session_factories()
     async with factory() as session:
         env_id = await _mk_env(session)
@@ -189,9 +175,7 @@ async def test_task_edge_uses_task_counter(
 
 
 @pytest.mark.asyncio
-async def test_related_to_popular_skipped(
-    postgres_session_factories: SessionPairFactory, clean_db: None
-) -> None:
+async def test_related_to_popular_skipped(postgres_session_factories: SessionPairFactory, clean_db: None) -> None:
     """Phase 4's auto-wire predicate must not feed back into popularity counts."""
     factory, _ = postgres_session_factories()
     async with factory() as session:
@@ -234,9 +218,7 @@ async def test_lineage_summarized_increments_parent(
 
 
 @pytest.mark.asyncio
-async def test_lineage_supersedes_excluded(
-    postgres_session_factories: SessionPairFactory, clean_db: None
-) -> None:
+async def test_lineage_supersedes_excluded(postgres_session_factories: SessionPairFactory, clean_db: None) -> None:
     """``supersedes`` is not load-bearing — should not bump lineage counter."""
     factory, _ = postgres_session_factories()
     async with factory() as session:
@@ -245,8 +227,7 @@ async def test_lineage_supersedes_excluded(
         child = await _mk_mem(session, env_id)
         await session.execute(
             text(
-                "INSERT INTO memory_lineage (parent_memory_id, child_memory_id, relation) "
-                "VALUES (:p, :c, 'supersedes')"
+                "INSERT INTO memory_lineage (parent_memory_id, child_memory_id, relation) VALUES (:p, :c, 'supersedes')"
             ),
             {"p": parent, "c": child},
         )
@@ -296,9 +277,7 @@ async def test_status_flip_decrements_and_re_increments(
 
 
 @pytest.mark.asyncio
-async def test_status_flip_lineage_child_retire(
-    postgres_session_factories: SessionPairFactory, clean_db: None
-) -> None:
+async def test_status_flip_lineage_child_retire(postgres_session_factories: SessionPairFactory, clean_db: None) -> None:
     """Retiring a child memory should decrement its parent's lineage counter."""
     factory, _ = postgres_session_factories()
     async with factory() as session:
@@ -360,9 +339,7 @@ async def test_status_flip_ignores_other_status_changes(
 
 
 @pytest.mark.asyncio
-async def test_computed_column_sums(
-    postgres_session_factories: SessionPairFactory, clean_db: None
-) -> None:
+async def test_computed_column_sums(postgres_session_factories: SessionPairFactory, clean_db: None) -> None:
     """``reference_count`` is GENERATED ALWAYS AS STORED — must equal the sum."""
     factory, _ = postgres_session_factories()
     async with factory() as session:

@@ -50,6 +50,13 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "ASYNC"]
 
+[tool.ruff.lint.per-file-ignores]
+# Public API surface: ``id``/``type`` are part of the wire contract.
+"src/**/*.py" = ["A002"]
+# JSON-RPC envelope fields are camelCase by spec; conftest helper accepts
+# blind try/except by design.
+"tests/**/*.py" = ["A002", "N815", "SIM105"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

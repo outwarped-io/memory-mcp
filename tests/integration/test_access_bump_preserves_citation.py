@@ -113,12 +113,8 @@ async def test_memory_get_bump_preserves_citation_contribution(
     env_id, agent_id = await _seed_env_and_agent(factory)
 
     # Two memories: identical except one carries citations.
-    cited_id = await _seed_memory_with_citations(
-        factory, env_id, rl=20, ln=2, tk=5, pb=3, initial_salience=0.0
-    )
-    uncited_id = await _seed_memory_with_citations(
-        factory, env_id, rl=0, ln=0, tk=0, pb=0, initial_salience=0.0
-    )
+    cited_id = await _seed_memory_with_citations(factory, env_id, rl=20, ln=2, tk=5, pb=3, initial_salience=0.0)
+    uncited_id = await _seed_memory_with_citations(factory, env_id, rl=0, ln=0, tk=0, pb=0, initial_salience=0.0)
 
     token = use_session_factory(factory)
     try:
@@ -158,19 +154,13 @@ async def test_memory_get_many_bump_preserves_citation_contribution(
     factory, _ = postgres_session_factories()
     env_id, agent_id = await _seed_env_and_agent(factory)
 
-    cited_id = await _seed_memory_with_citations(
-        factory, env_id, rl=20, ln=2, tk=5, pb=3, initial_salience=0.0
-    )
-    uncited_id = await _seed_memory_with_citations(
-        factory, env_id, rl=0, ln=0, tk=0, pb=0, initial_salience=0.0
-    )
+    cited_id = await _seed_memory_with_citations(factory, env_id, rl=20, ln=2, tk=5, pb=3, initial_salience=0.0)
+    uncited_id = await _seed_memory_with_citations(factory, env_id, rl=0, ln=0, tk=0, pb=0, initial_salience=0.0)
 
     token = use_session_factory(factory)
     try:
         ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
-        resp = await memory_get_many(
-            [cited_id, uncited_id], ctx=ctx, bump_access=True
-        )
+        resp = await memory_get_many([cited_id, uncited_id], ctx=ctx, bump_access=True)
     finally:
         reset_session_factory(token)
 

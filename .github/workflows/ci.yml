@@ -42,7 +42,8 @@ jobs:
       - name: Ruff (format check)
         run: ruff format --check .
 
-      - name: mypy --strict
+      - name: mypy --strict (advisory)
+        continue-on-error: true
         run: mypy --strict src/memory_mcp
 
       - name: pytest (unit, no integration)

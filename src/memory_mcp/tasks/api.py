@@ -143,9 +143,9 @@ async def _load_task(session: AsyncSession, task_id: UUID) -> Task:
 
 
 async def _ensure_task_graph_node(session: AsyncSession, *, env_id: UUID, task_id: UUID) -> GraphNode:
-    node = (await session.execute(
-        select(GraphNode).where(GraphNode.env_id == env_id, GraphNode.task_id == task_id)
-    )).scalar_one_or_none()
+    node = (
+        await session.execute(select(GraphNode).where(GraphNode.env_id == env_id, GraphNode.task_id == task_id))
+    ).scalar_one_or_none()
     if node is None:
         node = GraphNode(env_id=env_id, node_type="task", task_id=task_id)
         session.add(node)
@@ -155,9 +155,9 @@ async def _ensure_task_graph_node(session: AsyncSession, *, env_id: UUID, task_i
 
 
 async def _ensure_memory_graph_node(session: AsyncSession, *, env_id: UUID, memory_id: UUID) -> GraphNode:
-    node = (await session.execute(
-        select(GraphNode).where(GraphNode.env_id == env_id, GraphNode.memory_id == memory_id)
-    )).scalar_one_or_none()
+    node = (
+        await session.execute(select(GraphNode).where(GraphNode.env_id == env_id, GraphNode.memory_id == memory_id))
+    ).scalar_one_or_none()
     if node is None:
         node = GraphNode(env_id=env_id, node_type="memory", memory_id=memory_id)
         session.add(node)
@@ -181,13 +181,15 @@ async def _insert_relation(
     dst_node: GraphNode,
     relation_type: TaskRelationKind,
 ) -> tuple[Relation, bool]:
-    existing = (await session.execute(
-        select(Relation).where(
-            Relation.src_node_id == src_node.id,
-            Relation.dst_node_id == dst_node.id,
-            Relation.type == relation_type.value,
+    existing = (
+        await session.execute(
+            select(Relation).where(
+                Relation.src_node_id == src_node.id,
+                Relation.dst_node_id == dst_node.id,
+                Relation.type == relation_type.value,
+            )
         )
-    )).scalar_one_or_none()
+    ).scalar_one_or_none()
     if existing is not None:
         return existing, False
     relation = Relation(
@@ -231,13 +233,15 @@ async def _insert_relation_idempotent(
         if relation is None:
             raise NotFoundError(f"relation {relation_id} not found", relation_id=str(relation_id))
         return relation, True
-    relation = (await session.execute(
-        select(Relation).where(
-            Relation.src_node_id == src_node.id,
-            Relation.dst_node_id == dst_node.id,
-            Relation.type == relation_type.value,
+    relation = (
+        await session.execute(
+            select(Relation).where(
+                Relation.src_node_id == src_node.id,
+                Relation.dst_node_id == dst_node.id,
+                Relation.type == relation_type.value,
+            )
         )
-    )).scalar_one()
+    ).scalar_one()
     return relation, False
 
 
@@ -287,9 +291,9 @@ async def task_create(
 
     async with session_scope() as session:
         if request.playbook_id is not None:
-            playbook = (await session.execute(
-                select(Memory).where(Memory.id == request.playbook_id)
-            )).scalar_one_or_none()
+            playbook = (
+                await session.execute(select(Memory).where(Memory.id == request.playbook_id))
+            ).scalar_one_or_none()
             if playbook is None or playbook.env_id != request.env_id or playbook.kind != "playbook":
                 raise InvalidInputError("playbook_id must reference a playbook memory in the same env")
 
@@ -481,7 +485,7 @@ async def task_list(
         rows = list((await session.execute(stmt)).scalars().all())
 
     has_more = len(rows) > request.limit
-    rows = rows[:request.limit]
+    rows = rows[: request.limit]
     return TaskListResponse(
         hits=[_task_to_response(t) for t in rows],
         next_cursor=_encode_cursor(rows[-1]) if has_more and rows else None,

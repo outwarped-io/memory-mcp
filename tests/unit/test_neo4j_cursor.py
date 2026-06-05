@@ -70,8 +70,12 @@ def test_shape_key_includes_all_query_dimensions() -> None:
     rid = uuid4()
     node = GraphNodeRef(env_id=env, kind="entity", record_id=rid)
     shape = _query_shape_key(
-        node=node, hops=2, direction="out",
-        edge_types=["a", "b"], kinds=["entity"], limit=20,
+        node=node,
+        hops=2,
+        direction="out",
+        edge_types=["a", "b"],
+        kinds=["entity"],
+        limit=20,
     )
     assert shape["n"] == [str(env), "entity", str(rid)]
     assert shape["h"] == 2
@@ -87,12 +91,20 @@ def test_shape_key_normalizes_edge_types_order() -> None:
     env, rid = uuid4(), uuid4()
     node = GraphNodeRef(env_id=env, kind="entity", record_id=rid)
     s1 = _query_shape_key(
-        node=node, hops=1, direction="both",
-        edge_types=["a", "b"], kinds=None, limit=10,
+        node=node,
+        hops=1,
+        direction="both",
+        edge_types=["a", "b"],
+        kinds=None,
+        limit=10,
     )
     s2 = _query_shape_key(
-        node=node, hops=1, direction="both",
-        edge_types=["b", "a"], kinds=None, limit=10,
+        node=node,
+        hops=1,
+        direction="both",
+        edge_types=["b", "a"],
+        kinds=None,
+        limit=10,
     )
     assert s1 == s2
 
@@ -101,12 +113,20 @@ def test_shape_key_distinguishes_hops() -> None:
     env, rid = uuid4(), uuid4()
     node = GraphNodeRef(env_id=env, kind="entity", record_id=rid)
     s1 = _query_shape_key(
-        node=node, hops=1, direction="both",
-        edge_types=None, kinds=None, limit=10,
+        node=node,
+        hops=1,
+        direction="both",
+        edge_types=None,
+        kinds=None,
+        limit=10,
     )
     s2 = _query_shape_key(
-        node=node, hops=2, direction="both",
-        edge_types=None, kinds=None, limit=10,
+        node=node,
+        hops=2,
+        direction="both",
+        edge_types=None,
+        kinds=None,
+        limit=10,
     )
     assert s1 != s2
 
@@ -115,12 +135,20 @@ def test_shape_key_distinguishes_direction() -> None:
     env, rid = uuid4(), uuid4()
     node = GraphNodeRef(env_id=env, kind="entity", record_id=rid)
     s1 = _query_shape_key(
-        node=node, hops=1, direction="out",
-        edge_types=None, kinds=None, limit=10,
+        node=node,
+        hops=1,
+        direction="out",
+        edge_types=None,
+        kinds=None,
+        limit=10,
     )
     s2 = _query_shape_key(
-        node=node, hops=1, direction="in",
-        edge_types=None, kinds=None, limit=10,
+        node=node,
+        hops=1,
+        direction="in",
+        edge_types=None,
+        kinds=None,
+        limit=10,
     )
     assert s1 != s2
 
@@ -131,12 +159,20 @@ def test_shape_key_distinguishes_node() -> None:
     node_a = GraphNodeRef(env_id=env, kind="entity", record_id=rid_a)
     node_b = GraphNodeRef(env_id=env, kind="entity", record_id=rid_b)
     s1 = _query_shape_key(
-        node=node_a, hops=1, direction="both",
-        edge_types=None, kinds=None, limit=10,
+        node=node_a,
+        hops=1,
+        direction="both",
+        edge_types=None,
+        kinds=None,
+        limit=10,
     )
     s2 = _query_shape_key(
-        node=node_b, hops=1, direction="both",
-        edge_types=None, kinds=None, limit=10,
+        node=node_b,
+        hops=1,
+        direction="both",
+        edge_types=None,
+        kinds=None,
+        limit=10,
     )
     assert s1 != s2
 
@@ -178,8 +214,12 @@ def test_neighbors_rejects_cursor_from_different_node() -> None:
     node_a = GraphNodeRef(env_id=env, kind="entity", record_id=uuid4())
     node_b = GraphNodeRef(env_id=env, kind="entity", record_id=uuid4())
     other_shape = _query_shape_key(
-        node=node_b, hops=1, direction="both",
-        edge_types=None, kinds=None, limit=10,
+        node=node_b,
+        hops=1,
+        direction="both",
+        edge_types=None,
+        kinds=None,
+        limit=10,
     )
     bad_cursor = _encode_cursor({"shape": other_shape, "offset": 10})
     store = _build_store(records=[])
@@ -187,8 +227,12 @@ def test_neighbors_rejects_cursor_from_different_node() -> None:
     with pytest.raises(ValueError, match="shape mismatch"):
         asyncio.run(
             store.neighbors(
-                node_a, hops=1, direction="both",
-                edge_types=None, kinds=None, limit=10,
+                node_a,
+                hops=1,
+                direction="both",
+                edge_types=None,
+                kinds=None,
+                limit=10,
                 cursor=bad_cursor,
             )
         )
@@ -198,8 +242,12 @@ def test_neighbors_rejects_cursor_from_different_hops() -> None:
     env = uuid4()
     node = GraphNodeRef(env_id=env, kind="entity", record_id=uuid4())
     other_shape = _query_shape_key(
-        node=node, hops=2, direction="both",
-        edge_types=None, kinds=None, limit=10,
+        node=node,
+        hops=2,
+        direction="both",
+        edge_types=None,
+        kinds=None,
+        limit=10,
     )
     bad_cursor = _encode_cursor({"shape": other_shape, "offset": 5})
     store = _build_store(records=[])
@@ -207,8 +255,12 @@ def test_neighbors_rejects_cursor_from_different_hops() -> None:
     with pytest.raises(ValueError, match="shape mismatch"):
         asyncio.run(
             store.neighbors(
-                node, hops=1, direction="both",
-                edge_types=None, kinds=None, limit=10,
+                node,
+                hops=1,
+                direction="both",
+                edge_types=None,
+                kinds=None,
+                limit=10,
                 cursor=bad_cursor,
             )
         )
@@ -218,8 +270,12 @@ def test_neighbors_accepts_matching_cursor() -> None:
     env = uuid4()
     node = GraphNodeRef(env_id=env, kind="entity", record_id=uuid4())
     matching_shape = _query_shape_key(
-        node=node, hops=1, direction="both",
-        edge_types=None, kinds=None, limit=10,
+        node=node,
+        hops=1,
+        direction="both",
+        edge_types=None,
+        kinds=None,
+        limit=10,
     )
     cursor = _encode_cursor({"shape": matching_shape, "offset": 0})
     store = _build_store(records=[])
@@ -227,8 +283,12 @@ def test_neighbors_accepts_matching_cursor() -> None:
     # Should not raise.
     hits, next_cursor = asyncio.run(
         store.neighbors(
-            node, hops=1, direction="both",
-            edge_types=None, kinds=None, limit=10,
+            node,
+            hops=1,
+            direction="both",
+            edge_types=None,
+            kinds=None,
+            limit=10,
             cursor=cursor,
         )
     )
@@ -259,16 +319,24 @@ def test_neighbors_returns_next_cursor_when_more_records() -> None:
 
     hits, next_cursor = asyncio.run(
         store.neighbors(
-            node, hops=1, direction="both",
-            edge_types=None, kinds=None, limit=2,
+            node,
+            hops=1,
+            direction="both",
+            edge_types=None,
+            kinds=None,
+            limit=2,
         )
     )
     assert len(hits) == 2
     assert next_cursor is not None
     decoded = _decode_cursor(next_cursor)
     expected_shape = _query_shape_key(
-        node=node, hops=1, direction="both",
-        edge_types=None, kinds=None, limit=2,
+        node=node,
+        hops=1,
+        direction="both",
+        edge_types=None,
+        kinds=None,
+        limit=2,
     )
     assert decoded["shape"] == expected_shape
     assert decoded["offset"] == 2  # initial offset 0 + limit 2
@@ -295,8 +363,12 @@ def test_neighbors_no_next_cursor_when_no_more_records() -> None:
 
     hits, next_cursor = asyncio.run(
         store.neighbors(
-            node, hops=1, direction="both",
-            edge_types=None, kinds=None, limit=5,
+            node,
+            hops=1,
+            direction="both",
+            edge_types=None,
+            kinds=None,
+            limit=5,
         )
     )
     assert len(hits) == 2

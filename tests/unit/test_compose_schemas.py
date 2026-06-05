@@ -7,11 +7,10 @@ order, dedupe-key computation, outbox, audit, lineage) lives in
 
 from __future__ import annotations
 
+from datetime import UTC
 from uuid import UUID, uuid4
 
 import pytest
-from pydantic import ValidationError
-
 from memory_mcp_schemas.compose import (
     ComposeLineageRow,
     MemComposeRequest,
@@ -20,6 +19,7 @@ from memory_mcp_schemas.compose import (
 )
 from memory_mcp_schemas.enums import MemoryKind, MemoryStatus
 from memory_mcp_schemas.memories import MemoryResponse
+from pydantic import ValidationError
 
 
 def _good_target() -> MemComposeTarget:
@@ -64,9 +64,7 @@ def test_compose_rejects_single_source() -> None:
 
 def test_compose_rejects_more_than_twenty_sources() -> None:
     with pytest.raises(ValidationError, match="at most 20"):
-        MemComposeRequest(
-            source_ids=[uuid4() for _ in range(21)], target=_good_target()
-        )
+        MemComposeRequest(source_ids=[uuid4() for _ in range(21)], target=_good_target())
 
 
 def test_compose_rejects_duplicate_source_ids() -> None:
@@ -93,17 +91,13 @@ def test_compose_rejects_unknown_mode() -> None:
 
 @pytest.mark.parametrize("policy", ["target", "union", "target_plus_union"])
 def test_compose_accepts_valid_tag_policy(policy: str) -> None:
-    req = MemComposeRequest(
-        source_ids=_good_sources(), target=_good_target(), tag_policy=policy
-    )
+    req = MemComposeRequest(source_ids=_good_sources(), target=_good_target(), tag_policy=policy)
     assert req.tag_policy == policy
 
 
 def test_compose_rejects_unknown_tag_policy() -> None:
     with pytest.raises(ValidationError):
-        MemComposeRequest(
-            source_ids=_good_sources(), target=_good_target(), tag_policy="exclusive"
-        )
+        MemComposeRequest(source_ids=_good_sources(), target=_good_target(), tag_policy="exclusive")
 
 
 # ---------------------------------------------------------------------------
@@ -154,9 +148,7 @@ def test_compose_accepts_env_id_only() -> None:
 
 
 def test_compose_accepts_env_name_only() -> None:
-    req = MemComposeRequest(
-        source_ids=_good_sources(), target=_good_target(), env_name="cdp"
-    )
+    req = MemComposeRequest(source_ids=_good_sources(), target=_good_target(), env_name="cdp")
     assert req.env_name == "cdp"
 
 
@@ -167,9 +159,7 @@ def test_compose_accepts_env_name_only() -> None:
 
 def test_compose_request_forbids_extra_fields() -> None:
     with pytest.raises(ValidationError):
-        MemComposeRequest(
-            source_ids=_good_sources(), target=_good_target(), unknown_field=1
-        )
+        MemComposeRequest(source_ids=_good_sources(), target=_good_target(), unknown_field=1)
 
 
 def test_compose_target_forbids_extra_fields() -> None:
@@ -208,7 +198,7 @@ def test_compose_idempotency_key_accepted() -> None:
 
 
 def _make_memory_response() -> MemoryResponse:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     return MemoryResponse(
         id=uuid4(),
@@ -229,8 +219,8 @@ def _make_memory_response() -> MemoryResponse:
         expires_at=None,
         superseded_by=None,
         version=1,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
 
 

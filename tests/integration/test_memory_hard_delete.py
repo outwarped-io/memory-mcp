@@ -70,9 +70,7 @@ async def _create_env_and_agent(factory, *, scenario: str) -> tuple[UUID, UUID]:
         return env.id, agent.id
 
 
-async def _write_memory(
-    factory, *, env_id: UUID, agent_id: UUID, title: str = "to-be-deleted"
-) -> UUID:
+async def _write_memory(factory, *, env_id: UUID, agent_id: UUID, title: str = "to-be-deleted") -> UUID:
     token = use_session_factory(factory)
     try:
         ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
@@ -131,28 +129,18 @@ async def test_hard_delete_happy_path(
         row = await session.scalar(select(Memory).where(Memory.id == memory_id))
         assert row is None, "canonical Memory row should be gone"
 
-        tombstone = await session.scalar(
-            select(MemoryTombstone).where(MemoryTombstone.id == resp.tombstone_id)
-        )
+        tombstone = await session.scalar(select(MemoryTombstone).where(MemoryTombstone.id == resp.tombstone_id))
         assert tombstone is not None
         assert tombstone.env_id == env_id
         assert tombstone.deleted_by_agent_id == agent_id
         assert tombstone.reason == "integration test cleanup"
         assert tombstone.original_kind == MemoryKind.fact.value
 
-        outbox_rows = (
-            await session.execute(
-                select(Outbox).where(Outbox.aggregate_id == memory_id)
-            )
-        ).scalars().all()
+        outbox_rows = (await session.execute(select(Outbox).where(Outbox.aggregate_id == memory_id))).scalars().all()
         ops = [r.op for r in outbox_rows]
         assert OutboxOp.tombstone.value in ops, f"expected tombstone outbox event, got {ops}"
 
-        audit_rows = (
-            await session.execute(
-                select(AuditLog).where(AuditLog.record_id == memory_id)
-            )
-        ).scalars().all()
+        audit_rows = (await session.execute(select(AuditLog).where(AuditLog.record_id == memory_id))).scalars().all()
         audit_ops = [r.op for r in audit_rows]
         assert "hard_delete" in audit_ops, f"expected hard_delete audit, got {audit_ops}"
 
@@ -284,11 +272,12 @@ async def test_hard_delete_rejects_when_refs_exist(
             )
         # ``_ensure_memory_hard_delete_allowed`` raises ConflictError-shaped
         # errors. Accept any MemoryMCPError subclass with code CONFLICT.
-        assert getattr(exc_info.value, "code", "") in {"CONFLICT", "REF_EXISTS", "MEMORY_HAS_REFS"} \
-            or "ref" in str(exc_info.value).lower() \
-            or "lineage" in str(exc_info.value).lower() \
-            or "supers" in str(exc_info.value).lower(), \
-            f"unexpected error: {exc_info.value!r}"
+        assert (
+            getattr(exc_info.value, "code", "") in {"CONFLICT", "REF_EXISTS", "MEMORY_HAS_REFS"}
+            or "ref" in str(exc_info.value).lower()
+            or "lineage" in str(exc_info.value).lower()
+            or "supers" in str(exc_info.value).lower()
+        ), f"unexpected error: {exc_info.value!r}"
     finally:
         reset_session_factory(token)
 
@@ -312,10 +301,12 @@ async def test_hard_delete_cascade_real_postgres(
     leaf_id = await _write_memory(factory, env_id=env_id, agent_id=agent_id, title="leaf")
 
     async with factory() as session:
-        session.add_all([
-            MemoryLineage(parent_memory_id=root_id, child_memory_id=child_id, relation="copied_from"),
-            MemoryLineage(parent_memory_id=child_id, child_memory_id=leaf_id, relation="summarized_from"),
-        ])
+        session.add_all(
+            [
+                MemoryLineage(parent_memory_id=root_id, child_memory_id=child_id, relation="copied_from"),
+                MemoryLineage(parent_memory_id=child_id, child_memory_id=leaf_id, relation="summarized_from"),
+            ]
+        )
         await session.commit()
 
     token = use_session_factory(factory)
@@ -341,23 +332,23 @@ async def test_hard_delete_cascade_real_postgres(
 
     async with factory() as session:
         survivors = (
-            await session.execute(select(Memory).where(Memory.id.in_([root_id, child_id, leaf_id])))
-        ).scalars().all()
+            (await session.execute(select(Memory).where(Memory.id.in_([root_id, child_id, leaf_id])))).scalars().all()
+        )
         assert survivors == []
 
         tombstones = (
-            await session.execute(
-                select(MemoryTombstone).where(MemoryTombstone.cascade_root == resp.cascade_root)
-            )
-        ).scalars().all()
+            (await session.execute(select(MemoryTombstone).where(MemoryTombstone.cascade_root == resp.cascade_root)))
+            .scalars()
+            .all()
+        )
         assert len(tombstones) == 3
         assert {row.cascade_root for row in tombstones} == {resp.cascade_root}
 
         outbox_rows = (
-            await session.execute(
-                select(Outbox).where(Outbox.aggregate_id.in_([root_id, child_id, leaf_id]))
-            )
-        ).scalars().all()
+            (await session.execute(select(Outbox).where(Outbox.aggregate_id.in_([root_id, child_id, leaf_id]))))
+            .scalars()
+            .all()
+        )
         tombstone_ops = [row for row in outbox_rows if row.op == OutboxOp.tombstone.value]
         assert len(tombstone_ops) == 3
 
@@ -384,11 +375,7 @@ async def test_hard_delete_cascade_occ_conflict_rolls_back(
     async def bump_after_collect(session, root, *, request, ctx):
         affected = await original_collect(session, root, request=request, ctx=ctx)
         async with factory() as other_session:
-            await other_session.execute(
-                update(Memory)
-                .where(Memory.id == child_id)
-                .values(version=Memory.version + 1)
-            )
+            await other_session.execute(update(Memory).where(Memory.id == child_id).values(version=Memory.version + 1))
             await other_session.commit()
         return affected
 
@@ -415,9 +402,7 @@ async def test_hard_delete_cascade_occ_conflict_rolls_back(
     assert exc.value.details["memory_id"] == str(child_id)
 
     async with factory() as session:
-        survivors = (
-            await session.execute(select(Memory).where(Memory.id.in_([root_id, child_id])))
-        ).scalars().all()
+        survivors = (await session.execute(select(Memory).where(Memory.id.in_([root_id, child_id])))).scalars().all()
         assert {row.id for row in survivors} == {root_id, child_id}
         tombstone_count = await session.scalar(
             select(func.count()).select_from(MemoryTombstone).where(MemoryTombstone.reason == "cascade occ")

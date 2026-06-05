@@ -80,7 +80,9 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     HEADER = "x-request-id"
 
     async def dispatch(  # type: ignore[override]
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]],
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         rid = request.headers.get(self.HEADER) or uuid.uuid4().hex
         token = request_id_var.set(rid)
@@ -418,18 +420,18 @@ async def refresh_projection_metrics() -> None:
 
         async with session_scope() as s:
             # projection_state → per-(sink, env) gauges
-            ps_rows = (
-                await s.execute(select(ProjectionState))
-            ).scalars().all()
+            ps_rows = (await s.execute(select(ProjectionState))).scalars().all()
             for ps in ps_rows:
                 env_label = str(ps.env_id) if ps.env_id else "_all"
                 if ps.lag_seconds is not None:
                     projection_lag_seconds.labels(
-                        sink=ps.sink, env_id=env_label,
+                        sink=ps.sink,
+                        env_id=env_label,
                     ).set(float(ps.lag_seconds))
                 if ps.last_event_id is not None:
                     projection_event_id.labels(
-                        sink=ps.sink, env_id=env_label,
+                        sink=ps.sink,
+                        env_id=env_label,
                     ).set(float(ps.last_event_id))
 
             # outbox_delivery aggregates → per-sink gauges
@@ -487,37 +489,48 @@ async def refresh_metrics_on_scrape_v10(*, force: bool = False) -> None:
             if not force and now - _STATS_LAST_REFRESH < _stats_refresh_interval_seconds():
                 return
             async with session_scope() as s:
-                mem_rows = await s.execute(text("""
+                mem_rows = await s.execute(
+                    text("""
                     SELECT COALESCE(e.name, m.env_id::text) AS env, m.kind, m.status, COUNT(*) AS count
                     FROM memories m
                     LEFT JOIN environments e ON e.id = m.env_id
                     GROUP BY env, m.kind, m.status
-                """))
+                """)
+                )
                 for env, kind, status, count in mem_rows.all():
                     memories_total.labels(env=str(env), kind=str(kind), status=str(status)).set(int(count))
 
-                env_rows = await s.execute(text("""
+                env_rows = await s.execute(
+                    text("""
                     SELECT COALESCE(e.name, m.env_id::text) AS env,
                            COUNT(*) FILTER (WHERE m.pinned) AS pinned,
                            SUM(octet_length(m.body)) AS body_bytes
                     FROM memories m
                     LEFT JOIN environments e ON e.id = m.env_id
                     GROUP BY env
-                """))
+                """)
+                )
                 for env, pinned, body_bytes in env_rows.all():
                     memories_pinned_total.labels(env=str(env)).set(int(pinned or 0))
                     memories_body_bytes_total.labels(env=str(env)).set(int(body_bytes or 0))
 
                 for metric, sql in (
                     (stats_tasks_total, "SELECT status, COUNT(*) AS count FROM tasks GROUP BY status"),
-                    (stats_playbooks_total, "SELECT status, COUNT(*) AS count FROM memories WHERE kind = 'playbook' GROUP BY status"),
-                    (stats_decisions_total, "SELECT status, COUNT(*) AS count FROM memories WHERE kind = 'decision' GROUP BY status"),
+                    (
+                        stats_playbooks_total,
+                        "SELECT status, COUNT(*) AS count FROM memories WHERE kind = 'playbook' GROUP BY status",
+                    ),
+                    (
+                        stats_decisions_total,
+                        "SELECT status, COUNT(*) AS count FROM memories WHERE kind = 'decision' GROUP BY status",
+                    ),
                 ):
                     rows = await s.execute(text(sql))
                     for status, count in rows.all():
                         metric.labels(status=str(status)).set(int(count))
 
-                chain_rows = await s.execute(text("""
+                chain_rows = await s.execute(
+                    text("""
                     WITH RECURSIVE chain(root_id, id, env_id, depth) AS (
                         SELECT id, id, env_id, 1 FROM memories WHERE superseded_by IS NULL
                         UNION ALL
@@ -529,17 +542,20 @@ async def refresh_metrics_on_scrape_v10(*, force: bool = False) -> None:
                         SELECT root_id, MAX(depth) AS depth FROM chain GROUP BY root_id
                     )
                     SELECT depth FROM depths
-                """))
+                """)
+                )
                 for (depth,) in chain_rows.all():
                     memory_chain_depth.observe(float(depth))
 
-                sample_rows = await s.execute(text("""
+                sample_rows = await s.execute(
+                    text("""
                     SELECT octet_length(body) AS body_length,
                            CASE WHEN status = 'active' THEN EXTRACT(EPOCH FROM (now() - created_at)) ELSE NULL END AS age_seconds,
                            salience::float AS salience,
                            access_count AS access_count
                     FROM memories
-                """))
+                """)
+                )
                 for body_length, age_seconds, salience, access_count in sample_rows.all():
                     memory_body_length_bytes.observe(float(body_length))
                     if age_seconds is not None:

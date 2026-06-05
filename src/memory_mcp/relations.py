@@ -40,10 +40,17 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from memory_mcp_schemas.relations import (
+    RelationBrowseHit,
+    RelationBrowseRequest,
+    RelationBrowseResponse,
+    RelationEndpoint,
+    RelationLinkRequest,
+    RelationResponse,
+)
 from sqlalchemy import Select, and_, func, select, tuple_, update
 from sqlalchemy.exc import IntegrityError
 
@@ -77,15 +84,6 @@ from memory_mcp.pagination import (
 )
 from memory_mcp.tasks.api import _acquire_dep_lock
 from memory_mcp.tasks.cycles import would_cycle
-
-from memory_mcp_schemas.relations import (
-    RelationBrowseHit,
-    RelationBrowseRequest,
-    RelationBrowseResponse,
-    RelationEndpoint,
-    RelationLinkRequest,
-    RelationResponse,
-)
 
 log = logging.getLogger(__name__)
 
@@ -176,18 +174,11 @@ async def _ensure_graph_node(
     Missing record raises :class:`NotFoundError`.
     """
     if endpoint.kind == "entity":
-        ent = (await session.execute(
-            select(Entity).where(Entity.id == endpoint.id)
-        )).scalar_one_or_none()
+        ent = (await session.execute(select(Entity).where(Entity.id == endpoint.id))).scalar_one_or_none()
         if ent is None:
-            raise NotFoundError(
-                f"entity {endpoint.id} not found", entity_id=str(endpoint.id)
-            )
+            raise NotFoundError(f"entity {endpoint.id} not found", entity_id=str(endpoint.id))
         if ent.env_id != env_id:
-            raise ValueError(
-                f"entity {endpoint.id} is in env {ent.env_id}, "
-                f"not relation env {env_id}"
-            )
+            raise ValueError(f"entity {endpoint.id} is in env {ent.env_id}, not relation env {env_id}")
         stmt = select(GraphNode).where(GraphNode.entity_id == endpoint.id)
         node = (await session.execute(stmt)).scalar_one_or_none()
         if node is None:
@@ -203,18 +194,11 @@ async def _ensure_graph_node(
         return node
 
     if endpoint.kind == "memory":
-        mem = (await session.execute(
-            select(Memory).where(Memory.id == endpoint.id)
-        )).scalar_one_or_none()
+        mem = (await session.execute(select(Memory).where(Memory.id == endpoint.id))).scalar_one_or_none()
         if mem is None:
-            raise NotFoundError(
-                f"memory {endpoint.id} not found", memory_id=str(endpoint.id)
-            )
+            raise NotFoundError(f"memory {endpoint.id} not found", memory_id=str(endpoint.id))
         if mem.env_id != env_id:
-            raise ValueError(
-                f"memory {endpoint.id} is in env {mem.env_id}, "
-                f"not relation env {env_id}"
-            )
+            raise ValueError(f"memory {endpoint.id} is in env {mem.env_id}, not relation env {env_id}")
         stmt = select(GraphNode).where(GraphNode.memory_id == endpoint.id)
         node = (await session.execute(stmt)).scalar_one_or_none()
         if node is None:
@@ -230,16 +214,11 @@ async def _ensure_graph_node(
         return node
 
     stmt = select(GraphNode).where(GraphNode.task_id == endpoint.id)
-    task = (await session.execute(
-        select(Task).where(Task.id == endpoint.id)
-    )).scalar_one_or_none()
+    task = (await session.execute(select(Task).where(Task.id == endpoint.id))).scalar_one_or_none()
     if task is None:
         raise NotFoundError(f"task {endpoint.id} not found", task_id=str(endpoint.id))
     if task.env_id != env_id:
-        raise ValueError(
-            f"task {endpoint.id} is in env {task.env_id}, "
-            f"not relation env {env_id}"
-        )
+        raise ValueError(f"task {endpoint.id} is in env {task.env_id}, not relation env {env_id}")
     node = (await session.execute(stmt)).scalar_one_or_none()
     if node is None:
         node = await _create_or_get_graph_node(
@@ -272,9 +251,7 @@ def _validate_relation_type_for_endpoints(
         "produces",
         "references",
     }:
-        raise InvalidInputError(
-            "task endpoint relations must use motivated_by, produces, or references"
-        )
+        raise InvalidInputError("task endpoint relations must use motivated_by, produces, or references")
 
 
 def _relation_payload(
@@ -384,10 +361,7 @@ async def relation_link(
     env_id = _resolve_env_id(explicit=request.env_id, ctx=ctx)
     rbac.require("write", env_id, ctx)
 
-    if (
-        request.src.kind == request.dst.kind
-        and request.src.id == request.dst.id
-    ):
+    if request.src.kind == request.dst.kind and request.src.id == request.dst.id:
         raise ValueError("self-loop relations are not allowed")
     _validate_relation_type_for_endpoints(request.type, request.src, request.dst)
 
@@ -399,13 +373,15 @@ async def relation_link(
             if await would_cycle(s, env_id, request.src.id, request.dst.id):
                 raise CycleDetectedError("relation_link depends_on would create a dependency cycle")
 
-        existing = (await s.execute(
-            select(Relation).where(
-                Relation.src_node_id == src_node.id,
-                Relation.dst_node_id == dst_node.id,
-                Relation.type == request.type,
+        existing = (
+            await s.execute(
+                select(Relation).where(
+                    Relation.src_node_id == src_node.id,
+                    Relation.dst_node_id == dst_node.id,
+                    Relation.type == request.type,
+                )
             )
-        )).scalar_one_or_none()
+        ).scalar_one_or_none()
 
         is_create = existing is None
         emit_outbox = False
@@ -428,10 +404,7 @@ async def relation_link(
         else:
             relation = existing
             before_snap = _relation_payload(relation, src_node, dst_node)
-            if (
-                request.expected_version is not None
-                and relation.version != request.expected_version
-            ):
+            if request.expected_version is not None and relation.version != request.expected_version:
                 raise VersionConflictError(
                     expected=request.expected_version,
                     actual=relation.version,
@@ -445,16 +418,16 @@ async def relation_link(
                         Relation.id == relation.id,
                         Relation.version == expected_v,
                     )
-                    .values({
-                        Relation.properties: request.properties,
-                        Relation.version: expected_v + 1,
-                        Relation.updated_at: func.now(),
-                    })
+                    .values(
+                        {
+                            Relation.properties: request.properties,
+                            Relation.version: expected_v + 1,
+                            Relation.updated_at: func.now(),
+                        }
+                    )
                 )
                 if result.rowcount == 0:  # type: ignore[attr-defined]
-                    raise VersionConflictError(
-                        expected=expected_v, actual=expected_v + 1
-                    )
+                    raise VersionConflictError(expected=expected_v, actual=expected_v + 1)
                 await s.refresh(relation)
                 emit_outbox = True
                 outbox_op = OutboxOp.update
@@ -509,7 +482,8 @@ def _resolve_browse_env_ids(
 
 
 def _relation_browse_filter_dict(
-    req: RelationBrowseRequest, env_ids: list[UUID],
+    req: RelationBrowseRequest,
+    env_ids: list[UUID],
 ) -> dict[str, Any]:
     return {
         "env_ids": list(env_ids),
@@ -605,15 +579,9 @@ async def relation_browse(
 
         if cursor_value is not None and cursor_id is not None:
             if request.descending:
-                stmt = stmt.where(
-                    tuple_(Relation.created_at, Relation.id)
-                    < tuple_(cursor_value, cursor_id)
-                )
+                stmt = stmt.where(tuple_(Relation.created_at, Relation.id) < tuple_(cursor_value, cursor_id))
             else:
-                stmt = stmt.where(
-                    tuple_(Relation.created_at, Relation.id)
-                    > tuple_(cursor_value, cursor_id)
-                )
+                stmt = stmt.where(tuple_(Relation.created_at, Relation.id) > tuple_(cursor_value, cursor_id))
         if request.descending:
             stmt = stmt.order_by(Relation.created_at.desc(), Relation.id.desc())
         else:

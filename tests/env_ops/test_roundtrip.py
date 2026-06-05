@@ -14,6 +14,8 @@ from uuid import UUID, uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from memory_mcp_schemas.env_ops import EnvExportRequest, EnvImportRequest, ExportFormat, ImportMode
+from memory_mcp_schemas.envs import EnvCreateRequest
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -39,11 +41,9 @@ from memory_mcp.env_ops import import_ as importer
 from memory_mcp.env_ops._checksums import verify_checksums_file
 from memory_mcp.env_ops.export import export_env
 from memory_mcp.env_ops.import_ import import_env
-from memory_mcp.errors import NotFoundError
 from memory_mcp.envs import env_create
+from memory_mcp.errors import NotFoundError
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.env_ops import EnvExportRequest, EnvImportRequest, ExportFormat, ImportMode
-from memory_mcp_schemas.envs import EnvCreateRequest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ROW_TABLES = (
@@ -357,10 +357,9 @@ async def test_roundtrip_directory_format_preserves_all_tables(
     src_memories = _jsonl(src_root / "memories.jsonl")
     dst_memories = _jsonl(dst_root / "memories.jsonl")
     assert Counter(m["kind"] for m in src_memories) == Counter(m["kind"] for m in dst_memories)
-    assert {
-        memory_signature(m): (m["kind"], m["body"], m["status"])
-        for m in src_memories
-    } == {memory_signature(m): (m["kind"], m["body"], m["status"]) for m in dst_memories}
+    assert {memory_signature(m): (m["kind"], m["body"], m["status"]) for m in src_memories} == {
+        memory_signature(m): (m["kind"], m["body"], m["status"]) for m in dst_memories
+    }
     _assert_supersession_chain_preserved(src_memories, dst_memories)
     assert _stable_manifest_counts(src_root) == _stable_manifest_counts(dst_root)
 
@@ -386,7 +385,9 @@ async def test_roundtrip_archive_format_preserves_checksums(
     assert await verify_checksums_file(second_root / "checksums.sha256", second_root)
 
     chained = await import_env(
-        EnvImportRequest(source_path=second.output_path, target_env_name=f"rt-archive-chain-{uuid4().hex[:8]}", dry_run=False),
+        EnvImportRequest(
+            source_path=second.output_path, target_env_name=f"rt-archive-chain-{uuid4().hex[:8]}", dry_run=False
+        ),
         ctx=ctx,
     )
     assert chained.counts["memories"] == 3
@@ -464,7 +465,9 @@ async def test_roundtrip_skip_mode_handles_tag_collision(
         ctx=ctx,
     )
 
-    shared_count = await session.scalar(select(func.count()).select_from(Tag).where(Tag.env_id == target.id, Tag.name == "shared"))
+    shared_count = await session.scalar(
+        select(func.count()).select_from(Tag).where(Tag.env_id == target.id, Tag.name == "shared")
+    )
     assert report.conflicts["tags"] >= 1
     assert shared_count == 1
     linked_shared = await session.scalar(
@@ -504,9 +507,7 @@ async def test_roundtrip_deleted_env_cannot_be_exported(
     session, _store, ctx = roundtrip_db
     env_id = await create_canonical_env(session)
     await session.execute(
-        update(Environment)
-        .where(Environment.id == env_id)
-        .values(status="deleted", deleted_at=func.now())
+        update(Environment).where(Environment.id == env_id).values(status="deleted", deleted_at=func.now())
     )
     await session.commit()
 
@@ -585,7 +586,9 @@ async def _count_env_rows(session: AsyncSession, env_id: UUID) -> dict[str, int]
     counts["entity_aliases"] = await _count(
         session, select(func.count()).select_from(EntityAlias).where(EntityAlias.env_id == env_id)
     )
-    counts["relations"] = await _count(session, select(func.count()).select_from(Relation).where(Relation.env_id == env_id))
+    counts["relations"] = await _count(
+        session, select(func.count()).select_from(Relation).where(Relation.env_id == env_id)
+    )
     counts["graph_nodes"] = await _count(
         session, select(func.count()).select_from(GraphNode).where(GraphNode.env_id == env_id)
     )

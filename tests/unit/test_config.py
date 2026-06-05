@@ -97,51 +97,44 @@ def test_get_settings_is_cached() -> None:
 # Each (src, dst, expected) triple. Idempotent (src==dst) always True.
 TRANSITIONS = [
     # proposed → ...
-    (MemoryStatus.proposed, MemoryStatus.active,     True),
-    (MemoryStatus.proposed, MemoryStatus.archived,   False),
-    (MemoryStatus.proposed, MemoryStatus.retired,    True),
-    (MemoryStatus.proposed, MemoryStatus.stale,      False),
+    (MemoryStatus.proposed, MemoryStatus.active, True),
+    (MemoryStatus.proposed, MemoryStatus.archived, False),
+    (MemoryStatus.proposed, MemoryStatus.retired, True),
+    (MemoryStatus.proposed, MemoryStatus.stale, False),
     (MemoryStatus.proposed, MemoryStatus.superseded, False),
-
     # active → ...
-    (MemoryStatus.active, MemoryStatus.stale,        True),
-    (MemoryStatus.active, MemoryStatus.archived,     True),
-    (MemoryStatus.active, MemoryStatus.superseded,   True),
-    (MemoryStatus.active, MemoryStatus.retired,      True),
-    (MemoryStatus.active, MemoryStatus.proposed,     False),
-
+    (MemoryStatus.active, MemoryStatus.stale, True),
+    (MemoryStatus.active, MemoryStatus.archived, True),
+    (MemoryStatus.active, MemoryStatus.superseded, True),
+    (MemoryStatus.active, MemoryStatus.retired, True),
+    (MemoryStatus.active, MemoryStatus.proposed, False),
     # stale → ...
-    (MemoryStatus.stale, MemoryStatus.active,        True),
-    (MemoryStatus.stale, MemoryStatus.archived,      True),
-    (MemoryStatus.stale, MemoryStatus.superseded,    True),
-    (MemoryStatus.stale, MemoryStatus.retired,       True),
-    (MemoryStatus.stale, MemoryStatus.proposed,      False),
-
+    (MemoryStatus.stale, MemoryStatus.active, True),
+    (MemoryStatus.stale, MemoryStatus.archived, True),
+    (MemoryStatus.stale, MemoryStatus.superseded, True),
+    (MemoryStatus.stale, MemoryStatus.retired, True),
+    (MemoryStatus.stale, MemoryStatus.proposed, False),
     # archived → ...
-    (MemoryStatus.archived, MemoryStatus.active,     True),
+    (MemoryStatus.archived, MemoryStatus.active, True),
     (MemoryStatus.archived, MemoryStatus.superseded, True),
-    (MemoryStatus.archived, MemoryStatus.retired,    True),
-    (MemoryStatus.archived, MemoryStatus.stale,      False),
-
+    (MemoryStatus.archived, MemoryStatus.retired, True),
+    (MemoryStatus.archived, MemoryStatus.stale, False),
     # superseded → ...
-    (MemoryStatus.superseded, MemoryStatus.retired,    True),
-    (MemoryStatus.superseded, MemoryStatus.active,     False),
-    (MemoryStatus.superseded, MemoryStatus.stale,      False),
-    (MemoryStatus.superseded, MemoryStatus.archived,   False),
-
+    (MemoryStatus.superseded, MemoryStatus.retired, True),
+    (MemoryStatus.superseded, MemoryStatus.active, False),
+    (MemoryStatus.superseded, MemoryStatus.stale, False),
+    (MemoryStatus.superseded, MemoryStatus.archived, False),
     # retired is terminal
-    (MemoryStatus.retired, MemoryStatus.active,     False),
-    (MemoryStatus.retired, MemoryStatus.archived,   False),
-    (MemoryStatus.retired, MemoryStatus.proposed,   False),
-    (MemoryStatus.retired, MemoryStatus.stale,      False),
+    (MemoryStatus.retired, MemoryStatus.active, False),
+    (MemoryStatus.retired, MemoryStatus.archived, False),
+    (MemoryStatus.retired, MemoryStatus.proposed, False),
+    (MemoryStatus.retired, MemoryStatus.stale, False),
     (MemoryStatus.retired, MemoryStatus.superseded, False),
 ]
 
 
 @pytest.mark.parametrize("src,dst,allowed", TRANSITIONS)
-def test_lifecycle_transition_matrix(
-    src: MemoryStatus, dst: MemoryStatus, allowed: bool
-) -> None:
+def test_lifecycle_transition_matrix(src: MemoryStatus, dst: MemoryStatus, allowed: bool) -> None:
     assert is_valid_transition(src, dst) is allowed
 
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-
 from memory_mcp_schemas.entities import (
     EntityBrowseRequest,
     EntityBrowseResponse,
@@ -15,7 +14,6 @@ from memory_mcp_schemas.entities import (
     EntityUpsertRequest,
 )
 from memory_mcp_schemas.graph import EntityNeighborsRequest, EntityNeighborsResponse
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -70,9 +68,7 @@ async def test_upsert(client, fake_session) -> None:
 
     out = await client.entities.upsert(request)
 
-    assert fake_session.calls == [
-        ("ent_upsert", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("ent_upsert", {"request": request.model_dump(mode="json")})]
     assert isinstance(out, EntityResponse)
     assert out.canonical_name == "Service A"
 
@@ -93,9 +89,7 @@ async def test_resolve_returns_list(client, fake_session) -> None:
 
     out = await client.entities.resolve(request)
 
-    assert fake_session.calls == [
-        ("ent_resolve", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("ent_resolve", {"request": request.model_dump(mode="json")})]
     assert len(out) == 2
     assert all(isinstance(entity, EntityResponse) for entity in out)
 
@@ -112,9 +106,7 @@ async def test_merge(client, fake_session) -> None:
 
     out = await client.entities.merge(request)
 
-    assert fake_session.calls == [
-        ("ent_merge", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("ent_merge", {"request": request.model_dump(mode="json")})]
     assert isinstance(out, EntityResponse)
     assert str(out.id) == str(keep_id)
 
@@ -127,9 +119,7 @@ async def test_neighbors(client, fake_session) -> None:
 
     out = await client.entities.neighbors(request)
 
-    assert fake_session.calls == [
-        ("ent_neighbors", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("ent_neighbors", {"request": request.model_dump(mode="json")})]
     assert isinstance(out, EntityNeighborsResponse)
     assert str(out.hits[0].node.id) == str(entity_id)
 
@@ -147,8 +137,6 @@ async def test_browse(client, fake_session) -> None:
 
     out = await client.entities.browse(request)
 
-    assert fake_session.calls == [
-        ("ent_browse", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("ent_browse", {"request": request.model_dump(mode="json")})]
     assert isinstance(out, EntityBrowseResponse)
     assert len(out.hits) == 1

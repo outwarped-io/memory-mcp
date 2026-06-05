@@ -33,10 +33,7 @@ _KINDS_WITHOUT_MESSAGE = (
 
 def upgrade() -> None:
     op.execute("ALTER TABLE memories DROP CONSTRAINT IF EXISTS memories_kind_check")
-    op.execute(
-        "ALTER TABLE memories ADD CONSTRAINT memories_kind_check "
-        f"CHECK (kind IN {_KINDS_WITH_MESSAGE})"
-    )
+    op.execute(f"ALTER TABLE memories ADD CONSTRAINT memories_kind_check CHECK (kind IN {_KINDS_WITH_MESSAGE})")
 
 
 def downgrade() -> None:
@@ -47,7 +44,4 @@ def downgrade() -> None:
     )
     op.execute("UPDATE memories SET kind = 'observation' WHERE kind = 'message'")
     op.execute("ALTER TABLE memories DROP CONSTRAINT IF EXISTS memories_kind_check")
-    op.execute(
-        "ALTER TABLE memories ADD CONSTRAINT memories_kind_check "
-        f"CHECK (kind IN {_KINDS_WITHOUT_MESSAGE})"
-    )
+    op.execute(f"ALTER TABLE memories ADD CONSTRAINT memories_kind_check CHECK (kind IN {_KINDS_WITHOUT_MESSAGE})")

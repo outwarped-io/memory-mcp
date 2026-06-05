@@ -5,14 +5,12 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-
 from memory_mcp_schemas.relations import (
     RelationBrowseRequest,
     RelationBrowseResponse,
     RelationLinkRequest,
     RelationResponse,
 )
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -73,9 +71,7 @@ async def test_link(client, fake_session) -> None:
 
     out = await client.relations.link(request)
 
-    assert fake_session.calls == [
-        ("rel_link", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("rel_link", {"request": request.model_dump(mode="json")})]
     name, args = fake_session.calls[0]
     assert name == "rel_link"
     assert args["request"]["src"] == {"kind": "entity", "id": str(src_id)}
@@ -99,8 +95,6 @@ async def test_browse(client, fake_session) -> None:
 
     out = await client.relations.browse(request)
 
-    assert fake_session.calls == [
-        ("rel_browse", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("rel_browse", {"request": request.model_dump(mode="json")})]
     assert isinstance(out, RelationBrowseResponse)
     assert len(out.hits) == 1

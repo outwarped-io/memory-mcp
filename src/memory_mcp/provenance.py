@@ -18,11 +18,18 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Mapping
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import Select, and_, select, text, tuple_
+from memory_mcp_schemas.provenance import (
+    MemLineageEdge,
+    MemLineageRequest,
+    MemLineageResponse,
+    MemSourceHit,
+    MemSourcesBrowseRequest,
+    MemSourcesBrowseResponse,
+)
+from sqlalchemy import Select, select, text, tuple_
 
 from memory_mcp import rbac
 from memory_mcp.config import Settings, get_settings
@@ -33,15 +40,6 @@ from memory_mcp.errors import InvalidCursorError, InvalidInputError, NotFoundErr
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import MemoryResponse, _to_response
 from memory_mcp.pagination import Direction, compute_filter_fingerprint, decode_cursor, encode_cursor
-
-from memory_mcp_schemas.provenance import (
-    MemLineageEdge,
-    MemLineageRequest,
-    MemLineageResponse,
-    MemSourceHit,
-    MemSourcesBrowseRequest,
-    MemSourcesBrowseResponse,
-)
 
 __all__ = [
     "MemLineageEdge",
@@ -193,7 +191,10 @@ def _apply_lineage_edge_cap(
     kept = combined[:max_edges]
     kept_ancestors = [edge for kind, _idx, edge in kept if kind == "ancestor"]
     kept_descendants = [edge for kind, _idx, edge in kept if kind == "descendant"]
-    sort_key = lambda edge: (edge.depth, edge.created_at, str(edge.parent_memory_id), str(edge.child_memory_id))
+
+    def sort_key(edge):
+        return (edge.depth, edge.created_at, str(edge.parent_memory_id), str(edge.child_memory_id))
+
     kept_ancestors.sort(key=sort_key)
     kept_descendants.sort(key=sort_key)
     return kept_ancestors, kept_descendants, True
@@ -224,10 +225,7 @@ async def _hydrate_memory_responses(
         for memory_id, tag_name in tag_rows.all():
             tags_by_id[memory_id].append(tag_name)
 
-    return {
-        memory_id: _to_response(memory, tags_by_id.get(memory_id, []))
-        for memory_id, memory in by_id.items()
-    }
+    return {memory_id: _to_response(memory, tags_by_id.get(memory_id, [])) for memory_id, memory in by_id.items()}
 
 
 async def memory_lineage(
@@ -403,10 +401,7 @@ async def memory_sources_browse(
         )
 
     async with session_scope() as session:
-        stmt: Select[Any] = (
-            select(MemorySource, Memory.env_id)
-            .join(Memory, Memory.id == MemorySource.memory_id)
-        )
+        stmt: Select[Any] = select(MemorySource, Memory.env_id).join(Memory, Memory.id == MemorySource.memory_id)
         stmt = _apply_sources_filters(stmt, request, env_ids=env_ids)
         stmt = _apply_sources_keyset(
             stmt,

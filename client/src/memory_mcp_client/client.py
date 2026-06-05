@@ -82,7 +82,9 @@ class MemoryClient:
         self.url = url
         self.auth_token = auth_token
         if default_env_names and attached_env_names:
-            raise ValueError("default_env_names and attached_env_names are aliases; provide only one")
+            raise ValueError(
+                "default_env_names and attached_env_names are aliases; provide only one"
+            )
         effective_env_names = default_env_names or attached_env_names
         if default_env_ids and effective_env_names:
             raise ValueError("default_env_ids and attached_env_names are mutually exclusive")
@@ -158,9 +160,7 @@ class MemoryClient:
             read, write, _ = await self._stack.enter_async_context(
                 streamablehttp_client(self.url, headers=self._request_headers())
             )
-            session = await self._stack.enter_async_context(
-                ClientSession(read, write)
-            )
+            session = await self._stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
             self._session = session
 
@@ -190,8 +190,7 @@ class MemoryClient:
     ) -> Any:
         if not self._opened or self._session is None:
             raise RuntimeError(
-                "MemoryClient must be opened with `async with` (or aopen()) "
-                "before tool calls."
+                "MemoryClient must be opened with `async with` (or aopen()) before tool calls."
             )
         full = _session_mod._build_payload(
             payload,
@@ -226,9 +225,7 @@ class MemoryClient:
         if payload.get("idempotency_key"):
             return True
         req = payload.get("request")
-        if isinstance(req, dict) and req.get("idempotency_key"):
-            return True
-        return False
+        return bool(isinstance(req, dict) and req.get("idempotency_key"))
 
     # ------------------------------------------------------------------
     # Health probes (non-MCP)

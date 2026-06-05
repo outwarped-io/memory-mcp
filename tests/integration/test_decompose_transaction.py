@@ -41,6 +41,7 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.decompose import MemDecomposeChild, MemDecomposeRequest
 from sqlalchemy import select
 
 from memory_mcp import composers as composers_mod
@@ -70,7 +71,6 @@ from memory_mcp.errors import (
 )
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import MemoryWriteRequest, memory_write
-from memory_mcp_schemas.decompose import MemDecomposeChild, MemDecomposeRequest
 
 from .conftest import (
     SessionPairFactory,
@@ -137,46 +137,43 @@ async def _write_source(
 
 async def _fetch_memory(factory, memory_id: UUID) -> Memory:
     async with factory() as session:
-        return (await session.execute(
-            select(Memory).where(Memory.id == memory_id)
-        )).scalar_one()
+        return (await session.execute(select(Memory).where(Memory.id == memory_id))).scalar_one()
 
 
 async def _fetch_lineage(factory, child_id: UUID) -> list[tuple[UUID, str]]:
     async with factory() as session:
-        rows = (await session.execute(
-            select(MemoryLineage.parent_memory_id, MemoryLineage.relation)
-            .where(MemoryLineage.child_memory_id == child_id)
-        )).all()
+        rows = (
+            await session.execute(
+                select(MemoryLineage.parent_memory_id, MemoryLineage.relation).where(
+                    MemoryLineage.child_memory_id == child_id
+                )
+            )
+        ).all()
         return [(r[0], r[1]) for r in rows]
 
 
 async def _fetch_operation(factory, operation_id: UUID) -> DecomposeOperation | None:
     async with factory() as session:
-        return (await session.execute(
-            select(DecomposeOperation).where(DecomposeOperation.id == operation_id)
-        )).scalar_one_or_none()
+        return (
+            await session.execute(select(DecomposeOperation).where(DecomposeOperation.id == operation_id))
+        ).scalar_one_or_none()
 
 
 async def _count_audits(factory, memory_id: UUID, op_like: str | None = None) -> int:
     async with factory() as session:
         from sqlalchemy import func
-        stmt = select(func.count()).select_from(AuditLog).where(
-            AuditLog.record_id == memory_id
-        )
+
+        stmt = select(func.count()).select_from(AuditLog).where(AuditLog.record_id == memory_id)
         if op_like is not None:
             stmt = stmt.where(AuditLog.op.like(op_like))
         return int((await session.execute(stmt)).scalar_one())
 
 
-async def _count_outbox(
-    factory, memory_id: UUID, op: OutboxOp | None = None
-) -> int:
+async def _count_outbox(factory, memory_id: UUID, op: OutboxOp | None = None) -> int:
     async with factory() as session:
         from sqlalchemy import func
-        stmt = select(func.count()).select_from(Outbox).where(
-            Outbox.aggregate_id == memory_id
-        )
+
+        stmt = select(func.count()).select_from(Outbox).where(Outbox.aggregate_id == memory_id)
         if op is not None:
             stmt = stmt.where(Outbox.op == op.value)
         return int((await session.execute(stmt)).scalar_one())
@@ -204,8 +201,11 @@ async def test_decompose_derive_two_children(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src", body="origin source body",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src",
+        body="origin source body",
     )
 
     token = use_session_factory(factory)
@@ -256,8 +256,11 @@ async def test_decompose_split_two_children(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src", body="will retire",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src",
+        body="will retire",
     )
     src_before = await _fetch_memory(factory, src_id)
     initial_version = src_before.version
@@ -307,7 +310,11 @@ async def test_decompose_replay_basic(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="b",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="s",
+        body="b",
     )
 
     req = MemDecomposeRequest(
@@ -319,10 +326,14 @@ async def test_decompose_replay_basic(
     token = use_session_factory(factory)
     try:
         first = await decomposers_mod.memory_decompose(
-            req, ctx=ctx, settings=_settings(),
+            req,
+            ctx=ctx,
+            settings=_settings(),
         )
         second = await decomposers_mod.memory_decompose(
-            req, ctx=ctx, settings=_settings(),
+            req,
+            ctx=ctx,
+            settings=_settings(),
         )
     finally:
         reset_session_factory(token)
@@ -359,7 +370,11 @@ async def test_decompose_replay_after_split_retire(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="b",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="s",
+        body="b",
     )
 
     req = MemDecomposeRequest(
@@ -371,11 +386,15 @@ async def test_decompose_replay_after_split_retire(
     token = use_session_factory(factory)
     try:
         first = await decomposers_mod.memory_decompose(
-            req, ctx=ctx, settings=_settings(),
+            req,
+            ctx=ctx,
+            settings=_settings(),
         )
         # Source is now retired; a retry must still replay.
         second = await decomposers_mod.memory_decompose(
-            req, ctx=ctx, settings=_settings(),
+            req,
+            ctx=ctx,
+            settings=_settings(),
         )
     finally:
         reset_session_factory(token)
@@ -399,16 +418,17 @@ async def test_decompose_replay_with_stale_source(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="b",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="s",
+        body="b",
     )
     # Flip the source to stale via raw UPDATE (no mem_supersede coupling).
     async with factory() as session:
         from sqlalchemy import update as sa_update
-        await session.execute(
-            sa_update(Memory)
-            .where(Memory.id == src_id)
-            .values(status=MemoryStatus.stale.value)
-        )
+
+        await session.execute(sa_update(Memory).where(Memory.id == src_id).values(status=MemoryStatus.stale.value))
         await session.commit()
 
     token = use_session_factory(factory)
@@ -446,7 +466,11 @@ async def test_decompose_caller_idempotency_key(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="b",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="s",
+        body="b",
     )
 
     children = [_child("a", "alpha"), _child("b", "beta")]
@@ -494,7 +518,11 @@ async def test_decompose_caller_key_fingerprint_mismatch(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="b",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="s",
+        body="b",
     )
 
     children = [_child("a", "alpha"), _child("b", "beta")]
@@ -584,9 +612,7 @@ async def test_duplicate_child_canonical_hash(
     factory, _ = postgres_session_factories()
     env_id, agent_id = await _setup_env_and_agent(factory)
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
-    src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
-    )
+    src_id = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="s", body="origin")
 
     token = use_session_factory(factory)
     try:
@@ -618,9 +644,7 @@ async def test_decision_meta_on_non_decision_child(
     factory, _ = postgres_session_factories()
     env_id, agent_id = await _setup_env_and_agent(factory)
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
-    src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
-    )
+    src_id = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="s", body="origin")
 
     bad_child = MemDecomposeChild(
         kind=MemoryKind.fact,
@@ -662,9 +686,7 @@ async def test_decision_meta_on_decision_child_accepted(
     factory, _ = postgres_session_factories()
     env_id, agent_id = await _setup_env_and_agent(factory)
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
-    src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
-    )
+    src_id = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="s", body="origin")
 
     good_child = MemDecomposeChild(
         kind=MemoryKind.decision,
@@ -707,9 +729,7 @@ async def test_source_not_in_attached_env(
     _patch_session_scope(monkeypatch)
     factory, _ = postgres_session_factories()
     env_id, agent_id = await _setup_env_and_agent(factory)
-    src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
-    )
+    src_id = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="s", body="origin")
     # New env the caller has access to instead.
     async with factory() as session:
         other_env = Environment(
@@ -752,16 +772,10 @@ async def test_source_retired_rejected(
     factory, _ = postgres_session_factories()
     env_id, agent_id = await _setup_env_and_agent(factory)
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
-    src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
-    )
+    src_id = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="s", body="origin")
 
     async with factory() as session:
-        await session.execute(
-            sa_update(Memory)
-            .where(Memory.id == src_id)
-            .values(status=MemoryStatus.retired.value)
-        )
+        await session.execute(sa_update(Memory).where(Memory.id == src_id).values(status=MemoryStatus.retired.value))
         await session.commit()
 
     token = use_session_factory(factory)
@@ -793,9 +807,7 @@ async def test_expected_version_mismatch(
     factory, _ = postgres_session_factories()
     env_id, agent_id = await _setup_env_and_agent(factory)
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
-    src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
-    )
+    src_id = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="s", body="origin")
 
     token = use_session_factory(factory)
     try:
@@ -828,8 +840,11 @@ async def test_mixed_kind_children_split_succeeds(
     env_id, agent_id = await _setup_env_and_agent(factory)
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
     src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="proc", body="multi-step procedure body",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="proc",
+        body="multi-step procedure body",
         kind=MemoryKind.procedure,
     )
 
@@ -873,9 +888,7 @@ async def test_concurrent_identical_decompose_race(
     factory_1, factory_2 = postgres_session_factories()
     env_id, agent_id = await _setup_env_and_agent(factory_1)
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
-    src_id = await _write_source(
-        factory_1, env_id=env_id, agent_id=agent_id, title="s", body="origin"
-    )
+    src_id = await _write_source(factory_1, env_id=env_id, agent_id=agent_id, title="s", body="origin")
 
     request = MemDecomposeRequest(
         source_id=src_id,
@@ -887,7 +900,9 @@ async def test_concurrent_identical_decompose_race(
         token = use_session_factory(factory)
         try:
             return await decomposers_mod.memory_decompose(
-                request, ctx=ctx, settings=_settings(),
+                request,
+                ctx=ctx,
+                settings=_settings(),
             )
         finally:
             reset_session_factory(token)
@@ -898,20 +913,25 @@ async def test_concurrent_identical_decompose_race(
         return_exceptions=True,
     )
 
-    assert all(not isinstance(r, Exception) for r in results), (
-        f"unexpected exceptions: {results}"
-    )
+    assert all(not isinstance(r, Exception) for r in results), f"unexpected exceptions: {results}"
     assert results[0].operation_id == results[1].operation_id
     replay_flags = sorted(r.idempotency_replay for r in results)
     assert replay_flags == [False, True]
 
     async with factory_1() as session:
         from sqlalchemy import func
-        n = int((await session.execute(
-            select(func.count()).select_from(DecomposeOperation).where(
-                DecomposeOperation.source_id == src_id,
-            )
-        )).scalar_one())
+
+        n = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(DecomposeOperation)
+                    .where(
+                        DecomposeOperation.source_id == src_id,
+                    )
+                )
+            ).scalar_one()
+        )
         assert n == 1
 
 
@@ -931,32 +951,30 @@ async def test_split_lineage_does_not_bump_reference_count_lineage(
     _patch_session_scope(monkeypatch)
     factory, _ = postgres_session_factories()
     env_id, agent_id = await _setup_env_and_agent(factory)
-    src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
-    )
-    c1_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="c1", body="child1"
-    )
-    c2_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="c2", body="child2"
-    )
+    src_id = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="s", body="origin")
+    c1_id = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="c1", body="child1")
+    c2_id = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="c2", body="child2")
 
     async with factory() as session:
-        session.add(MemoryLineage(
-            parent_memory_id=src_id,
-            child_memory_id=c1_id,
-            relation=LineageRelation.split_from.value,
-        ))
+        session.add(
+            MemoryLineage(
+                parent_memory_id=src_id,
+                child_memory_id=c1_id,
+                relation=LineageRelation.split_from.value,
+            )
+        )
         await session.commit()
     src_after_split = await _fetch_memory(factory, src_id)
     assert int(src_after_split.reference_count_lineage or 0) == 0
 
     async with factory() as session:
-        session.add(MemoryLineage(
-            parent_memory_id=src_id,
-            child_memory_id=c2_id,
-            relation=LineageRelation.derived_from.value,
-        ))
+        session.add(
+            MemoryLineage(
+                parent_memory_id=src_id,
+                child_memory_id=c2_id,
+                relation=LineageRelation.derived_from.value,
+            )
+        )
         await session.commit()
     src_after_derive = await _fetch_memory(factory, src_id)
     assert int(src_after_derive.reference_count_lineage or 0) == 1
@@ -973,9 +991,7 @@ async def test_audit_log_shape_split(
     factory, _ = postgres_session_factories()
     env_id, agent_id = await _setup_env_and_agent(factory)
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
-    src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
-    )
+    src_id = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="s", body="origin")
 
     token = use_session_factory(factory)
     try:
@@ -1012,9 +1028,7 @@ async def test_audit_log_shape_derive(
     factory, _ = postgres_session_factories()
     env_id, agent_id = await _setup_env_and_agent(factory)
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
-    src_id = await _write_source(
-        factory, env_id=env_id, agent_id=agent_id, title="s", body="origin"
-    )
+    src_id = await _write_source(factory, env_id=env_id, agent_id=agent_id, title="s", body="origin")
 
     token = use_session_factory(factory)
     try:

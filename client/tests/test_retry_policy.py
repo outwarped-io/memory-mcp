@@ -21,8 +21,9 @@ Coverage
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 
 import pytest
 
@@ -37,9 +38,7 @@ from memory_mcp_client.errors import (
     RateLimitedError,
     VersionConflictError,
 )
-
 from tests.conftest import FakeClientSession, make_env_payload, make_memory_payload
-
 
 # --- RetryPolicy primitives -------------------------------------------------
 
@@ -105,7 +104,7 @@ def test_is_retryable_exception_classifies_correctly():
     assert _is_retryable_exception(RateLimitedError("rate"))
     assert _is_retryable_exception(GraphBackendUnavailableError("neo4j"))
     assert _is_retryable_exception(ConnectionError("refused"))
-    assert _is_retryable_exception(asyncio.TimeoutError())
+    assert _is_retryable_exception(TimeoutError())
     assert not _is_retryable_exception(VersionConflictError("v"))
     assert not _is_retryable_exception(ValueError("oops"))
 
@@ -274,7 +273,7 @@ async def test_client_non_retryable_passes_through(
 ):
     fake_session.set_error(
         "env_list_",
-        "[VERSION_CONFLICT] stale write :: {\"expected\": 1, \"actual\": 2}",
+        '[VERSION_CONFLICT] stale write :: {"expected": 1, "actual": 2}',
     )
 
     with pytest.raises(VersionConflictError):

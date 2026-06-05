@@ -6,8 +6,6 @@ import datetime as dt
 from typing import Any
 from uuid import UUID
 
-from memory_mcp_client._batch import BatchResult, run_bounded
-from memory_mcp_client.api._base import _BaseAPI
 from memory_mcp_schemas.browse import (
     MemBrowseRequest,
     MemBrowseResponse,
@@ -16,6 +14,12 @@ from memory_mcp_schemas.browse import (
 )
 from memory_mcp_schemas.context_pack import ContextPackResponse
 from memory_mcp_schemas.digest import DigestResponse, ResumeResponse
+from memory_mcp_schemas.env_ops import (
+    MemCopyRequest,
+    MemCopyResponse,
+    MemMoveRequest,
+    MemMoveResponse,
+)
 from memory_mcp_schemas.graph import (
     MemNeighborsRequest,
     MemNeighborsResponse,
@@ -23,14 +27,7 @@ from memory_mcp_schemas.graph import (
     MemRelatedResponse,
 )
 from memory_mcp_schemas.journal import JournalRequest
-from memory_mcp_schemas.env_ops import (
-    MemCopyRequest,
-    MemCopyResponse,
-    MemMoveRequest,
-    MemMoveResponse,
-)
 from memory_mcp_schemas.memories import (
-    HardDeleteProjectionStatus,
     JournalResponse,
     MemoryHardDeleteRequest,
     MemoryHardDeleteResponse,
@@ -51,6 +48,9 @@ from memory_mcp_schemas.search import (
     MemorySearchRequest,
     MemorySearchResponse,
 )
+
+from memory_mcp_client._batch import BatchResult, run_bounded
+from memory_mcp_client.api._base import _BaseAPI
 
 
 class MemoriesAPI(_BaseAPI):
@@ -241,7 +241,9 @@ class MemoriesAPI(_BaseAPI):
         if attached_env_names is not None:
             payload["attached_env_names"] = list(attached_env_names)
         return await self._call(
-            "mem_hard_delete", payload, model=MemoryHardDeleteResponse,
+            "mem_hard_delete",
+            payload,
+            model=MemoryHardDeleteResponse,
         )
 
     async def copy(
@@ -379,9 +381,7 @@ class MemoriesAPI(_BaseAPI):
             payload["agent_id"] = str(agent_id)
         if attached_env_ids is not None:
             payload["attached_env_ids"] = [str(e) for e in attached_env_ids]
-        return await self._call(
-            "mem_auto_context", payload, model=AutoContextResponse
-        )
+        return await self._call("mem_auto_context", payload, model=AutoContextResponse)
 
     async def neighbors(
         self,
@@ -453,9 +453,7 @@ class MemoriesAPI(_BaseAPI):
             payload["agent_id"] = str(agent_id)
         if attached_env_ids is not None:
             payload["attached_env_ids"] = [str(e) for e in attached_env_ids]
-        return await self._call(
-            "mem_sources_browse", payload, model=MemSourcesBrowseResponse
-        )
+        return await self._call("mem_sources_browse", payload, model=MemSourcesBrowseResponse)
 
     async def browse(
         self,
@@ -516,6 +514,4 @@ class MemoriesAPI(_BaseAPI):
             payload["agent_id"] = str(agent_id)
         if attached_env_ids is not None:
             payload["attached_env_ids"] = [str(e) for e in attached_env_ids]
-        return await self._call(
-            "mem_context_pack", payload, model=ContextPackResponse
-        )
+        return await self._call("mem_context_pack", payload, model=ContextPackResponse)

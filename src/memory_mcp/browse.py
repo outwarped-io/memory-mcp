@@ -41,10 +41,17 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from memory_mcp_schemas.browse import (
+    BrowseOrderField,
+    FacetBucket,
+    MemBrowseRequest,
+    MemBrowseResponse,
+    MemFacetsRequest,
+    MemFacetsResponse,
+)
 from sqlalchemy import (
     Select,
     and_,
@@ -63,20 +70,12 @@ from memory_mcp.db.postgres import session_scope
 from memory_mcp.db.types import MemoryKind, MemoryStatus
 from memory_mcp.errors import InvalidCursorError, InvalidInputError
 from memory_mcp.identity import AgentContext
-from memory_mcp.memories import MemoryResponse, _to_response
+from memory_mcp.memories import _to_response
 from memory_mcp.pagination import (
     Direction,
     compute_filter_fingerprint,
     decode_cursor,
     encode_cursor,
-)
-
-from memory_mcp_schemas.browse import (
-    FacetBucket,
-    MemBrowseRequest,
-    MemBrowseResponse,
-    MemFacetsRequest,
-    MemFacetsResponse,
 )
 
 log = logging.getLogger(__name__)
@@ -207,13 +206,9 @@ def _apply_browse_keyset(
     order_col = Memory.updated_at if order_by == "updated_at" else Memory.created_at
     if cursor_value is not None and cursor_id is not None:
         if descending:
-            stmt = stmt.where(
-                tuple_(order_col, Memory.id) < tuple_(cursor_value, cursor_id)
-            )
+            stmt = stmt.where(tuple_(order_col, Memory.id) < tuple_(cursor_value, cursor_id))
         else:
-            stmt = stmt.where(
-                tuple_(order_col, Memory.id) > tuple_(cursor_value, cursor_id)
-            )
+            stmt = stmt.where(tuple_(order_col, Memory.id) > tuple_(cursor_value, cursor_id))
     if descending:
         stmt = stmt.order_by(order_col.desc(), Memory.id.desc())
     else:
@@ -325,10 +320,7 @@ async def memory_browse(
         memory_ids = [m.id for m in page]
         tags_by_id = await _hydrate_tags(session, memory_ids)
 
-    hits = [
-        _to_response(m, tags_by_id.get(m.id, []))
-        for m in page
-    ]
+    hits = [_to_response(m, tags_by_id.get(m.id, [])) for m in page]
 
     next_cursor: str | None = None
     if has_more and page:
@@ -397,11 +389,9 @@ async def _facet_total_and_by_env(
     env_ids: Sequence[UUID],
 ) -> tuple[int, dict[UUID, int]]:
     rows = await session.execute(
-        select(Memory.env_id, func.count(Memory.id))
-        .where(filter_clause)
-        .group_by(Memory.env_id)
+        select(Memory.env_id, func.count(Memory.id)).where(filter_clause).group_by(Memory.env_id)
     )
-    by_env: dict[UUID, int] = {eid: 0 for eid in env_ids}
+    by_env: dict[UUID, int] = dict.fromkeys(env_ids, 0)
     total = 0
     for env_id, count in rows.all():
         by_env[env_id] = int(count)
@@ -410,7 +400,8 @@ async def _facet_total_and_by_env(
 
 
 async def _facet_groupby_kind(
-    session: AsyncSession, filter_clause: Any,
+    session: AsyncSession,
+    filter_clause: Any,
 ) -> list[FacetBucket]:
     rows = await session.execute(
         select(Memory.kind, func.count(Memory.id))
@@ -422,7 +413,8 @@ async def _facet_groupby_kind(
 
 
 async def _facet_groupby_status(
-    session: AsyncSession, filter_clause: Any,
+    session: AsyncSession,
+    filter_clause: Any,
 ) -> list[FacetBucket]:
     rows = await session.execute(
         select(Memory.status, func.count(Memory.id))
@@ -452,7 +444,8 @@ async def _facet_groupby_tag(
 
 
 async def _facet_groupby_month(
-    session: AsyncSession, filter_clause: Any,
+    session: AsyncSession,
+    filter_clause: Any,
 ) -> list[FacetBucket]:
     """Bucket by month of ``created_at`` (UTC date_trunc)."""
     month_expr = func.date_trunc("month", Memory.created_at)
@@ -522,14 +515,19 @@ async def memory_facets(
 
         try:
             total, by_env = await _facet_total_and_by_env(
-                session, filter_clause=filter_clause, env_ids=env_ids,
+                session,
+                filter_clause=filter_clause,
+                env_ids=env_ids,
             )
         except Exception:  # noqa: BLE001 — timeout / cancel surfaces here
             await session.rollback()
             log.warning("memory_facets: total aggregation timed out", extra={"env_ids": [str(e) for e in env_ids]})
             return MemFacetsResponse(
-                total=0, by_env=dict.fromkeys(env_ids, 0),
-                facets={}, approximate=True, sampled_rows=0,
+                total=0,
+                by_env=dict.fromkeys(env_ids, 0),
+                facets={},
+                approximate=True,
+                sampled_rows=0,
             )
 
         sampled_rows = total
@@ -553,14 +551,17 @@ async def memory_facets(
                     facets_out["status"] = await _facet_groupby_status(session, filter_clause)
                 elif facet == "tag":
                     facets_out["tag"] = await _facet_groupby_tag(
-                        session, filter_clause, tag_limit=req.tag_limit,
+                        session,
+                        filter_clause,
+                        tag_limit=req.tag_limit,
                     )
                 elif facet == "month":
                     facets_out["month"] = await _facet_groupby_month(session, filter_clause)
             except Exception:  # noqa: BLE001
                 await session.rollback()
                 log.warning(
-                    "memory_facets: facet %s timed out", facet,
+                    "memory_facets: facet %s timed out",
+                    facet,
                     extra={"env_ids": [str(e) for e in env_ids]},
                 )
                 approximate = True

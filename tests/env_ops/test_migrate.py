@@ -5,6 +5,10 @@ from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.browse import MemBrowseRequest
+from memory_mcp_schemas.enums import MemoryKind
+from memory_mcp_schemas.env_ops import EnvMigrateRequest, MigrationMode
+from memory_mcp_schemas.memories import MemorySupersedeRequest, MemoryWriteRequest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -15,12 +19,7 @@ from memory_mcp.env_ops.migrate import migrate_env
 from memory_mcp.errors import InvalidInputError, NotFoundError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import memory_supersede, memory_write
-from memory_mcp_schemas.browse import MemBrowseRequest
-from memory_mcp_schemas.env_ops import EnvMigrateRequest, MigrationMode
-from memory_mcp_schemas.enums import MemoryKind
-from memory_mcp_schemas.memories import MemorySupersedeRequest, MemoryWriteRequest
-
-from tests.env_ops.test_roundtrip import _MemoryVectorStore, _truncate, postgres_factory
+from tests.env_ops.test_roundtrip import _MemoryVectorStore, _truncate, postgres_factory  # noqa: F401
 
 
 @pytest.fixture
@@ -265,16 +264,20 @@ async def _create_empty_env_pair(
 ) -> tuple[UUID, UUID]:
     src_env = uuid4()
     dst_env = uuid4()
-    session.add_all([
-        Environment(id=src_env, name=f"src-{uuid4().hex}", retention_policy={}, default_embedding_model_id=src_model),
-        Environment(
-            id=dst_env,
-            name=f"dst-{uuid4().hex}",
-            retention_policy={},
-            default_embedding_model_id=dst_model,
-            status=dst_status,
-        ),
-    ])
+    session.add_all(
+        [
+            Environment(
+                id=src_env, name=f"src-{uuid4().hex}", retention_policy={}, default_embedding_model_id=src_model
+            ),
+            Environment(
+                id=dst_env,
+                name=f"dst-{uuid4().hex}",
+                retention_policy={},
+                default_embedding_model_id=dst_model,
+                status=dst_status,
+            ),
+        ]
+    )
     await session.commit()
     return src_env, dst_env
 

@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
-from typing import Generic, TypeVar, cast
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from typing import TypeVar, cast
 
 T = TypeVar("T")
 R = TypeVar("R")
 
 
 @dataclass
-class BatchFailure(Generic[T]):
+class BatchFailure[T]:
     """One failed item from a bounded batch run."""
 
     index: int
@@ -21,7 +21,7 @@ class BatchFailure(Generic[T]):
 
 
 @dataclass
-class BatchResult(Generic[T, R]):
+class BatchResult[T, R]:
     """Split batch outcome for resumable callers."""
 
     successes: list[R] = field(default_factory=list)
@@ -40,7 +40,7 @@ class BatchResult(Generic[T, R]):
         return bool(self.failures) and bool(self.successes)
 
 
-async def run_bounded(
+async def run_bounded[T, R](
     items: list[T],
     handler: Callable[[T], Awaitable[R]],
     *,

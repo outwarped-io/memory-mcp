@@ -22,6 +22,8 @@ import datetime as dt
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+from memory_mcp_schemas.decompose import MemDecomposeChild, MemDecomposeRequest
+from memory_mcp_schemas.enums import MemoryKind
 from sqlalchemy.exc import IntegrityError
 
 from memory_mcp.decomposers import (
@@ -30,8 +32,6 @@ from memory_mcp.decomposers import (
     _compute_request_fingerprint,
     _is_decompose_dedupe_error,
 )
-from memory_mcp_schemas.decompose import MemDecomposeChild, MemDecomposeRequest
-from memory_mcp_schemas.enums import MemoryKind
 
 
 def _env_id() -> UUID:
@@ -101,9 +101,7 @@ def test_decompose_key_deterministic_same_input() -> None:
     children = [_child(body="a"), _child(body="b")]
     r1 = _req(source_id=src, children=list(children))
     r2 = _req(source_id=src, children=list(children))
-    assert _compute_decompose_dedupe_key(r1, env_id=env) == _compute_decompose_dedupe_key(
-        r2, env_id=env
-    )
+    assert _compute_decompose_dedupe_key(r1, env_id=env) == _compute_decompose_dedupe_key(r2, env_id=env)
 
 
 def test_decompose_key_length_32_hex() -> None:
@@ -120,9 +118,7 @@ def test_decompose_key_child_order_invariant() -> None:
     c2 = _child(body="b", tags=["t-b"])
     r_ab = _req(source_id=src, children=[c1, c2])
     r_ba = _req(source_id=src, children=[c2, c1])
-    assert _compute_decompose_dedupe_key(r_ab, env_id=env) == _compute_decompose_dedupe_key(
-        r_ba, env_id=env
-    )
+    assert _compute_decompose_dedupe_key(r_ab, env_id=env) == _compute_decompose_dedupe_key(r_ba, env_id=env)
 
 
 # ---------------------------------------------------------------------------
@@ -133,24 +129,16 @@ def test_decompose_key_child_order_invariant() -> None:
 def test_decompose_key_changes_with_mode() -> None:
     src = _source_id()
     env = _env_id()
-    derive = _compute_decompose_dedupe_key(
-        _req(source_id=src, mode="derive"), env_id=env
-    )
-    split = _compute_decompose_dedupe_key(
-        _req(source_id=src, mode="split"), env_id=env
-    )
+    derive = _compute_decompose_dedupe_key(_req(source_id=src, mode="derive"), env_id=env)
+    split = _compute_decompose_dedupe_key(_req(source_id=src, mode="split"), env_id=env)
     assert derive != split
 
 
 def test_decompose_key_changes_with_source_id() -> None:
     env = _env_id()
     children = [_child(body="a"), _child(body="b")]
-    k1 = _compute_decompose_dedupe_key(
-        _req(source_id=_source_id(), children=list(children)), env_id=env
-    )
-    k2 = _compute_decompose_dedupe_key(
-        _req(source_id=_source_id(), children=list(children)), env_id=env
-    )
+    k1 = _compute_decompose_dedupe_key(_req(source_id=_source_id(), children=list(children)), env_id=env)
+    k2 = _compute_decompose_dedupe_key(_req(source_id=_source_id(), children=list(children)), env_id=env)
     assert k1 != k2
 
 
@@ -218,9 +206,9 @@ def test_decompose_key_override_ignores_payload_differences() -> None:
         mode="split",
         idempotency_key="shared-key",
     )
-    assert _compute_decompose_dedupe_key(r1, env_id=env) == _compute_decompose_dedupe_key(
-        r2, env_id=env
-    ) == "shared-key"
+    assert (
+        _compute_decompose_dedupe_key(r1, env_id=env) == _compute_decompose_dedupe_key(r2, env_id=env) == "shared-key"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +254,7 @@ def test_decompose_key_unchanged_by_per_child_trigger_description() -> None:
 def test_decompose_key_unchanged_by_per_child_expires_at() -> None:
     src = _source_id()
     env = _env_id()
-    future = dt.datetime(2099, 1, 1, tzinfo=dt.timezone.utc)
+    future = dt.datetime(2099, 1, 1, tzinfo=dt.UTC)
     k_plain = _compute_decompose_dedupe_key(
         _req(source_id=src, children=[_child(body="a"), _child(body="b")]),
         env_id=env,
@@ -295,9 +283,7 @@ def test_decompose_fp_deterministic_same_input() -> None:
     children = [_child(body="a"), _child(body="b")]
     r1 = _req(source_id=src, children=list(children))
     r2 = _req(source_id=src, children=list(children))
-    assert _compute_request_fingerprint(r1, env_id=env) == _compute_request_fingerprint(
-        r2, env_id=env
-    )
+    assert _compute_request_fingerprint(r1, env_id=env) == _compute_request_fingerprint(r2, env_id=env)
 
 
 def test_decompose_fp_length_32_hex() -> None:
@@ -317,12 +303,8 @@ def test_decompose_fp_changes_with_mode() -> None:
 def test_decompose_fp_changes_with_source_id() -> None:
     env = _env_id()
     children = [_child(body="a"), _child(body="b")]
-    fp1 = _compute_request_fingerprint(
-        _req(source_id=_source_id(), children=list(children)), env_id=env
-    )
-    fp2 = _compute_request_fingerprint(
-        _req(source_id=_source_id(), children=list(children)), env_id=env
-    )
+    fp1 = _compute_request_fingerprint(_req(source_id=_source_id(), children=list(children)), env_id=env)
+    fp2 = _compute_request_fingerprint(_req(source_id=_source_id(), children=list(children)), env_id=env)
     assert fp1 != fp2
 
 
@@ -372,7 +354,7 @@ def test_decompose_fp_invariant_with_expires_at() -> None:
     exclusion). Retry must not scope-mismatch on policy churn."""
     src = _source_id()
     env = _env_id()
-    future = dt.datetime(2099, 1, 1, tzinfo=dt.timezone.utc)
+    future = dt.datetime(2099, 1, 1, tzinfo=dt.UTC)
     fp_plain = _compute_request_fingerprint(
         _req(source_id=src, children=[_child(body="a"), _child(body="b")]),
         env_id=env,
@@ -436,9 +418,7 @@ def test_decompose_key_and_fp_differ_for_same_request() -> None:
     output strings for the two helpers."""
     r = _req()
     env = _env_id()
-    assert _compute_decompose_dedupe_key(r, env_id=env) != _compute_request_fingerprint(
-        r, env_id=env
-    )
+    assert _compute_decompose_dedupe_key(r, env_id=env) != _compute_request_fingerprint(r, env_id=env)
 
 
 def test_decompose_key_caller_override_vs_fp_canonical() -> None:
@@ -511,7 +491,7 @@ def test_canonical_child_payload_field_set() -> None:
         _child(
             body="x",
             trigger_description="when Y",
-            expires_at=dt.datetime(2099, 1, 1, tzinfo=dt.timezone.utc),
+            expires_at=dt.datetime(2099, 1, 1, tzinfo=dt.UTC),
         )
     )
     assert "trigger_description" not in payload

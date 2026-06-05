@@ -24,8 +24,8 @@ The SDK is async-native; there is no sync facade in v1.
 from __future__ import annotations
 
 from memory_mcp_client._batch import BatchFailure, BatchResult
-from memory_mcp_client.client import MemoryClient
 from memory_mcp_client._retry import RetryPolicy
+from memory_mcp_client.client import MemoryClient
 from memory_mcp_client.errors import (
     AlreadyExistsError,
     AuthError,

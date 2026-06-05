@@ -45,6 +45,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.decompose import MemDecomposeChild, MemDecomposeRequest
 from sqlalchemy import func, select
 
 from memory_mcp import autowire as autowire_mod
@@ -64,7 +65,6 @@ from memory_mcp.db.models import (
 from memory_mcp.db.types import MemoryKind
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import MemoryWriteRequest, memory_write
-from memory_mcp_schemas.decompose import MemDecomposeChild, MemDecomposeRequest
 
 from .conftest import (
     SessionPairFactory,
@@ -148,11 +148,11 @@ def _child(title: str, body: str) -> MemDecomposeChild:
 
 async def _count_auto_wire_rows(factory) -> int:
     async with factory() as s:
-        return int((await s.execute(
-            select(func.count()).select_from(Relation).where(
-                Relation.type == AUTO_WIRE_PREDICATE
-            )
-        )).scalar_one())
+        return int(
+            (
+                await s.execute(select(func.count()).select_from(Relation).where(Relation.type == AUTO_WIRE_PREDICATE))
+            ).scalar_one()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -173,8 +173,11 @@ async def test_decompose_off_returns_none_dict(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src", body="source body",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src",
+        body="source body",
     )
 
     token = use_session_factory(factory)
@@ -209,15 +212,18 @@ async def test_decompose_master_on_per_decompose_off_returns_none(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src", body="source body",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src",
+        body="source body",
     )
 
     # Sentinel: if Stage A IS called, this will blow up. It must not be.
     fake_embedder = MagicMock()
-    fake_embedder.embed_texts = MagicMock(side_effect=AssertionError(
-        "Stage A must not be invoked when autowire_decompose_enabled=False"
-    ))
+    fake_embedder.embed_texts = MagicMock(
+        side_effect=AssertionError("Stage A must not be invoked when autowire_decompose_enabled=False")
+    )
     monkeypatch.setattr(autowire_mod, "get_embedder", lambda settings: fake_embedder)
 
     token = use_session_factory(factory)
@@ -260,23 +266,32 @@ async def test_decompose_on_emits_per_child_edges(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src", body="source body",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src",
+        body="source body",
     )
     pop1 = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="pop1", body="popular one", salience=0.95,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="pop1",
+        body="popular one",
+        salience=0.95,
     )
     pop2 = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="pop2", body="popular two", salience=0.90,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="pop2",
+        body="popular two",
+        salience=0.90,
     )
 
     # Embedder returns one vector per child (batched call).
     fake_embedder = MagicMock()
-    fake_embedder.embed_texts = MagicMock(
-        return_value=[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
-    )
+    fake_embedder.embed_texts = MagicMock(return_value=[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
     monkeypatch.setattr(autowire_mod, "get_embedder", lambda settings: fake_embedder)
 
     # Vector store returns each child's matching candidate.
@@ -338,18 +353,23 @@ async def test_decompose_flat_auto_wired_is_ordered_unique(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src", body="source body",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src",
+        body="source body",
     )
     pop = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="pop", body="popular shared", salience=0.95,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="pop",
+        body="popular shared",
+        salience=0.95,
     )
 
     fake_embedder = MagicMock()
-    fake_embedder.embed_texts = MagicMock(
-        return_value=[[0.1, 0.0, 0.0], [0.2, 0.0, 0.0]]
-    )
+    fake_embedder.embed_texts = MagicMock(return_value=[[0.1, 0.0, 0.0], [0.2, 0.0, 0.0]])
     monkeypatch.setattr(autowire_mod, "get_embedder", lambda settings: fake_embedder)
 
     # Both children's search returns the SAME popular memory.
@@ -406,18 +426,23 @@ async def test_decompose_replay_state_current_per_child_dict(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src", body="source body",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src",
+        body="source body",
     )
     pop = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="pop", body="popular", salience=0.95,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="pop",
+        body="popular",
+        salience=0.95,
     )
 
     fake_embedder = MagicMock()
-    fake_embedder.embed_texts = MagicMock(
-        return_value=[[0.1, 0.0, 0.0], [0.2, 0.0, 0.0]]
-    )
+    fake_embedder.embed_texts = MagicMock(return_value=[[0.1, 0.0, 0.0], [0.2, 0.0, 0.0]])
     monkeypatch.setattr(autowire_mod, "get_embedder", lambda settings: fake_embedder)
 
     async def _fake_search_first(**kwargs):
@@ -441,10 +466,14 @@ async def test_decompose_replay_state_current_per_child_dict(
     token = use_session_factory(factory)
     try:
         first = await decomposers_mod.memory_decompose(
-            request, ctx=ctx, settings=settings,
+            request,
+            ctx=ctx,
+            settings=settings,
         )
         second = await decomposers_mod.memory_decompose(
-            request, ctx=ctx, settings=settings,
+            request,
+            ctx=ctx,
+            settings=settings,
         )
     finally:
         reset_session_factory(token)
@@ -480,8 +509,11 @@ async def test_decompose_replay_of_off_then_off_returns_none(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src", body="source body",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src",
+        body="source body",
     )
 
     settings = _settings(autowire_enabled=False)
@@ -494,10 +526,14 @@ async def test_decompose_replay_of_off_then_off_returns_none(
     token = use_session_factory(factory)
     try:
         first = await decomposers_mod.memory_decompose(
-            request, ctx=ctx, settings=settings,
+            request,
+            ctx=ctx,
+            settings=settings,
         )
         second = await decomposers_mod.memory_decompose(
-            request, ctx=ctx, settings=settings,
+            request,
+            ctx=ctx,
+            settings=settings,
         )
     finally:
         reset_session_factory(token)
@@ -538,18 +574,23 @@ async def test_decompose_per_child_stage_b_failure_isolated(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src", body="source body",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src",
+        body="source body",
     )
     pop = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="pop", body="popular", salience=0.95,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="pop",
+        body="popular",
+        salience=0.95,
     )
 
     fake_embedder = MagicMock()
-    fake_embedder.embed_texts = MagicMock(
-        return_value=[[0.1, 0.0, 0.0], [0.2, 0.0, 0.0]]
-    )
+    fake_embedder.embed_texts = MagicMock(return_value=[[0.1, 0.0, 0.0], [0.2, 0.0, 0.0]])
     monkeypatch.setattr(autowire_mod, "get_embedder", lambda settings: fake_embedder)
 
     async def _fake_search(**kwargs):
@@ -599,11 +640,9 @@ async def test_decompose_per_child_stage_b_failure_isolated(
     assert resp.auto_wired_by_child[child_ids[1]] == [pop]
     # Decompose still committed its children + lineage rows.
     async with factory() as s:
-        n_children = int((await s.execute(
-            select(func.count()).select_from(Memory).where(
-                Memory.id.in_(child_ids)
-            )
-        )).scalar_one())
+        n_children = int(
+            (await s.execute(select(func.count()).select_from(Memory).where(Memory.id.in_(child_ids)))).scalar_one()
+        )
     assert n_children == 2
     # Exactly ONE relation row (from sibling); failing child's
     # savepoint rolled back any partial insert.
@@ -629,18 +668,23 @@ async def test_decompose_outbox_child_upsert_before_relation_events(
     ctx = AgentContext(agent_id=agent_id, attached_env_ids=[env_id])
 
     src = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="src", body="source body",
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="src",
+        body="source body",
     )
     pop = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="pop", body="popular", salience=0.95,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="pop",
+        body="popular",
+        salience=0.95,
     )
 
     fake_embedder = MagicMock()
-    fake_embedder.embed_texts = MagicMock(
-        return_value=[[0.1, 0.0, 0.0], [0.2, 0.0, 0.0]]
-    )
+    fake_embedder.embed_texts = MagicMock(return_value=[[0.1, 0.0, 0.0], [0.2, 0.0, 0.0]])
     monkeypatch.setattr(autowire_mod, "get_embedder", lambda settings: fake_embedder)
 
     async def _fake_search(**kwargs):
@@ -687,17 +731,21 @@ async def test_decompose_outbox_child_upsert_before_relation_events(
     # (Outbox.event_id is a monotonic BigInteger sequence).
     async with factory() as s:
         for cid in child_ids:
-            memory_row = (await s.execute(
-                select(Outbox.event_id).where(
-                    Outbox.aggregate_id == cid,
-                    Outbox.aggregate_type == "memory",
-                ).limit(1)
-            )).scalar_one()
+            memory_row = (
+                await s.execute(
+                    select(Outbox.event_id)
+                    .where(
+                        Outbox.aggregate_id == cid,
+                        Outbox.aggregate_type == "memory",
+                    )
+                    .limit(1)
+                )
+            ).scalar_one()
             # Find graph_node ids that map to this child (src side of
             # auto-wire edges).
-            child_node_id = (await s.execute(
-                select(GraphNode.id).where(GraphNode.memory_id == cid)
-            )).scalar_one_or_none()
+            child_node_id = (
+                await s.execute(select(GraphNode.id).where(GraphNode.memory_id == cid))
+            ).scalar_one_or_none()
             if child_node_id is None:
                 # Child had no edges (shouldn't happen here but defensive).
                 continue
@@ -705,25 +753,31 @@ async def test_decompose_outbox_child_upsert_before_relation_events(
             # we identify them via aggregate_type='relation'. We look
             # up rels for this child's src graph node, then collect
             # outbox rows for those relation ids.
-            rel_ids = [r for (r,) in (await s.execute(
-                select(Relation.id).where(
-                    Relation.src_node_id == child_node_id,
-                    Relation.type == AUTO_WIRE_PREDICATE,
-                )
-            )).all()]
+            rel_ids = [
+                r
+                for (r,) in (
+                    await s.execute(
+                        select(Relation.id).where(
+                            Relation.src_node_id == child_node_id,
+                            Relation.type == AUTO_WIRE_PREDICATE,
+                        )
+                    )
+                ).all()
+            ]
             if not rel_ids:
                 continue
             rel_outbox_ids = [
-                rid for (rid,) in (await s.execute(
-                    select(Outbox.event_id).where(
-                        Outbox.aggregate_id.in_(rel_ids),
-                        Outbox.aggregate_type == "relation",
+                rid
+                for (rid,) in (
+                    await s.execute(
+                        select(Outbox.event_id).where(
+                            Outbox.aggregate_id.in_(rel_ids),
+                            Outbox.aggregate_type == "relation",
+                        )
                     )
-                )).all()
+                ).all()
             ]
-            assert rel_outbox_ids, (
-                f"expected relation outbox rows for child {cid}, got none"
-            )
+            assert rel_outbox_ids, f"expected relation outbox rows for child {cid}, got none"
             assert memory_row < min(rel_outbox_ids), (
                 f"child {cid} memory upsert outbox event_id {memory_row} "
                 f"must precede relation outbox event_ids {rel_outbox_ids}"

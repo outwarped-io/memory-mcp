@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from memory_mcp_schemas._env_refs import validate_optional_env_ref_pair, validate_required_env_ref_pair
+from memory_mcp_schemas._env_refs import validate_required_env_ref_pair
 
 
 class DigestRequest(BaseModel):

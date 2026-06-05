@@ -53,18 +53,18 @@ class _FakeStore:
     async def ensure_env_collection(self, *, env_id: Any, dimension: int) -> None:
         self.ensured.append((env_id, dimension))
 
-    async def upsert(
-        self, *, env_id: Any, point_id: Any, vector: Any, payload: Any
-    ) -> None:
-        vector_out = {
-            name: list(values) for name, values in vector.items()
-        } if isinstance(vector, dict) else list(vector)
-        self.upserts.append({
-            "env_id": env_id,
-            "point_id": point_id,
-            "vector": vector_out,
-            "payload": dict(payload),
-        })
+    async def upsert(self, *, env_id: Any, point_id: Any, vector: Any, payload: Any) -> None:
+        vector_out = (
+            {name: list(values) for name, values in vector.items()} if isinstance(vector, dict) else list(vector)
+        )
+        self.upserts.append(
+            {
+                "env_id": env_id,
+                "point_id": point_id,
+                "vector": vector_out,
+                "payload": dict(payload),
+            }
+        )
 
     async def delete(self, *, env_id: Any, point_id: Any) -> None:
         self.deletes.append({"env_id": env_id, "point_id": point_id})

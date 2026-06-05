@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from memory_mcp import memories as memories_mod
 from memory_mcp.db.models import Memory, Task
 from memory_mcp.db.types import MemoryKind, MemoryStatus
 from memory_mcp.errors import EnvNotAttachedError, ForbiddenEnvError, InvalidInputError, NotFoundError
@@ -18,7 +19,6 @@ from memory_mcp.memories import (
     _ensure_macro_available,
     memory_write,
 )
-from memory_mcp import memories as memories_mod
 from memory_mcp.playbooks import api as playbook_api
 
 
@@ -238,7 +238,9 @@ async def test_macro_duplicate_across_different_envs_allowed() -> None:
 
 
 class _MemoryResult:
-    def __init__(self, *, one: Memory | None = None, many: list[Memory] | None = None, tags: list[tuple[UUID, str]] | None = None) -> None:
+    def __init__(
+        self, *, one: Memory | None = None, many: list[Memory] | None = None, tags: list[tuple[UUID, str]] | None = None
+    ) -> None:
         self.one = one
         self.many = many or []
         self.tags = tags or []

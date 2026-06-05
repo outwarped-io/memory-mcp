@@ -150,6 +150,7 @@ _NEW_POPULARITY_WHITELIST: tuple[str, ...] = (
 # SQL emitters (parameterised on whitelist for 0017/0021 lock-step)
 # ---------------------------------------------------------------------------
 
+
 def _whitelist_array(values: tuple[str, ...]) -> str:
     """Render ``ARRAY['a','b',...]::text[]`` for a Postgres SQL literal."""
 
@@ -320,6 +321,7 @@ def _drop_existing_relation_check_sql() -> str:
 # upgrade / downgrade
 # ---------------------------------------------------------------------------
 
+
 def upgrade() -> None:
     # 1. Widen memory_lineage CHECK constraint.
     op.execute(_drop_existing_relation_check_sql())
@@ -412,9 +414,7 @@ def downgrade() -> None:
     # 1. Narrow memory_lineage CHECK back to the pre-0021 values. Safe iff
     #    no rows of ``split_from`` / ``derived_from`` exist — downgrade is
     #    best-effort by convention; tests arrange for this.
-    op.execute(
-        "ALTER TABLE memory_lineage DROP CONSTRAINT IF EXISTS memory_lineage_relation_check"
-    )
+    op.execute("ALTER TABLE memory_lineage DROP CONSTRAINT IF EXISTS memory_lineage_relation_check")
     op.execute(
         f"""
         ALTER TABLE memory_lineage

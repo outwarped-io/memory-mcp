@@ -49,8 +49,7 @@ class LocalEmbedder:
             dim = int(model.get_sentence_embedding_dimension() or 0)
             if dim <= 0:
                 raise RuntimeError(
-                    f"sentence-transformers model {self._model_id!r} reported "
-                    f"non-positive dimension {dim}"
+                    f"sentence-transformers model {self._model_id!r} reported non-positive dimension {dim}"
                 )
             self._model = model
             self._dimension = dim
