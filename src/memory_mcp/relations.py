@@ -45,6 +45,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import Select, and_, func, select, tuple_, update
+from sqlalchemy.exc import IntegrityError
 
 from memory_mcp import rbac
 from memory_mcp.config import Settings, get_settings
@@ -122,6 +123,46 @@ def _resolve_env_id(*, explicit: UUID | None, ctx: AgentContext) -> UUID:
     )
 
 
+async def _create_or_get_graph_node(
+    session,
+    *,
+    candidate: GraphNode,
+    re_select_stmt: Select,
+) -> GraphNode:
+    """Idempotent INSERT for a ``graph_nodes`` row.
+
+    The three partial-unique indexes ``graph_nodes_{memory,entity,task}_uniq``
+    can fire under concurrent ``rel_link`` calls that share an endpoint
+    (e.g. fan-out from one src to N dsts on N parallel sessions). Each
+    session SELECTs ``None``, both attempt INSERT, the loser hits the
+    unique violation. We absorb that race by wrapping the INSERT in a
+    SAVEPOINT and re-fetching the winner's row on ``IntegrityError``.
+
+    Caller passes the prepared ``candidate`` (already constructed with
+    env/type/target fields) and a ``re_select_stmt`` that locates the
+    winner by the same partial-unique predicate. The candidate is
+    added *inside* the savepoint so its lifecycle is fully contained;
+    on ``IntegrityError`` the savepoint rolls back cleanly and the
+    re-SELECT runs under ``no_autoflush`` (sync context manager on
+    ``AsyncSession``) so the ORM does not attempt to re-fire the failed
+    INSERT.
+    """
+    try:
+        async with session.begin_nested():
+            session.add(candidate)
+            await session.flush()
+    except IntegrityError:
+        # Savepoint rollback should expunge ``candidate`` (it was added
+        # inside the nested block); guard defensively in case the
+        # dialect leaves it attached.
+        if candidate in session:
+            session.expunge(candidate)
+        with session.no_autoflush:
+            return (await session.execute(re_select_stmt)).scalar_one()
+    await session.refresh(candidate)
+    return candidate
+
+
 async def _ensure_graph_node(
     session,
     *,
@@ -147,18 +188,18 @@ async def _ensure_graph_node(
                 f"entity {endpoint.id} is in env {ent.env_id}, "
                 f"not relation env {env_id}"
             )
-        node = (await session.execute(
-            select(GraphNode).where(GraphNode.entity_id == endpoint.id)
-        )).scalar_one_or_none()
+        stmt = select(GraphNode).where(GraphNode.entity_id == endpoint.id)
+        node = (await session.execute(stmt)).scalar_one_or_none()
         if node is None:
-            node = GraphNode(
-                env_id=env_id,
-                node_type="entity",
-                entity_id=endpoint.id,
+            node = await _create_or_get_graph_node(
+                session,
+                candidate=GraphNode(
+                    env_id=env_id,
+                    node_type="entity",
+                    entity_id=endpoint.id,
+                ),
+                re_select_stmt=stmt,
             )
-            session.add(node)
-            await session.flush()
-            await session.refresh(node)
         return node
 
     if endpoint.kind == "memory":
@@ -174,20 +215,21 @@ async def _ensure_graph_node(
                 f"memory {endpoint.id} is in env {mem.env_id}, "
                 f"not relation env {env_id}"
             )
-        node = (await session.execute(
-            select(GraphNode).where(GraphNode.memory_id == endpoint.id)
-        )).scalar_one_or_none()
+        stmt = select(GraphNode).where(GraphNode.memory_id == endpoint.id)
+        node = (await session.execute(stmt)).scalar_one_or_none()
         if node is None:
-            node = GraphNode(
-                env_id=env_id,
-                node_type="memory",
-                memory_id=endpoint.id,
+            node = await _create_or_get_graph_node(
+                session,
+                candidate=GraphNode(
+                    env_id=env_id,
+                    node_type="memory",
+                    memory_id=endpoint.id,
+                ),
+                re_select_stmt=stmt,
             )
-            session.add(node)
-            await session.flush()
-            await session.refresh(node)
         return node
 
+    stmt = select(GraphNode).where(GraphNode.task_id == endpoint.id)
     task = (await session.execute(
         select(Task).where(Task.id == endpoint.id)
     )).scalar_one_or_none()
@@ -198,14 +240,13 @@ async def _ensure_graph_node(
             f"task {endpoint.id} is in env {task.env_id}, "
             f"not relation env {env_id}"
         )
-    node = (await session.execute(
-        select(GraphNode).where(GraphNode.task_id == endpoint.id)
-    )).scalar_one_or_none()
+    node = (await session.execute(stmt)).scalar_one_or_none()
     if node is None:
-        node = GraphNode(env_id=env_id, node_type="task", task_id=endpoint.id)
-        session.add(node)
-        await session.flush()
-        await session.refresh(node)
+        node = await _create_or_get_graph_node(
+            session,
+            candidate=GraphNode(env_id=env_id, node_type="task", task_id=endpoint.id),
+            re_select_stmt=stmt,
+        )
     return node
 
 
