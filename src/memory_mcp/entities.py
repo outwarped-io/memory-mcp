@@ -40,12 +40,19 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-import re
-import unicodedata
-from typing import Any, Final, Literal
+from typing import Any, Final
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from memory_mcp_schemas.entities import (
+    EntityBrowseRequest,
+    EntityBrowseResponse,
+    EntityMergeRequest,
+    EntityOrderField,
+    EntityResolveRequest,
+    EntityResponse,
+    EntityUpsertRequest,
+    _normalize_name,
+)
 from sqlalchemy import Select, delete, func, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -74,16 +81,6 @@ from memory_mcp.pagination import (
     compute_filter_fingerprint,
     decode_cursor,
     encode_cursor,
-)
-
-from memory_mcp_schemas.entities import (
-    _normalize_name,
-    EntityBrowseRequest,
-    EntityBrowseResponse,
-    EntityMergeRequest,
-    EntityResolveRequest,
-    EntityResponse,
-    EntityUpsertRequest,
 )
 
 log = logging.getLogger(__name__)
@@ -139,9 +136,7 @@ def _resolve_env_id(*, explicit: UUID | None, ctx: AgentContext) -> UUID:
 
 async def _load_aliases(session, entity_id: UUID) -> list[str]:
     rows = await session.execute(
-        select(EntityAlias.alias)
-        .where(EntityAlias.entity_id == entity_id)
-        .order_by(EntityAlias.alias)
+        select(EntityAlias.alias).where(EntityAlias.entity_id == entity_id).order_by(EntityAlias.alias)
     )
     return [a for (a,) in rows.all()]
 
@@ -238,12 +233,14 @@ async def entity_upsert(
     normalized_canonical = _normalize_name(request.canonical_name)
 
     async with session_scope() as s:
-        existing = (await s.execute(
-            select(Entity).where(
-                Entity.env_id == env_id,
-                Entity.normalized_name == normalized_canonical,
+        existing = (
+            await s.execute(
+                select(Entity).where(
+                    Entity.env_id == env_id,
+                    Entity.normalized_name == normalized_canonical,
+                )
             )
-        )).scalar_one_or_none()
+        ).scalar_one_or_none()
 
         is_create = existing is None
         emit_outbox = False
@@ -264,10 +261,7 @@ async def entity_upsert(
             outbox_op = OutboxOp.upsert
         else:
             entity = existing
-            if (
-                request.expected_version is not None
-                and entity.version != request.expected_version
-            ):
+            if request.expected_version is not None and entity.version != request.expected_version:
                 raise VersionConflictError(
                     expected=request.expected_version,
                     actual=entity.version,
@@ -287,14 +281,10 @@ async def entity_upsert(
                 updates[Entity.version] = expected_v + 1
                 updates[Entity.updated_at] = func.now()
                 result = await s.execute(
-                    update(Entity)
-                    .where(Entity.id == entity.id, Entity.version == expected_v)
-                    .values(updates)
+                    update(Entity).where(Entity.id == entity.id, Entity.version == expected_v).values(updates)
                 )
                 if result.rowcount == 0:  # type: ignore[attr-defined]
-                    raise VersionConflictError(
-                        expected=expected_v, actual=expected_v + 1
-                    )
+                    raise VersionConflictError(expected=expected_v, actual=expected_v + 1)
                 await s.refresh(entity)
                 emit_outbox = True
                 outbox_op = OutboxOp.update
@@ -391,8 +381,7 @@ async def entity_resolve(
             .outerjoin(EntityAlias, EntityAlias.entity_id == Entity.id)
             .where(
                 Entity.env_id.in_(env_ids),
-                (Entity.normalized_name == normalized)
-                | (EntityAlias.normalized_alias == normalized),
+                (Entity.normalized_name == normalized) | (EntityAlias.normalized_alias == normalized),
             )
         )
         if request.kinds:
@@ -444,14 +433,12 @@ async def _merge_entity_graph_nodes(
     merge_ids: list[UUID],
 ) -> None:
     """Move merge-side entity graph nodes onto ``keep_id`` without collisions."""
-    keep_node = (await session.execute(
-        select(GraphNode).where(GraphNode.entity_id == keep_id)
-    )).scalar_one_or_none()
+    keep_node = (await session.execute(select(GraphNode).where(GraphNode.entity_id == keep_id))).scalar_one_or_none()
 
     for merge_id in merge_ids:
-        merge_node = (await session.execute(
-            select(GraphNode).where(GraphNode.entity_id == merge_id)
-        )).scalar_one_or_none()
+        merge_node = (
+            await session.execute(select(GraphNode).where(GraphNode.entity_id == merge_id))
+        ).scalar_one_or_none()
         if merge_node is None:
             continue
 
@@ -461,17 +448,23 @@ async def _merge_entity_graph_nodes(
             await session.flush()
             continue
 
-        relations = (await session.execute(
-            select(Relation)
-            .where(
-                Relation.env_id == env_id,
-                or_(
-                    Relation.src_node_id == merge_node.id,
-                    Relation.dst_node_id == merge_node.id,
-                ),
+        relations = (
+            (
+                await session.execute(
+                    select(Relation)
+                    .where(
+                        Relation.env_id == env_id,
+                        or_(
+                            Relation.src_node_id == merge_node.id,
+                            Relation.dst_node_id == merge_node.id,
+                        ),
+                    )
+                    .order_by(Relation.created_at, Relation.id)
+                )
             )
-            .order_by(Relation.created_at, Relation.id)
-        )).scalars().all()
+            .scalars()
+            .all()
+        )
 
         relation_ids = [relation.id for relation in relations]
         existing_stmt = select(
@@ -541,23 +534,17 @@ async def entity_merge(
     required_ids = {request.keep_id, *request.merge_ids}
     missing = required_ids - expected.keys()
     if missing:
-        raise ValueError(
-            f"expected_versions missing entries for: {sorted(str(m) for m in missing)}"
-        )
+        raise ValueError(f"expected_versions missing entries for: {sorted(str(m) for m in missing)}")
 
     async with session_scope() as s:
-        rows = (await s.execute(
-            select(Entity).where(Entity.id.in_(required_ids))
-        )).scalars().all()
+        rows = (await s.execute(select(Entity).where(Entity.id.in_(required_ids)))).scalars().all()
         by_id = {e.id: e for e in rows}
 
         for eid in required_ids:
             if eid not in by_id:
                 raise NotFoundError(f"entity {eid} not found", entity_id=str(eid))
             if by_id[eid].version != expected[eid]:
-                raise VersionConflictError(
-                    expected=expected[eid], actual=by_id[eid].version
-                )
+                raise VersionConflictError(expected=expected[eid], actual=by_id[eid].version)
 
         keep = by_id[request.keep_id]
         env_id = keep.env_id
@@ -566,8 +553,7 @@ async def entity_merge(
         for mid in request.merge_ids:
             if by_id[mid].env_id != env_id:
                 raise ValueError(
-                    f"cross-env merge not allowed (entity {mid} in env "
-                    f"{by_id[mid].env_id}, keep in env {env_id})"
+                    f"cross-env merge not allowed (entity {mid} in env {by_id[mid].env_id}, keep in env {env_id})"
                 )
             rbac.require("write", env_id, ctx)
 
@@ -584,9 +570,11 @@ async def entity_merge(
         keep_normalized = keep.normalized_name
         # Step A: drop alias rows on merge_ids whose normalized form would
         # collide with an alias already on keep_id (or is keep's canonical).
-        existing_keep_aliases = (await s.execute(
-            select(EntityAlias.normalized_alias).where(EntityAlias.entity_id == keep.id)
-        )).scalars().all()
+        existing_keep_aliases = (
+            (await s.execute(select(EntityAlias.normalized_alias).where(EntityAlias.entity_id == keep.id)))
+            .scalars()
+            .all()
+        )
         existing_keep_set = set(existing_keep_aliases) | {keep_normalized}
         if existing_keep_set:
             await s.execute(
@@ -597,9 +585,7 @@ async def entity_merge(
             )
         # Step B: re-point remaining merge alias rows.
         await s.execute(
-            update(EntityAlias)
-            .where(EntityAlias.entity_id.in_(request.merge_ids))
-            .values(entity_id=keep.id)
+            update(EntityAlias).where(EntityAlias.entity_id.in_(request.merge_ids)).values(entity_id=keep.id)
         )
 
         await _merge_entity_graph_nodes(
@@ -617,9 +603,7 @@ async def entity_merge(
             .values(version=new_version, updated_at=func.now())
         )
         if result.rowcount == 0:  # type: ignore[attr-defined]
-            raise VersionConflictError(
-                expected=keep.version, actual=keep.version + 1
-            )
+            raise VersionConflictError(expected=keep.version, actual=keep.version + 1)
         await s.refresh(keep)
 
         # DELETE merged entity rows (cascades remaining aliases / graph_nodes).
@@ -705,7 +689,9 @@ def _resolve_browse_env_ids(
 
 
 def _entity_browse_filter_dict(
-    req: EntityBrowseRequest, env_ids: list[UUID], normalized_prefix: str | None,
+    req: EntityBrowseRequest,
+    env_ids: list[UUID],
+    normalized_prefix: str | None,
 ) -> dict[str, _Any]:
     return {
         "env_ids": list(env_ids),
@@ -717,16 +703,14 @@ def _entity_browse_filter_dict(
 
 
 def _apply_entity_keyset(
-    stmt: "Select[_Any]",
+    stmt: Select[_Any],
     *,
     order_by: EntityOrderField,
     descending: bool,
     cursor_value: _Any,
     cursor_id: UUID | None,
-) -> "Select[_Any]":
-    order_col = (
-        Entity.canonical_name if order_by == "canonical_name" else Entity.created_at
-    )
+) -> Select[_Any]:
+    order_col = Entity.canonical_name if order_by == "canonical_name" else Entity.created_at
     if cursor_value is not None and cursor_id is not None:
         if descending:
             stmt = stmt.where(tuple_(order_col, Entity.id) < tuple_(cursor_value, cursor_id))
@@ -801,19 +785,11 @@ async def entity_browse(
             # via ``_PUNCT_RE`` (it's not a word char) but preserves ``_``
             # (``\w`` includes underscore), which is a LIKE single-char
             # wildcard. Escape both to be safe.
-            escaped = (
-                normalized_prefix
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_")
-            )
+            escaped = normalized_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             pattern = escaped + "%"
-            alias_match = (
-                select(EntityAlias.entity_id)
-                .where(
-                    EntityAlias.entity_id == Entity.id,
-                    EntityAlias.normalized_alias.like(pattern, escape="\\"),
-                )
+            alias_match = select(EntityAlias.entity_id).where(
+                EntityAlias.entity_id == Entity.id,
+                EntityAlias.normalized_alias.like(pattern, escape="\\"),
             )
             stmt = stmt.where(
                 or_(

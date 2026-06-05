@@ -30,6 +30,10 @@ import datetime as dt
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.browse import MemBrowseRequest, MemFacetsRequest
+from memory_mcp_schemas.enums import DecisionStatus, MemoryKind
+from memory_mcp_schemas.search import MemorySearchRequest
+from memory_mcp_schemas.top import MemTopRequest
 
 from memory_mcp import browse as browse_mod
 from memory_mcp import entities as entities_mod
@@ -44,10 +48,6 @@ from memory_mcp.errors import InvalidCursorError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import MemoryWriteRequest, memory_write
 from memory_mcp.search import api as search_api_mod
-from memory_mcp_schemas.browse import MemBrowseRequest, MemFacetsRequest
-from memory_mcp_schemas.enums import DecisionStatus, MemoryKind
-from memory_mcp_schemas.search import MemorySearchRequest
-from memory_mcp_schemas.top import MemTopRequest
 
 from .conftest import (
     SessionPairFactory,
@@ -100,11 +100,11 @@ async def _setup_env_and_agent(factory) -> tuple[UUID, UUID, str]:
 
 
 def _past() -> dt.datetime:
-    return dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=1)
+    return dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
 
 
 def _future() -> dt.datetime:
-    return dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1)
+    return dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
 
 
 async def _plant_pair(
@@ -321,7 +321,10 @@ async def test_top_default_hides_expired(
 
         all_resp = await memory_top(
             MemTopRequest(
-                env_ids=[env_id], by="salience", limit=50, include_expired=True,
+                env_ids=[env_id],
+                by="salience",
+                limit=50,
+                include_expired=True,
             ),
             ctx=ctx,
             settings=_settings(),
@@ -380,7 +383,9 @@ async def test_resume_recent_journal_excludes_expired_observations(
     token = use_session_factory(factory)
     try:
         fresh, expired = await _plant_pair(
-            env_id=env_id, ctx=ctx, kind=MemoryKind.observation,
+            env_id=env_id,
+            ctx=ctx,
+            kind=MemoryKind.observation,
         )
 
         from memory_mcp.digest.api import resume_for_env
@@ -440,7 +445,8 @@ async def test_context_pack_decisions_section_excludes_expired(
             ctx=ctx,
         )
         decisions_section = next(
-            (s for s in resp.sections if s.name == "decisions"), None,
+            (s for s in resp.sections if s.name == "decisions"),
+            None,
         )
         assert decisions_section is not None, "decisions section missing"
         ids = {item.memory_id for item in decisions_section.items}

@@ -71,71 +71,79 @@ def _hit(env_id, src_entity, memory_id, *, edge_type="describes", path_length=1)
 
 
 def test_empty_query_returns_empty():
-    out = asyncio.run(graph_search(
-        MagicMock(),
-        graph_store=MagicMock(),
-        query="",
-        env_ids=[uuid4()],
-        limit=10,
-        settings=_settings(),
-    ))
+    out = asyncio.run(
+        graph_search(
+            MagicMock(),
+            graph_store=MagicMock(),
+            query="",
+            env_ids=[uuid4()],
+            limit=10,
+            settings=_settings(),
+        )
+    )
     assert out == []
 
 
 def test_empty_env_ids_returns_empty():
-    out = asyncio.run(graph_search(
-        MagicMock(),
-        graph_store=MagicMock(),
-        query="anything",
-        env_ids=[],
-        limit=10,
-        settings=_settings(),
-    ))
+    out = asyncio.run(
+        graph_search(
+            MagicMock(),
+            graph_store=MagicMock(),
+            query="anything",
+            env_ids=[],
+            limit=10,
+            settings=_settings(),
+        )
+    )
     assert out == []
 
 
 def test_zero_limit_returns_empty():
-    out = asyncio.run(graph_search(
-        MagicMock(),
-        graph_store=MagicMock(),
-        query="x",
-        env_ids=[uuid4()],
-        limit=0,
-        settings=_settings(),
-    ))
+    out = asyncio.run(
+        graph_search(
+            MagicMock(),
+            graph_store=MagicMock(),
+            query="x",
+            env_ids=[uuid4()],
+            limit=0,
+            settings=_settings(),
+        )
+    )
     assert out == []
 
 
 def test_no_mentions_returns_empty():
     """When NER + regex + raw fallback all return nothing, leg returns []."""
     with patch.object(graph_mod, "extract_query_mentions", AsyncMock(return_value=[])):
-        out = asyncio.run(graph_search(
-            MagicMock(),
-            graph_store=MagicMock(),
-            query="ineffable mystery",
-            env_ids=[uuid4()],
-            limit=10,
-            settings=_settings(),
-        ))
+        out = asyncio.run(
+            graph_search(
+                MagicMock(),
+                graph_store=MagicMock(),
+                query="ineffable mystery",
+                env_ids=[uuid4()],
+                limit=10,
+                settings=_settings(),
+            )
+        )
     assert out == []
 
 
 def test_no_resolved_entities_returns_empty():
     """Mentions extracted but none resolve in any env → empty leg."""
     with (
-        patch.object(graph_mod, "extract_query_mentions",
-                     AsyncMock(return_value=["servicea"])),
-        patch.object(graph_mod, "resolve_query_entities",
-                     AsyncMock(return_value={})),
+        patch.object(graph_mod, "extract_query_mentions", AsyncMock(return_value=["servicea"])),
+        patch.object(graph_mod, "resolve_query_entities", AsyncMock(return_value={})),
     ):
-        out = asyncio.run(graph_search(
-            MagicMock(),
-            graph_store=MagicMock(),
-            query="ServiceA",
-            env_ids=[uuid4()],
-            limit=10,
-            settings=_settings(),
-        ))
+        out = asyncio.run(
+            graph_search(
+                MagicMock(),
+                graph_store=MagicMock(),
+                query="ServiceA",
+                env_ids=[uuid4()],
+                limit=10,
+                settings=_settings(),
+            )
+        )
     assert out == []
 
 
@@ -152,19 +160,19 @@ def test_single_entity_produces_ranked_hits():
     gs.neighbors.return_value = ([_hit(env, e1, m1), _hit(env, e1, m2)], None)
 
     with (
-        patch.object(graph_mod, "extract_query_mentions",
-                     AsyncMock(return_value=["servicea"])),
-        patch.object(graph_mod, "resolve_query_entities",
-                     AsyncMock(return_value={env: [e1]})),
+        patch.object(graph_mod, "extract_query_mentions", AsyncMock(return_value=["servicea"])),
+        patch.object(graph_mod, "resolve_query_entities", AsyncMock(return_value={env: [e1]})),
     ):
-        out = asyncio.run(graph_search(
-            MagicMock(),
-            graph_store=gs,
-            query="ServiceA",
-            env_ids=[env],
-            limit=10,
-            settings=_settings(),
-        ))
+        out = asyncio.run(
+            graph_search(
+                MagicMock(),
+                graph_store=gs,
+                query="ServiceA",
+                env_ids=[env],
+                limit=10,
+                settings=_settings(),
+            )
+        )
 
     assert len(out) == 2
     assert {h.memory_id for h in out} == {m1, m2}
@@ -197,19 +205,19 @@ def test_multi_entity_overlap_ranks_first():
     gs.neighbors = fake_neighbors
 
     with (
-        patch.object(graph_mod, "extract_query_mentions",
-                     AsyncMock(return_value=["servicea", "serviceb"])),
-        patch.object(graph_mod, "resolve_query_entities",
-                     AsyncMock(return_value={env: [e1, e2]})),
+        patch.object(graph_mod, "extract_query_mentions", AsyncMock(return_value=["servicea", "serviceb"])),
+        patch.object(graph_mod, "resolve_query_entities", AsyncMock(return_value={env: [e1, e2]})),
     ):
-        out = asyncio.run(graph_search(
-            MagicMock(),
-            graph_store=gs,
-            query="ServiceA ServiceB",
-            env_ids=[env],
-            limit=10,
-            settings=_settings(),
-        ))
+        out = asyncio.run(
+            graph_search(
+                MagicMock(),
+                graph_store=gs,
+                query="ServiceA ServiceB",
+                env_ids=[env],
+                limit=10,
+                settings=_settings(),
+            )
+        )
 
     assert out[0].memory_id == overlap_mem
     assert out[0].raw_score == 2.0  # two entities contributed
@@ -232,15 +240,19 @@ def test_path_length_breaks_overlap_tie():
     )
 
     with (
-        patch.object(graph_mod, "extract_query_mentions",
-                     AsyncMock(return_value=["x"])),
-        patch.object(graph_mod, "resolve_query_entities",
-                     AsyncMock(return_value={env: [e1]})),
+        patch.object(graph_mod, "extract_query_mentions", AsyncMock(return_value=["x"])),
+        patch.object(graph_mod, "resolve_query_entities", AsyncMock(return_value={env: [e1]})),
     ):
-        out = asyncio.run(graph_search(
-            MagicMock(), graph_store=gs, query="x", env_ids=[env],
-            limit=10, settings=_settings(),
-        ))
+        out = asyncio.run(
+            graph_search(
+                MagicMock(),
+                graph_store=gs,
+                query="x",
+                env_ids=[env],
+                limit=10,
+                settings=_settings(),
+            )
+        )
 
     assert out[0].memory_id == short_mem
     assert out[1].memory_id == long_mem
@@ -260,15 +272,19 @@ def test_rank_score_orders_within_same_neighbors_call():
     gs.neighbors.return_value = ([_hit(env, e1, m_hi), _hit(env, e1, m_lo)], None)
 
     with (
-        patch.object(graph_mod, "extract_query_mentions",
-                     AsyncMock(return_value=["x"])),
-        patch.object(graph_mod, "resolve_query_entities",
-                     AsyncMock(return_value={env: [e1]})),
+        patch.object(graph_mod, "extract_query_mentions", AsyncMock(return_value=["x"])),
+        patch.object(graph_mod, "resolve_query_entities", AsyncMock(return_value={env: [e1]})),
     ):
-        out = asyncio.run(graph_search(
-            MagicMock(), graph_store=gs, query="x", env_ids=[env],
-            limit=10, settings=_settings(),
-        ))
+        out = asyncio.run(
+            graph_search(
+                MagicMock(),
+                graph_store=gs,
+                query="x",
+                env_ids=[env],
+                limit=10,
+                settings=_settings(),
+            )
+        )
 
     # rank_score decides before memory_id when neighbor_rank differs.
     assert out[0].memory_id == m_hi
@@ -296,15 +312,19 @@ def test_memory_id_tiebreaker_isolated():
     gs.neighbors = fake_neighbors
 
     with (
-        patch.object(graph_mod, "extract_query_mentions",
-                     AsyncMock(return_value=["a", "b"])),
-        patch.object(graph_mod, "resolve_query_entities",
-                     AsyncMock(return_value={env: [e1, e2]})),
+        patch.object(graph_mod, "extract_query_mentions", AsyncMock(return_value=["a", "b"])),
+        patch.object(graph_mod, "resolve_query_entities", AsyncMock(return_value={env: [e1, e2]})),
     ):
-        out = asyncio.run(graph_search(
-            MagicMock(), graph_store=gs, query="a b", env_ids=[env],
-            limit=10, settings=_settings(),
-        ))
+        out = asyncio.run(
+            graph_search(
+                MagicMock(),
+                graph_store=gs,
+                query="a b",
+                env_ids=[env],
+                limit=10,
+                settings=_settings(),
+            )
+        )
 
     # Both memories: overlap=1, min_path_length=1, rank_score=1/61, but
     # first_order differs (m_b from e1.first_order=0; m_a from e2.first_order=1).
@@ -321,15 +341,19 @@ def test_limit_truncates_results():
     gs.neighbors.return_value = ([_hit(env, e1, m) for m in mems], None)
 
     with (
-        patch.object(graph_mod, "extract_query_mentions",
-                     AsyncMock(return_value=["x"])),
-        patch.object(graph_mod, "resolve_query_entities",
-                     AsyncMock(return_value={env: [e1]})),
+        patch.object(graph_mod, "extract_query_mentions", AsyncMock(return_value=["x"])),
+        patch.object(graph_mod, "resolve_query_entities", AsyncMock(return_value={env: [e1]})),
     ):
-        out = asyncio.run(graph_search(
-            MagicMock(), graph_store=gs, query="x", env_ids=[env],
-            limit=3, settings=_settings(),
-        ))
+        out = asyncio.run(
+            graph_search(
+                MagicMock(),
+                graph_store=gs,
+                query="x",
+                env_ids=[env],
+                limit=3,
+                settings=_settings(),
+            )
+        )
     assert len(out) == 3
 
 
@@ -361,15 +385,19 @@ def test_neighbors_concurrency_is_bounded():
     gs.neighbors = fake_neighbors
 
     with (
-        patch.object(graph_mod, "extract_query_mentions",
-                     AsyncMock(return_value=["x"])),
-        patch.object(graph_mod, "resolve_query_entities",
-                     AsyncMock(return_value={env: entities})),
+        patch.object(graph_mod, "extract_query_mentions", AsyncMock(return_value=["x"])),
+        patch.object(graph_mod, "resolve_query_entities", AsyncMock(return_value={env: entities})),
     ):
-        asyncio.run(graph_search(
-            MagicMock(), graph_store=gs, query="x", env_ids=[env],
-            limit=10, settings=_settings(graph_search_max_concurrent_neighbors=3),
-        ))
+        asyncio.run(
+            graph_search(
+                MagicMock(),
+                graph_store=gs,
+                query="x",
+                env_ids=[env],
+                limit=10,
+                settings=_settings(graph_search_max_concurrent_neighbors=3),
+            )
+        )
     assert max_seen <= 3
 
 
@@ -382,13 +410,17 @@ def test_concurrency_one_when_setting_is_zero_or_negative():
     gs.neighbors.return_value = ([], None)
 
     with (
-        patch.object(graph_mod, "extract_query_mentions",
-                     AsyncMock(return_value=["x"])),
-        patch.object(graph_mod, "resolve_query_entities",
-                     AsyncMock(return_value={env: [e1]})),
+        patch.object(graph_mod, "extract_query_mentions", AsyncMock(return_value=["x"])),
+        patch.object(graph_mod, "resolve_query_entities", AsyncMock(return_value={env: [e1]})),
     ):
-        out = asyncio.run(graph_search(
-            MagicMock(), graph_store=gs, query="x", env_ids=[env],
-            limit=5, settings=_settings(graph_search_max_concurrent_neighbors=0),
-        ))
+        out = asyncio.run(
+            graph_search(
+                MagicMock(),
+                graph_store=gs,
+                query="x",
+                env_ids=[env],
+                limit=5,
+                settings=_settings(graph_search_max_concurrent_neighbors=0),
+            )
+        )
     assert out == []

@@ -6,12 +6,12 @@ from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.env_ops import DiffGranularity, EnvDiffRequest
 
 from memory_mcp.db.models import Entity, Environment, GraphNode, Memory, Relation, Tag
 from memory_mcp.env_ops import diff as diff_mod
 from memory_mcp.errors import NotFoundError
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.env_ops import DiffGranularity, EnvDiffRequest
 
 
 class _ScalarResult:
@@ -34,7 +34,7 @@ class _ExecuteResult:
 
 
 class _Session:
-    def __init__(self, fixture: "_Fixture") -> None:
+    def __init__(self, fixture: _Fixture) -> None:
         self._fixture = fixture
 
     async def connection(self, **_kwargs: object) -> None:
@@ -68,10 +68,7 @@ class _Session:
 
         if "FROM memories" in sql:
             return _ExecuteResult(
-                [
-                    (row.id, row.env_id, row.kind, row.body, row.metadata_)
-                    for row in self._fixture.memories
-                ]
+                [(row.id, row.env_id, row.kind, row.body, row.metadata_) for row in self._fixture.memories]
             )
         if "FROM entities" in sql:
             return _ExecuteResult([(row.env_id, row.normalized_name) for row in self._fixture.entities])

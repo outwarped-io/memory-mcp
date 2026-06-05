@@ -98,9 +98,7 @@ class EntityNeighborsRequest(BaseModel):
             if not t:
                 raise ValueError("edge_types entries must be non-empty")
             if len(t) > 200:
-                raise ValueError(
-                    "edge_types entries must be <= 200 characters"
-                )
+                raise ValueError("edge_types entries must be <= 200 characters")
             out.append(t)
         return out
 
@@ -226,9 +224,7 @@ class MemNeighborsRequest(BaseModel):
             if not t:
                 raise ValueError("edge_types entries must be non-empty")
             if len(t) > 200:
-                raise ValueError(
-                    "edge_types entries must be <= 200 characters"
-                )
+                raise ValueError("edge_types entries must be <= 200 characters")
             out.append(t)
         return out
 

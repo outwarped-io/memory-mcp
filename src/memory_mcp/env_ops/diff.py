@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from memory_mcp_schemas.env_ops import DiffGranularity, EnvDiffRequest, EnvDiffResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -34,7 +35,6 @@ from memory_mcp.db.models import (
 from memory_mcp.db.postgres import session_scope
 from memory_mcp.errors import NotFoundError
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.env_ops import DiffGranularity, EnvDiffRequest, EnvDiffResponse
 
 ENTITY_LIMIT = 500
 MEMORY_SAMPLE_LIMIT = 100
@@ -372,8 +372,9 @@ async def _key_rows(
 async def _graph_node_keys(session: AsyncSession, env_a_id: UUID, env_b_id: UUID) -> dict[str, set[tuple[str, str]]]:
     rows = (
         await session.execute(
-            select(GraphNode.env_id, GraphNode.node_type, GraphNode.memory_id, GraphNode.entity_id, GraphNode.task_id)
-            .where(GraphNode.env_id.in_([env_a_id, env_b_id]))
+            select(
+                GraphNode.env_id, GraphNode.node_type, GraphNode.memory_id, GraphNode.entity_id, GraphNode.task_id
+            ).where(GraphNode.env_id.in_([env_a_id, env_b_id]))
         )
     ).all()
     out = {"a": set(), "b": set()}

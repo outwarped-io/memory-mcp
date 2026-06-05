@@ -8,12 +8,10 @@ order, dedupe-key computation, outbox, audit, lineage) lives in
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from uuid import UUID, uuid4
+from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
-from pydantic import ValidationError
-
 from memory_mcp_schemas.decompose import (
     DecomposeLineageRow,
     MemDecomposeChild,
@@ -22,6 +20,7 @@ from memory_mcp_schemas.decompose import (
 )
 from memory_mcp_schemas.enums import MemoryKind, MemoryStatus
 from memory_mcp_schemas.memories import MemoryResponse
+from pydantic import ValidationError
 
 
 def _good_child(kind: MemoryKind = MemoryKind.fact, body: str = "atom") -> MemDecomposeChild:
@@ -89,24 +88,18 @@ def test_decompose_accepts_twenty_children_boundary() -> None:
 
 
 def test_decompose_accepts_split_mode() -> None:
-    req = MemDecomposeRequest(
-        source_id=uuid4(), children=_good_children(), mode="split"
-    )
+    req = MemDecomposeRequest(source_id=uuid4(), children=_good_children(), mode="split")
     assert req.mode == "split"
 
 
 def test_decompose_accepts_derive_mode() -> None:
-    req = MemDecomposeRequest(
-        source_id=uuid4(), children=_good_children(), mode="derive"
-    )
+    req = MemDecomposeRequest(source_id=uuid4(), children=_good_children(), mode="derive")
     assert req.mode == "derive"
 
 
 def test_decompose_rejects_unknown_mode() -> None:
     with pytest.raises(ValidationError):
-        MemDecomposeRequest(
-            source_id=uuid4(), children=_good_children(), mode="frobnicate"
-        )
+        MemDecomposeRequest(source_id=uuid4(), children=_good_children(), mode="frobnicate")
 
 
 # ---------------------------------------------------------------------------
@@ -130,9 +123,7 @@ def test_decompose_request_forbids_extra_fields() -> None:
 
 def test_decompose_child_forbids_extra_fields() -> None:
     with pytest.raises(ValidationError, match="(?i)extra"):
-        MemDecomposeChild.model_validate(
-            {"kind": "fact", "body": "x", "rogue_field": "x"}
-        )
+        MemDecomposeChild.model_validate({"kind": "fact", "body": "x", "rogue_field": "x"})
 
 
 # ---------------------------------------------------------------------------
@@ -165,15 +156,11 @@ def test_decompose_idempotency_key_accepted() -> None:
 
 def test_decompose_expected_version_must_be_non_negative() -> None:
     with pytest.raises(ValidationError):
-        MemDecomposeRequest(
-            source_id=uuid4(), children=_good_children(), expected_version=-1
-        )
+        MemDecomposeRequest(source_id=uuid4(), children=_good_children(), expected_version=-1)
 
 
 def test_decompose_expected_version_zero_accepted() -> None:
-    req = MemDecomposeRequest(
-        source_id=uuid4(), children=_good_children(), expected_version=0
-    )
+    req = MemDecomposeRequest(source_id=uuid4(), children=_good_children(), expected_version=0)
     assert req.expected_version == 0
 
 
@@ -238,8 +225,8 @@ def _make_memory_response(body: str = "x") -> MemoryResponse:
         expires_at=None,
         superseded_by=None,
         version=1,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
 
 

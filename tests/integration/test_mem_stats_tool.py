@@ -10,9 +10,9 @@ import httpx
 import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from memory_mcp_schemas.stats import MemoriesStats, MemStatsRequest, MemStatsResponse
 
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.stats import MemoriesStats, MemStatsRequest, MemStatsResponse
 
 
 async def _call_mem_stats(
@@ -29,8 +29,16 @@ async def _call_mem_stats(
     async def fake_lookup(name: str, *, include_deleted: bool = False):
         return SimpleNamespace(id=envs[name.lower()])
 
-    async def fake_resolve_ctx(*, agent_id: UUID | None, attached_env_ids: list[UUID] | None, attached_env_names: list[str] | None = None, settings=None):
-        return AgentContext(agent_id=agent_id or uuid4(), agent_name="test", attached_env_ids=list(attached_env_ids or []))
+    async def fake_resolve_ctx(
+        *,
+        agent_id: UUID | None,
+        attached_env_ids: list[UUID] | None,
+        attached_env_names: list[str] | None = None,
+        settings=None,
+    ):
+        return AgentContext(
+            agent_id=agent_id or uuid4(), agent_name="test", attached_env_ids=list(attached_env_ids or [])
+        )
 
     async def fake_compute(req: MemStatsRequest, *, ctx: AgentContext):
         seen.append(req)
@@ -57,14 +65,16 @@ async def _call_mem_stats(
             auth=auth,
         )
 
-    async with app.router.lifespan_context(app):
-        async with streamablehttp_client(
+    async with (
+        app.router.lifespan_context(app),
+        streamablehttp_client(
             "http://127.0.0.1:8080/mcp/",
             httpx_client_factory=httpx_client_factory,
-        ) as (read_stream, write_stream, _get_session_id):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                result = await session.call_tool("mem_stats", {"request": request, "agent_id": str(uuid4())})
+        ) as (read_stream, write_stream, _get_session_id),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+        result = await session.call_tool("mem_stats", {"request": request, "agent_id": str(uuid4())})
     return result, seen
 
 

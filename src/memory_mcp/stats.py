@@ -11,14 +11,6 @@ from math import ceil
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import bindparam, text
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from memory_mcp import rbac
-from memory_mcp.config import Settings, get_settings
-from memory_mcp.db.postgres import session_scope
-from memory_mcp.identity import AgentContext
-
 from memory_mcp_schemas.stats import (
     AccessCountStats,
     AgeStats,
@@ -38,6 +30,13 @@ from memory_mcp_schemas.stats import (
     TagCount,
     TagsPerMemoryStats,
 )
+from sqlalchemy import bindparam, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from memory_mcp import rbac
+from memory_mcp.config import Settings, get_settings
+from memory_mcp.db.postgres import session_scope
+from memory_mcp.identity import AgentContext
 
 _STATEMENT_TIMEOUT_MS = 1_500
 _PROCESS_START = time.monotonic()
@@ -96,7 +95,9 @@ def _bind_envs(stmt: Any, env_ids: Sequence[UUID] | None) -> Any:
     return stmt
 
 
-async def _execute(session: AsyncSession, sql: str, params: dict[str, Any] | None = None, *, env_ids: Sequence[UUID] | None = None):
+async def _execute(
+    session: AsyncSession, sql: str, params: dict[str, Any] | None = None, *, env_ids: Sequence[UUID] | None = None
+):
     stmt = _bind_envs(text(sql), env_ids)
     return await session.execute(stmt, params or {})
 
@@ -161,7 +162,9 @@ def _tags_per_memory_stats(values: Iterable[int], *, total_memories: int) -> Tag
 
 def read_process_rss() -> ProcessStats:
     if os.name != "posix" or not os.path.exists("/proc/self/statm"):
-        return ProcessStats(rss_bytes=None, rss_reason="unsupported_os", uptime_seconds=time.monotonic() - _PROCESS_START)
+        return ProcessStats(
+            rss_bytes=None, rss_reason="unsupported_os", uptime_seconds=time.monotonic() - _PROCESS_START
+        )
     try:
         with open("/proc/self/statm", encoding="ascii") as handle:
             parts = handle.read().split()
@@ -177,7 +180,9 @@ def read_process_rss() -> ProcessStats:
 
 async def _env_stats(session: AsyncSession, env_ids: Sequence[UUID] | None) -> tuple[EnvStats, dict[UUID, str]]:
     where, params = _sql_filter(env_ids)
-    rows = (await _execute(session, f"SELECT id, name, status FROM environments {where}", params, env_ids=env_ids)).all()
+    rows = (
+        await _execute(session, f"SELECT id, name, status FROM environments {where}", params, env_ids=env_ids)
+    ).all()
     names = {row.id: row.name for row in rows}
     active = sum(1 for row in rows if row.status == "active")
     deleted = sum(1 for row in rows if row.status == "deleted")
@@ -290,7 +295,9 @@ async def _memory_stats(
     )
 
 
-async def _group_counts(session: AsyncSession, table_expr: str, status_expr: str, env_ids: Sequence[UUID] | None) -> dict[str, int]:
+async def _group_counts(
+    session: AsyncSession, table_expr: str, status_expr: str, env_ids: Sequence[UUID] | None
+) -> dict[str, int]:
     where, params = _sql_filter(env_ids)
     return {
         str(row.status): int(row.count)
@@ -335,7 +342,9 @@ async def _decisions(session: AsyncSession, env_ids: Sequence[UUID] | None) -> d
     return {"total": sum(by_status.values()), "by_status": by_status}
 
 
-async def _distributions(session: AsyncSession, env_ids: Sequence[UUID] | None, total_memories: int) -> DistributionStats:
+async def _distributions(
+    session: AsyncSession, env_ids: Sequence[UUID] | None, total_memories: int
+) -> DistributionStats:
     where, params = _sql_filter(env_ids)
     await session.execute(text(f"SET LOCAL statement_timeout = {_STATEMENT_TIMEOUT_MS}"))
     chain_rows = (
@@ -353,7 +362,9 @@ async def _distributions(session: AsyncSession, env_ids: Sequence[UUID] | None, 
                 SELECT root_id, MAX(depth) AS depth FROM chain GROUP BY root_id
             )
             SELECT depth FROM depths
-            """ if where else """
+            """
+            if where
+            else """
             WITH RECURSIVE chain(root_id, id, env_id, depth) AS (
                 SELECT id, id, env_id, 1 FROM memories WHERE superseded_by IS NULL
                 UNION ALL
@@ -370,7 +381,9 @@ async def _distributions(session: AsyncSession, env_ids: Sequence[UUID] | None, 
             env_ids=env_ids,
         )
     ).all()
-    body_rows = (await _execute(session, f"SELECT octet_length(body) AS v FROM memories {where}", params, env_ids=env_ids)).all()
+    body_rows = (
+        await _execute(session, f"SELECT octet_length(body) AS v FROM memories {where}", params, env_ids=env_ids)
+    ).all()
     age_rows = (
         await _execute(
             session,
@@ -379,8 +392,12 @@ async def _distributions(session: AsyncSession, env_ids: Sequence[UUID] | None, 
             env_ids=env_ids,
         )
     ).all()
-    salience_rows = (await _execute(session, f"SELECT salience::float AS v FROM memories {where}", params, env_ids=env_ids)).all()
-    access_rows = (await _execute(session, f"SELECT access_count AS v FROM memories {where}", params, env_ids=env_ids)).all()
+    salience_rows = (
+        await _execute(session, f"SELECT salience::float AS v FROM memories {where}", params, env_ids=env_ids)
+    ).all()
+    access_rows = (
+        await _execute(session, f"SELECT access_count AS v FROM memories {where}", params, env_ids=env_ids)
+    ).all()
     tag_where, tag_params = _sql_filter(env_ids, alias="mt")
     tag_rows = (
         await _execute(
@@ -407,7 +424,9 @@ async def _distributions(session: AsyncSession, env_ids: Sequence[UUID] | None, 
     )
 
 
-async def _projection_and_outbox(session: AsyncSession, env_ids: Sequence[UUID] | None) -> tuple[list[ProjectionLagEntry], OutboxStats]:
+async def _projection_and_outbox(
+    session: AsyncSession, env_ids: Sequence[UUID] | None
+) -> tuple[list[ProjectionLagEntry], OutboxStats]:
     where, params = _sql_filter(env_ids)
     rows = (
         await _execute(
@@ -439,12 +458,16 @@ async def _projection_and_outbox(session: AsyncSession, env_ids: Sequence[UUID] 
         for row in rows
     ]
     by_sink: dict[str, dict[str, int]] = {}
-    for row in (await session.execute(text("SELECT sink, status, COUNT(*) AS count FROM outbox_delivery GROUP BY sink, status"))).all():
+    for row in (
+        await session.execute(text("SELECT sink, status, COUNT(*) AS count FROM outbox_delivery GROUP BY sink, status"))
+    ).all():
         by_sink.setdefault(str(row.sink), {})[str(row.status)] = int(row.count)
     return lag, OutboxStats(by_sink=by_sink)
 
 
-async def _substrate_snapshot(session: AsyncSession, env_ids: Sequence[UUID] | None, settings: Settings) -> tuple[SubstrateStats, list[str]]:
+async def _substrate_snapshot(
+    session: AsyncSession, env_ids: Sequence[UUID] | None, settings: Settings
+) -> tuple[SubstrateStats, list[str]]:
     degraded: list[str] = []
     postgres: dict[str, int | str | None] | None = None
     qdrant: dict[str, int | str | None] | None = None
@@ -499,7 +522,10 @@ async def _substrate_snapshot(session: AsyncSession, env_ids: Sequence[UUID] | N
                         (await neo_session.run("MATCH ()-[r]->() RETURN count(r) AS count")).single(),
                         timeout=2.0,
                     )
-                neo4j = {"nodes": int(nodes["count"] if nodes else 0), "relationships": int(rels["count"] if rels else 0)}
+                neo4j = {
+                    "nodes": int(nodes["count"] if nodes else 0),
+                    "relationships": int(rels["count"] if rels else 0),
+                }
             finally:
                 await drv.close()
     except Exception as exc:  # noqa: BLE001
@@ -581,10 +607,16 @@ async def compute_metrics_snapshot(session: AsyncSession) -> MetricsSnapshot:
         snapshot.memory_counts.append(("_all", kind, "_all", count))
     snapshot.tasks = dict(stats.tasks)
     snapshot.playbooks = dict(stats.playbooks)
-    snapshot.decisions = dict(stats.decisions.get("by_status", {})) if isinstance(stats.decisions.get("by_status"), dict) else {}
+    snapshot.decisions = (
+        dict(stats.decisions.get("by_status", {})) if isinstance(stats.decisions.get("by_status"), dict) else {}
+    )
     if stats.distributions:
         d = stats.distributions
         if d.chain_depth:
-            snapshot.samples["chain_depth"] = [float(v) for label, count in d.chain_depth.buckets.items() for v in ([4.0 if label == "4+" else float(label)] * count)]
+            snapshot.samples["chain_depth"] = [
+                float(v)
+                for label, count in d.chain_depth.buckets.items()
+                for v in ([4.0 if label == "4+" else float(label)] * count)
+            ]
         # Histogram samples use raw values from direct SQL below for better fidelity.
     return snapshot

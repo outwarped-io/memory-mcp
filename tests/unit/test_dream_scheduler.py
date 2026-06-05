@@ -31,8 +31,8 @@ import pytest
 from dream_worker.jobs import DreamMode, DreamPassOutcome, DreamPassReport
 from dream_worker.scheduler import (
     JOB_ID_DECAY,
-    JOB_ID_DEDUPE,
     JOB_ID_DECISION_CONFLICTS,
+    JOB_ID_DEDUPE,
     JOB_ID_METRICS_REFRESH,
     JOB_ID_PROMOTE,
     JOB_ID_RECOUNT,
@@ -198,9 +198,12 @@ class TestRegisterJobs:
         try:
             jobs = {job.id: job for job in s.scheduler.get_jobs()}
             assert JOB_ID_METRICS_REFRESH in jobs
-            assert int(
-                jobs[JOB_ID_METRICS_REFRESH].trigger.interval.total_seconds(),
-            ) == 30
+            assert (
+                int(
+                    jobs[JOB_ID_METRICS_REFRESH].trigger.interval.total_seconds(),
+                )
+                == 30
+            )
         finally:
             s.shutdown(wait=False)
 
@@ -258,10 +261,12 @@ class TestRunModeTick:
     async def test_env_discovery_is_per_tick(self, monkeypatch) -> None:
         """list_active_envs called once per tick — fresh each time."""
         s = _make_scheduler()
-        list_envs = AsyncMock(side_effect=[
-            [uuid4()],
-            [uuid4(), uuid4()],
-        ])
+        list_envs = AsyncMock(
+            side_effect=[
+                [uuid4()],
+                [uuid4(), uuid4()],
+            ]
+        )
         monkeypatch.setattr("dream_worker.scheduler.list_active_envs", list_envs)
         monkeypatch.setattr(
             "dream_worker.scheduler.run_dream_pass",
@@ -347,7 +352,8 @@ class TestRunModeTick:
 class TestDispatchKwargs:
     @pytest.mark.asyncio
     async def test_decay_passes_no_embedder_no_vector_store(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ) -> None:
         env_id = uuid4()
         s = _make_scheduler()
@@ -363,7 +369,8 @@ class TestDispatchKwargs:
 
     @pytest.mark.asyncio
     async def test_promote_passes_no_embedder_no_vector_store(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ) -> None:
         env_id = uuid4()
         s = _make_scheduler()
@@ -378,7 +385,8 @@ class TestDispatchKwargs:
 
     @pytest.mark.asyncio
     async def test_dedupe_passes_embedder_and_vector_store(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ) -> None:
         env_id = uuid4()
         embedder = MagicMock(name="embedder")
@@ -403,7 +411,8 @@ class TestDispatchKwargs:
 
     @pytest.mark.asyncio
     async def test_decision_conflicts_passes_vector_store_only(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ) -> None:
         env_id = uuid4()
         vector_store = MagicMock(name="vector_store")
@@ -427,7 +436,8 @@ class TestDispatchKwargs:
 
     @pytest.mark.asyncio
     async def test_actor_ctx_attached_to_only_one_env(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ) -> None:
         env_id = uuid4()
         agent_id = uuid4()
@@ -452,7 +462,8 @@ class TestDispatchKwargs:
 class TestTriggerNow:
     @pytest.mark.asyncio
     async def test_trigger_now_dispatches_immediately(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ) -> None:
         env_id = uuid4()
         s = _make_scheduler()
@@ -468,7 +479,8 @@ class TestTriggerNow:
 
     @pytest.mark.asyncio
     async def test_trigger_now_dedupe_passes_embedder_vector_store(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ) -> None:
         env_id = uuid4()
         embedder = MagicMock(name="embedder")
@@ -492,7 +504,8 @@ class TestTriggerNow:
 
     @pytest.mark.asyncio
     async def test_trigger_now_decay_omits_embedder_and_vector_store(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ) -> None:
         env_id = uuid4()
         s = _make_scheduler()
@@ -545,7 +558,8 @@ class TestShutdown:
 
     @pytest.mark.asyncio
     async def test_shutdown_calls_apscheduler_with_wait_flag(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ) -> None:
         """Forward the wait kwarg to APScheduler verbatim."""
         s = _make_scheduler()
@@ -587,7 +601,8 @@ class TestTickFactory:
 
     @pytest.mark.asyncio
     async def test_make_tick_func_invokes_run_mode_tick(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ) -> None:
         s = _make_scheduler()
         called: list[DreamMode] = []

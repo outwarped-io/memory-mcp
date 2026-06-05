@@ -61,6 +61,7 @@ def _make_actor_ctx(env_id: UUID) -> AgentContext:
 @dataclass(frozen=True)
 class _FakePassResult:
     """Stand-in result dataclass — covers UUID + datetime coercion."""
+
     env_id: UUID
     proposals_emitted: int = 0
     duration_seconds: float = 0.0
@@ -75,6 +76,7 @@ def _make_summarizer(kind_value: str = "template") -> MagicMock:
 
 class _FakeSession:
     """Minimal AsyncSession look-alike for advisory-lock SQL."""
+
     def __init__(self) -> None:
         self.executed: list[Any] = []
 
@@ -88,6 +90,7 @@ class _FakeSession:
 
 class _FakeContextManager:
     """Async context manager wrapping a single _FakeSession."""
+
     def __init__(self, session: _FakeSession) -> None:
         self._session = session
 
@@ -112,19 +115,24 @@ def _patch_lifecycle(
         "heartbeat": AsyncMock(return_value=None),
     }
     monkeypatch.setattr(
-        "dream_worker.jobs._try_acquire_lock_in_session", mocks["try_lock"],
+        "dream_worker.jobs._try_acquire_lock_in_session",
+        mocks["try_lock"],
     )
     monkeypatch.setattr(
-        "dream_worker.jobs._release_lock_in_session", mocks["release_lock"],
+        "dream_worker.jobs._release_lock_in_session",
+        mocks["release_lock"],
     )
     monkeypatch.setattr(
-        "dream_worker.jobs._insert_dream_run", mocks["insert_run"],
+        "dream_worker.jobs._insert_dream_run",
+        mocks["insert_run"],
     )
     monkeypatch.setattr(
-        "dream_worker.jobs._finalize_dream_run", mocks["finalize_run"],
+        "dream_worker.jobs._finalize_dream_run",
+        mocks["finalize_run"],
     )
     monkeypatch.setattr(
-        "dream_worker.jobs.update_heartbeat", mocks["heartbeat"],
+        "dream_worker.jobs.update_heartbeat",
+        mocks["heartbeat"],
     )
     # Outer session_scope is replaced with a fake CM so the lock helpers
     # have something to work with.
@@ -196,14 +204,16 @@ class TestResultCoercion:
 class TestRunDreamPassSkipped:
     @pytest.mark.asyncio
     async def test_lock_not_acquired_returns_skipped_no_dream_run(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         ctx = _make_actor_ctx(env_id)
         mocks = _patch_lifecycle(monkeypatch, lock_acquired=False)
 
         result = await run_dream_pass(
-            env_id, DreamMode.decay,
+            env_id,
+            DreamMode.decay,
             actor_ctx=ctx,
             summarizer=_make_summarizer(),
             now=NOW,
@@ -227,7 +237,8 @@ class TestRunDreamPassSkipped:
 class TestRunDreamPassSuccess:
     @pytest.mark.asyncio
     async def test_decay_dispatches_to_run_decay(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         ctx = _make_actor_ctx(env_id)
@@ -238,7 +249,8 @@ class TestRunDreamPassSuccess:
         monkeypatch.setattr("dream_worker.jobs.run_decay", decay_mock)
 
         result = await run_dream_pass(
-            env_id, DreamMode.decay,
+            env_id,
+            DreamMode.decay,
             actor_ctx=ctx,
             summarizer=_make_summarizer(),
             now=NOW,
@@ -271,7 +283,8 @@ class TestRunDreamPassSuccess:
 
     @pytest.mark.asyncio
     async def test_dedupe_dispatches_with_qdrant_and_embedder(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         ctx = _make_actor_ctx(env_id)
@@ -285,7 +298,8 @@ class TestRunDreamPassSuccess:
         vector_store = MagicMock()
 
         result = await run_dream_pass(
-            env_id, DreamMode.dedupe,
+            env_id,
+            DreamMode.dedupe,
             actor_ctx=ctx,
             summarizer=_make_summarizer(),
             embedder=embedder,
@@ -302,7 +316,8 @@ class TestRunDreamPassSuccess:
 
     @pytest.mark.asyncio
     async def test_promote_dispatches_with_summarizer(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         ctx = _make_actor_ctx(env_id)
@@ -315,7 +330,8 @@ class TestRunDreamPassSuccess:
         summarizer = _make_summarizer("llm")
 
         result = await run_dream_pass(
-            env_id, DreamMode.promote,
+            env_id,
+            DreamMode.promote,
             actor_ctx=ctx,
             summarizer=summarizer,
             now=NOW,
@@ -336,7 +352,8 @@ class TestRunDreamPassSuccess:
 class TestRunDreamPassFailure:
     @pytest.mark.asyncio
     async def test_pass_exception_marks_run_failed_and_lock_released(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         ctx = _make_actor_ctx(env_id)
@@ -346,7 +363,8 @@ class TestRunDreamPassFailure:
         monkeypatch.setattr("dream_worker.jobs.run_decay", decay_mock)
 
         result = await run_dream_pass(
-            env_id, DreamMode.decay,
+            env_id,
+            DreamMode.decay,
             actor_ctx=ctx,
             summarizer=_make_summarizer(),
             now=NOW,
@@ -380,7 +398,8 @@ class TestRunDreamPassFailure:
 class TestRunDreamPassInvariants:
     @pytest.mark.asyncio
     async def test_env_not_in_attached_envs_raises(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         # AgentContext does NOT include env_id.
@@ -392,7 +411,8 @@ class TestRunDreamPassInvariants:
 
         with pytest.raises(ValueError, match="attached_env_ids"):
             await run_dream_pass(
-                env_id, DreamMode.decay,
+                env_id,
+                DreamMode.decay,
                 actor_ctx=ctx,
                 summarizer=_make_summarizer(),
                 now=NOW,
@@ -400,7 +420,8 @@ class TestRunDreamPassInvariants:
 
     @pytest.mark.asyncio
     async def test_dedupe_without_vector_store_raises_inside_dispatch(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Dedupe NEEDS qdrant + embedder; if missing, the dispatch
         layer raises and the run is marked failed (NOT crashing the
@@ -410,7 +431,8 @@ class TestRunDreamPassInvariants:
         mocks = _patch_lifecycle(monkeypatch)
 
         result = await run_dream_pass(
-            env_id, DreamMode.dedupe,
+            env_id,
+            DreamMode.dedupe,
             actor_ctx=ctx,
             summarizer=_make_summarizer(),
             # vector_store + embedder intentionally missing
@@ -426,7 +448,8 @@ class TestRunDreamPassInvariants:
 
     @pytest.mark.asyncio
     async def test_summarizer_kind_recorded_on_dream_run(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         ctx = _make_actor_ctx(env_id)
@@ -437,7 +460,8 @@ class TestRunDreamPassInvariants:
         )
 
         await run_dream_pass(
-            env_id, DreamMode.promote,
+            env_id,
+            DreamMode.promote,
             actor_ctx=ctx,
             summarizer=_make_summarizer("llm"),
             now=NOW,
@@ -450,7 +474,8 @@ class TestRunDreamPassInvariants:
 
     @pytest.mark.asyncio
     async def test_triggered_by_threaded_through(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         ctx = _make_actor_ctx(env_id)
@@ -461,7 +486,8 @@ class TestRunDreamPassInvariants:
         )
 
         await run_dream_pass(
-            env_id, DreamMode.decay,
+            env_id,
+            DreamMode.decay,
             actor_ctx=ctx,
             summarizer=_make_summarizer(),
             triggered_by="manual",
@@ -502,7 +528,9 @@ class TestDreamPassReport:
     def test_default_values(self) -> None:
         env_id = uuid4()
         r = DreamPassReport(
-            env_id=env_id, mode=DreamMode.decay, outcome=DreamPassOutcome.skipped,
+            env_id=env_id,
+            mode=DreamMode.decay,
+            outcome=DreamPassOutcome.skipped,
         )
         assert r.dream_run_id is None
         assert r.summary is None

@@ -255,16 +255,16 @@ class _CountBundle:
     task: int = 0
     playbook: int = 0
 
-    def with_rel_link(self, n: int) -> "_CountBundle":
+    def with_rel_link(self, n: int) -> _CountBundle:
         return _CountBundle(n, self.lineage, self.task, self.playbook)
 
-    def with_lineage(self, n: int) -> "_CountBundle":
+    def with_lineage(self, n: int) -> _CountBundle:
         return _CountBundle(self.rel_link, n, self.task, self.playbook)
 
-    def with_task(self, n: int) -> "_CountBundle":
+    def with_task(self, n: int) -> _CountBundle:
         return _CountBundle(self.rel_link, self.lineage, n, self.playbook)
 
-    def with_playbook(self, n: int) -> "_CountBundle":
+    def with_playbook(self, n: int) -> _CountBundle:
         return _CountBundle(self.rel_link, self.lineage, self.task, n)
 
 
@@ -283,16 +283,16 @@ class _AuthorityBundle:
     task: Decimal = Decimal("0")
     playbook: Decimal = Decimal("0")
 
-    def with_rel_link(self, v: Decimal) -> "_AuthorityBundle":
+    def with_rel_link(self, v: Decimal) -> _AuthorityBundle:
         return _AuthorityBundle(v, self.lineage, self.task, self.playbook)
 
-    def with_lineage(self, v: Decimal) -> "_AuthorityBundle":
+    def with_lineage(self, v: Decimal) -> _AuthorityBundle:
         return _AuthorityBundle(self.rel_link, v, self.task, self.playbook)
 
-    def with_task(self, v: Decimal) -> "_AuthorityBundle":
+    def with_task(self, v: Decimal) -> _AuthorityBundle:
         return _AuthorityBundle(self.rel_link, self.lineage, v, self.playbook)
 
-    def with_playbook(self, v: Decimal) -> "_AuthorityBundle":
+    def with_playbook(self, v: Decimal) -> _AuthorityBundle:
         return _AuthorityBundle(self.rel_link, self.lineage, self.task, v)
 
 
@@ -381,7 +381,9 @@ async def run_recount(
             canonical[mid] = canonical[mid].with_lineage(n)
 
         pb_counts, playbooks_scanned = await _count_playbook_macros(
-            s, env_id=env_id, env_memory_ids=set(active_memory_ids),
+            s,
+            env_id=env_id,
+            env_memory_ids=set(active_memory_ids),
         )
         for mid, n in pb_counts.items():
             canonical[mid] = canonical[mid].with_playbook(n)
@@ -513,10 +515,20 @@ async def run_recount(
         env_id,
         result.memories_examined,
         result.memories_adjusted,
-        drift_rl, drift_ln, drift_tk, drift_pb,
-        authority_adjusted, salience_recomputed, salience_conflicts,
-        drift_auth_rl, drift_auth_ln, drift_auth_tk, drift_auth_pb,
-        target_formula_version, len(mismatched_ids), formula_version_pending,
+        drift_rl,
+        drift_ln,
+        drift_tk,
+        drift_pb,
+        authority_adjusted,
+        salience_recomputed,
+        salience_conflicts,
+        drift_auth_rl,
+        drift_auth_ln,
+        drift_auth_tk,
+        drift_auth_pb,
+        target_formula_version,
+        len(mismatched_ids),
+        formula_version_pending,
     )
     return result
 
@@ -536,13 +548,12 @@ async def _build_chain_index(s, env_id: UUID) -> dict[UUID, frozenset[UUID]]:
     side and avoids one entry per memory in the index.
     """
 
-    rows = (await s.execute(
-        text(
-            "SELECT id, superseded_by FROM memories "
-            "WHERE env_id = :env_id AND superseded_by IS NOT NULL"
-        ),
-        {"env_id": env_id},
-    )).all()
+    rows = (
+        await s.execute(
+            text("SELECT id, superseded_by FROM memories WHERE env_id = :env_id AND superseded_by IS NOT NULL"),
+            {"env_id": env_id},
+        )
+    ).all()
 
     if not rows:
         return {}
@@ -589,10 +600,7 @@ async def _load_active_memory_ids(s, env_id: UUID) -> set[UUID]:
     """
 
     rows = await s.execute(
-        text(
-            "SELECT id FROM memories "
-            "WHERE env_id = :env_id AND status = 'active'"
-        ),
+        text("SELECT id FROM memories WHERE env_id = :env_id AND status = 'active'"),
         {"env_id": env_id},
     )
     return {r.id for r in rows}
@@ -691,15 +699,20 @@ async def _count_lineage(s, *, env_id: UUID) -> dict[UUID, int]:
         """
     ).bindparams(bindparam("whitelist", expanding=True))
 
-    rows = (await s.execute(
-        stmt,
-        {"env_id": env_id, "whitelist": list(_LINEAGE_WHITELIST)},
-    )).all()
+    rows = (
+        await s.execute(
+            stmt,
+            {"env_id": env_id, "whitelist": list(_LINEAGE_WHITELIST)},
+        )
+    ).all()
     return {r.parent_id: int(r.n) for r in rows}
 
 
 async def _count_playbook_macros(
-    s, *, env_id: UUID, env_memory_ids: set[UUID],
+    s,
+    *,
+    env_id: UUID,
+    env_memory_ids: set[UUID],
 ) -> tuple[dict[UUID, int], int]:
     """Scan active playbook ``steps[]`` arrays for ``{{memory:<uuid>}}`` macros.
 
@@ -714,16 +727,18 @@ async def _count_playbook_macros(
     authority signal.
     """
 
-    rows = (await s.execute(
-        text(
-            "SELECT id, steps FROM memories "
-            "WHERE env_id = :env_id "
-            "  AND kind = 'playbook' "
-            "  AND status = 'active' "
-            "  AND steps IS NOT NULL"
-        ),
-        {"env_id": env_id},
-    )).all()
+    rows = (
+        await s.execute(
+            text(
+                "SELECT id, steps FROM memories "
+                "WHERE env_id = :env_id "
+                "  AND kind = 'playbook' "
+                "  AND status = 'active' "
+                "  AND steps IS NOT NULL"
+            ),
+            {"env_id": env_id},
+        )
+    ).all()
 
     counts: dict[UUID, int] = defaultdict(int)
     playbooks = 0
@@ -751,7 +766,8 @@ async def _count_playbook_macros(
 
 
 async def _load_current_counters(
-    s, env_id: UUID,
+    s,
+    env_id: UUID,
 ) -> dict[UUID, _CountBundle]:
     """Snapshot current ``reference_count_*`` columns for env.
 
@@ -759,15 +775,17 @@ async def _load_current_counters(
     ``reference_count`` sum is recalculated automatically by Postgres.
     """
 
-    rows = (await s.execute(
-        text(
-            "SELECT id, reference_count_rel_link, reference_count_lineage, "
-            "       reference_count_task, reference_count_playbook "
-            "FROM memories "
-            "WHERE env_id = :env_id"
-        ),
-        {"env_id": env_id},
-    )).all()
+    rows = (
+        await s.execute(
+            text(
+                "SELECT id, reference_count_rel_link, reference_count_lineage, "
+                "       reference_count_task, reference_count_playbook "
+                "FROM memories "
+                "WHERE env_id = :env_id"
+            ),
+            {"env_id": env_id},
+        )
+    ).all()
     return {
         r.id: _CountBundle(
             rel_link=int(r.reference_count_rel_link or 0),
@@ -780,7 +798,9 @@ async def _load_current_counters(
 
 
 async def _apply_counters(
-    s, memory_id: UUID, want: _CountBundle,
+    s,
+    memory_id: UUID,
+    want: _CountBundle,
 ) -> None:
     """Atomically overwrite a memory's four reference counters.
 
@@ -829,10 +849,7 @@ async def _load_active_memory_salience(s, env_id: UUID) -> dict[UUID, Decimal]:
     """
 
     rows = await s.execute(
-        text(
-            "SELECT id, salience FROM memories "
-            "WHERE env_id = :env_id AND status = 'active'"
-        ),
+        text("SELECT id, salience FROM memories WHERE env_id = :env_id AND status = 'active'"),
         {"env_id": env_id},
     )
     return {r.id: _q(r.salience) for r in rows}
@@ -949,10 +966,12 @@ async def _recompute_authority(
            AND ml.relation IN :whitelist
         """
     ).bindparams(bindparam("whitelist", expanding=True))
-    rows = (await s.execute(
-        ln_stmt,
-        {"env_id": env_id, "whitelist": list(_LINEAGE_WHITELIST)},
-    )).all()
+    rows = (
+        await s.execute(
+            ln_stmt,
+            {"env_id": env_id, "whitelist": list(_LINEAGE_WHITELIST)},
+        )
+    ).all()
 
     ln_sum: dict[UUID, Decimal] = defaultdict(lambda: Decimal("0"))
     for r in rows:
@@ -962,7 +981,8 @@ async def _recompute_authority(
         if r.child_id == r.parent_id:
             continue
         ln_sum[r.parent_id] = ln_sum[r.parent_id] + citer_salience.get(
-            r.child_id, Decimal("0"),
+            r.child_id,
+            Decimal("0"),
         )
 
     for mid, total in ln_sum.items():
@@ -1008,7 +1028,8 @@ async def _recompute_authority(
 
 
 async def _load_current_authority(
-    s, env_id: UUID,
+    s,
+    env_id: UUID,
 ) -> dict[UUID, _AuthorityBundle]:
     """Snapshot current ``ref_authority_*`` columns for env.
 
@@ -1016,15 +1037,17 @@ async def _load_current_authority(
     Postgres on every UPDATE; we never read it directly.
     """
 
-    rows = (await s.execute(
-        text(
-            "SELECT id, ref_authority_rel_link, ref_authority_lineage, "
-            "       ref_authority_task, ref_authority_playbook "
-            "FROM memories "
-            "WHERE env_id = :env_id"
-        ),
-        {"env_id": env_id},
-    )).all()
+    rows = (
+        await s.execute(
+            text(
+                "SELECT id, ref_authority_rel_link, ref_authority_lineage, "
+                "       ref_authority_task, ref_authority_playbook "
+                "FROM memories "
+                "WHERE env_id = :env_id"
+            ),
+            {"env_id": env_id},
+        )
+    ).all()
     return {
         r.id: _AuthorityBundle(
             rel_link=_q(r.ref_authority_rel_link),
@@ -1142,21 +1165,23 @@ async def _recompute_salience_for(
     conflicts = 0
 
     async with session_scope() as s:
-        rows = (await s.execute(
-            text(
-                "SELECT id, version, access_count, last_accessed_at, "
-                "       confidence, pinned, negative_feedback_count, "
-                "       verified_at, created_at, "
-                "       reference_count_rel_link, reference_count_lineage, "
-                "       reference_count_task, reference_count_playbook, "
-                "       reference_authority "
-                "FROM memories "
-                "WHERE id = ANY(:ids) "
-                "  AND env_id = :env_id "
-                "  AND status = 'active'"
-            ),
-            {"ids": list(memory_ids), "env_id": env_id},
-        )).all()
+        rows = (
+            await s.execute(
+                text(
+                    "SELECT id, version, access_count, last_accessed_at, "
+                    "       confidence, pinned, negative_feedback_count, "
+                    "       verified_at, created_at, "
+                    "       reference_count_rel_link, reference_count_lineage, "
+                    "       reference_count_task, reference_count_playbook, "
+                    "       reference_authority "
+                    "FROM memories "
+                    "WHERE id = ANY(:ids) "
+                    "  AND env_id = :env_id "
+                    "  AND status = 'active'"
+                ),
+                {"ids": list(memory_ids), "env_id": env_id},
+            )
+        ).all()
 
     for row in rows:
         inputs = SalienceInputs(
@@ -1199,7 +1224,8 @@ async def _recompute_salience_for(
             conflicts += 1
             log.debug(
                 "recount: salience version conflict on memory %s (env %s); skipping",
-                row.id, env_id,
+                row.id,
+                env_id,
             )
             continue
         recomputed += 1
@@ -1276,15 +1302,17 @@ async def _count_formula_version_pending(
         return 0
 
     async with session_scope() as s:
-        result = (await s.execute(
-            text(
-                "SELECT COUNT(*) AS n FROM memories "
-                "WHERE env_id = :env_id "
-                "  AND status = 'active' "
-                "  AND salience_formula_version < :v"
-            ),
-            {"env_id": env_id, "v": target_version},
-        )).scalar_one()
+        result = (
+            await s.execute(
+                text(
+                    "SELECT COUNT(*) AS n FROM memories "
+                    "WHERE env_id = :env_id "
+                    "  AND status = 'active' "
+                    "  AND salience_formula_version < :v"
+                ),
+                {"env_id": env_id, "v": target_version},
+            )
+        ).scalar_one()
 
     return int(result or 0)
 

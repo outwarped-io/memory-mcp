@@ -9,11 +9,11 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.env_ops import EnvImportRequest, ImportMode
 
 from memory_mcp.db.models import Environment, Memory, Tag
 from memory_mcp.env_ops import import_ as importer
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.env_ops import EnvImportRequest, ImportMode
 
 
 class _ScalarResult:
@@ -92,7 +92,9 @@ async def test_import_dry_run_reports_counts(tmp_path: Path, fake_session: _Fake
 
 
 @pytest.mark.asyncio
-async def test_import_full_into_new_env_fail_mode(tmp_path: Path, fake_session: _FakeSession, ctx: AgentContext) -> None:
+async def test_import_full_into_new_env_fail_mode(
+    tmp_path: Path, fake_session: _FakeSession, ctx: AgentContext
+) -> None:
     source_memory_id = uuid4()
     archive = _build_fake_archive(tmp_path, memory_ids=[source_memory_id])
 

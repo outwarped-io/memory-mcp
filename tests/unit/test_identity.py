@@ -50,6 +50,7 @@ def _payload(agent_id: uuid.UUID, name: str = "x") -> dict[str, object]:
 # AgentContext
 # ---------------------------------------------------------------------------
 
+
 def test_agent_context_defaults() -> None:
     aid = uuid.uuid4()
     ctx = AgentContext(agent_id=aid)
@@ -71,6 +72,7 @@ def test_agent_context_attached_envs_independent_per_instance() -> None:
 # ---------------------------------------------------------------------------
 # Default-agent file management
 # ---------------------------------------------------------------------------
+
 
 def test_default_agent_file_create_when_missing(tmp_path: Path) -> None:
     settings = _make_settings(tmp_path)
@@ -170,6 +172,7 @@ def test_read_or_create_recovers_from_lost_race(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # UUID parser
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("raw", ["not-a-uuid", "", "1234", "00000000"])
 def test_parse_uuid_rejects_bad_input(raw: str) -> None:

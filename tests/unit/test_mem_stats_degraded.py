@@ -6,10 +6,10 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 
 import pytest
+from memory_mcp_schemas.stats import EnvStats, MemoriesStats, MemStatsRequest, OutboxStats, SubstrateStats
 
 from memory_mcp import stats
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.stats import EnvStats, MemoriesStats, MemStatsRequest, OutboxStats, SubstrateStats
 
 
 class FakeSession:
@@ -122,7 +122,9 @@ async def test_include_flags_skip_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(stats, "_substrate_snapshot", substrate)
 
     out = await stats.compute_mem_stats(
-        MemStatsRequest(env_ids=[env], include_body_bytes=False, include_distributions=False, include_substrates=False, tag_top_k=0),
+        MemStatsRequest(
+            env_ids=[env], include_body_bytes=False, include_distributions=False, include_substrates=False, tag_top_k=0
+        ),
         ctx=AgentContext(agent_id=uuid4()),
     )
 

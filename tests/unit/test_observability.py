@@ -188,7 +188,8 @@ def test_dream_metrics_are_registered_in_default_registry() -> None:
     dream_run_duration_seconds.labels(mode="decay").observe(0.5)
     dream_runs_total.labels(mode="decay", outcome="done").inc()
     dream_proposals_open.labels(
-        kind="merge_candidate", summarizer_kind="template",
+        kind="merge_candidate",
+        summarizer_kind="template",
     ).set(2)
     dream_pass_items_processed_total.labels(mode="dedupe").inc(3)
     dream_summarizer_calls_total.labels(kind="template", outcome="ok").inc()

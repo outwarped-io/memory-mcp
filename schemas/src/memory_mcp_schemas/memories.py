@@ -196,10 +196,7 @@ class MemoryHardDeleteRequest(BaseModel):
         ...,
         min_length=1,
         max_length=1000,
-        description=(
-            "Free-text justification recorded on the tombstone for audit. "
-            "Required."
-        ),
+        description=("Free-text justification recorded on the tombstone for audit. Required."),
     )
     confirm_destroy: bool = Field(
         ...,
@@ -269,9 +266,7 @@ class MemoryHardDeleteResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    deleted_id: UUID = Field(
-        ..., description="The memory id that was targeted for hard-delete."
-    )
+    deleted_id: UUID = Field(..., description="The memory id that was targeted for hard-delete.")
     deleted_at: dt.datetime | None = Field(
         default=None,
         description=(
@@ -281,10 +276,7 @@ class MemoryHardDeleteResponse(BaseModel):
     )
     canonical_deleted: bool = Field(
         ...,
-        description=(
-            "True when the canonical rows were deleted. ``false`` on dry-run "
-            "responses."
-        ),
+        description=("True when the canonical rows were deleted. ``false`` on dry-run responses."),
     )
     projection_eviction: HardDeleteProjectionStatus | None = Field(
         default=None,

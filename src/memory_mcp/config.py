@@ -456,7 +456,7 @@ class Settings(BaseSettings):
     autowire_decompose_total_cap: int = Field(default=30, ge=1, le=100)
 
     @model_validator(mode="after")
-    def _autowire_invariants(self) -> "Settings":
+    def _autowire_invariants(self) -> Settings:
         """Enforce cross-knob invariants on the ``autowire_*`` group.
 
         Compose:
@@ -488,23 +488,16 @@ class Settings(BaseSettings):
             )
         if self.autowire_decompose_enabled and not self.autowire_enabled:
             raise ValueError(
-                "autowire_decompose_enabled requires autowire_enabled "
-                "(master switch); enable both or neither"
+                "autowire_decompose_enabled requires autowire_enabled (master switch); enable both or neither"
             )
-        if (
-            self.autowire_decompose_total_cap
-            < self.autowire_decompose_per_child_top_k
-        ):
+        if self.autowire_decompose_total_cap < self.autowire_decompose_per_child_top_k:
             raise ValueError(
                 "autowire_decompose_total_cap "
                 f"({self.autowire_decompose_total_cap}) must be >= "
                 "autowire_decompose_per_child_top_k "
                 f"({self.autowire_decompose_per_child_top_k})"
             )
-        if (
-            self.autowire_candidate_limit
-            < self.autowire_decompose_per_child_top_k
-        ):
+        if self.autowire_candidate_limit < self.autowire_decompose_per_child_top_k:
             raise ValueError(
                 "autowire_candidate_limit "
                 f"({self.autowire_candidate_limit}) must be >= "

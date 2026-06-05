@@ -49,10 +49,7 @@ class JsonlWriter:
 
         if self._file is None:
             raise RuntimeError("JsonlWriter must be used as a context manager")
-        if isinstance(obj, BaseModel):
-            line = obj.model_dump_json()
-        else:
-            line = json.dumps(obj, default=str, ensure_ascii=False)
+        line = obj.model_dump_json() if isinstance(obj, BaseModel) else json.dumps(obj, default=str, ensure_ascii=False)
         self._file.write(line)
         self._file.write("\n")
         self._count += 1

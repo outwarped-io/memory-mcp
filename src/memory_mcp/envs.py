@@ -39,7 +39,11 @@ from functools import lru_cache
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from memory_mcp_schemas.envs import (
+    AttachedEnvsResponse,
+    EnvCreateRequest,
+    EnvResponse,
+)
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -56,12 +60,6 @@ from memory_mcp.errors import (
 )
 from memory_mcp.identity import AgentContext
 
-from memory_mcp_schemas.envs import (
-    AttachedEnvsResponse,
-    EnvCreateRequest,
-    EnvResponse,
-)
-
 log = logging.getLogger(__name__)
 
 
@@ -72,6 +70,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Repo-level DB helpers
 # ---------------------------------------------------------------------------
+
 
 async def create_env(
     *,
@@ -159,6 +158,7 @@ async def list_envs(*, include_deleted: bool = False) -> list[Environment]:
 # Session-state (in-memory)
 # ---------------------------------------------------------------------------
 
+
 class EnvSessionState:
     """Process-local map of ``session_id`` → attached ``env_id`` set.
 
@@ -214,6 +214,7 @@ def get_env_session_state() -> EnvSessionState:
 # Tool-facing functions (called from MCP transport in p1-mcp-transport)
 # ---------------------------------------------------------------------------
 
+
 async def env_create(
     request: EnvCreateRequest,
     *,
@@ -224,9 +225,7 @@ async def env_create(
     rbac.require("admin", env_id=None, ctx=ctx)
     settings = settings or get_settings()
 
-    default_model = (
-        request.default_embedding_model_id or settings.embedding_model_id
-    )
+    default_model = request.default_embedding_model_id or settings.embedding_model_id
     row = await create_env(
         name=request.name,
         kind=request.kind,
@@ -357,6 +356,7 @@ async def _build_attached_response(
 # ---------------------------------------------------------------------------
 # Single entry point for the transport layer.
 # ---------------------------------------------------------------------------
+
 
 async def build_request_context(
     *,

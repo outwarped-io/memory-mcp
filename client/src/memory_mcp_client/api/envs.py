@@ -5,12 +5,13 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from memory_mcp_client.api._base import _BaseAPI
 from memory_mcp_schemas.envs import (
     AttachedEnvsResponse,
     EnvCreateRequest,
     EnvResponse,
 )
+
+from memory_mcp_client.api._base import _BaseAPI
 
 
 class EnvsAPI(_BaseAPI):

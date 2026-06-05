@@ -85,7 +85,7 @@ class McpSdkToolClient:
         self._stack: contextlib.AsyncExitStack | None = None
         self._session: Any | None = None
 
-    async def __aenter__(self) -> "McpSdkToolClient":
+    async def __aenter__(self) -> McpSdkToolClient:
         from mcp.client.session import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
 
@@ -355,11 +355,15 @@ def print_summary(summary: ImportSummary) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path, help="Path to server-memory JSONL file")
-    parser.add_argument("--base-url", required=True, help="memory-mcp streamable HTTP URL, e.g. http://127.0.0.1:8080/mcp")
+    parser.add_argument(
+        "--base-url", required=True, help="memory-mcp streamable HTTP URL, e.g. http://127.0.0.1:8080/mcp"
+    )
     parser.add_argument("--env-id", required=True, type=UUID, help="Target memory-mcp environment UUID")
     parser.add_argument("--agent-id", type=UUID, help="Optional importing agent UUID")
     parser.add_argument("--dry-run", action="store_true", help="Print intended tool calls without contacting MCP")
-    parser.add_argument("--batch-size", type=int, default=1, help="Reserved concurrency knob; default keeps calls sequential")
+    parser.add_argument(
+        "--batch-size", type=int, default=1, help="Reserved concurrency knob; default keeps calls sequential"
+    )
     parser.add_argument("--log-level", default="WARNING", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     return parser
 
@@ -381,10 +385,14 @@ async def async_main(argv: list[str] | None = None) -> int:
 
     try:
         if args.dry_run:
-            summary = await import_records(parsed, client=None, input_path=input_path, env_id=env_id, agent_id=agent_id, dry_run=True)
+            summary = await import_records(
+                parsed, client=None, input_path=input_path, env_id=env_id, agent_id=agent_id, dry_run=True
+            )
         else:
             async with McpSdkToolClient(args.base_url, agent_id=agent_id) as client:
-                summary = await import_records(parsed, client=client, input_path=input_path, env_id=env_id, agent_id=agent_id)
+                summary = await import_records(
+                    parsed, client=client, input_path=input_path, env_id=env_id, agent_id=agent_id
+                )
     except Exception as exc:  # noqa: BLE001 - top-level fatal connection/init errors
         print(f"fatal: {exc}", file=sys.stderr)
         return 2

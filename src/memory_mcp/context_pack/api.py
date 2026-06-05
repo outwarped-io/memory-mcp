@@ -130,8 +130,7 @@ async def pack(
         "archival": archival,
     }
     available_sections = {
-        name for name, items in candidates.items()
-        if items and (include_journal or name != "recent_journal")
+        name for name, items in candidates.items() if items and (include_journal or name != "recent_journal")
     }
     caps = calculate_section_caps(
         token_budget,
@@ -223,10 +222,12 @@ async def _fetch_playbooks(
     normalized_desc = " ".join(task_desc.lower().split())
     macro_conditions = [Memory.macro.ilike(f"%{token}%") for token in tokens]
     if normalized_desc:
-        macro_conditions.extend([
-            Memory.macro.ilike(f"%{normalized_desc}%"),
-            literal(normalized_desc).ilike(func.concat("%", Memory.macro, "%")),
-        ])
+        macro_conditions.extend(
+            [
+                Memory.macro.ilike(f"%{normalized_desc}%"),
+                literal(normalized_desc).ilike(func.concat("%", Memory.macro, "%")),
+            ]
+        )
     out: list[Any] = []
     seen_ids: set[UUID] = set(exclude_ids)
 
@@ -284,12 +285,18 @@ async def _fetch_tasks(env_id: UUID, *, top_k: int = 5) -> list[Any]:
         return []
     first_limit = min(3, top_k)
     async with session_scope() as session:
-        in_progress = list((await session.execute(
-            select(Task)
-            .where(Task.env_id == env_id, Task.status == TaskStatus.in_progress.value)
-            .order_by(Task.priority.asc(), Task.updated_at.desc(), Task.id.asc())
-            .limit(first_limit)
-        )).scalars().all())
+        in_progress = list(
+            (
+                await session.execute(
+                    select(Task)
+                    .where(Task.env_id == env_id, Task.status == TaskStatus.in_progress.value)
+                    .order_by(Task.priority.asc(), Task.updated_at.desc(), Task.id.asc())
+                    .limit(first_limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
         remaining = top_k - len(in_progress)
         if remaining <= 0:
@@ -299,27 +306,33 @@ async def _fetch_tasks(env_id: UUID, *, top_k: int = 5) -> list[Any]:
         dst_node = aliased(GraphNode)
         dep = aliased(Relation)
         dst_task = aliased(Task)
-        pending = list((await session.execute(
-            select(Task)
-            .join(src_node, src_node.task_id == Task.id)
-            .where(
-                Task.env_id == env_id,
-                Task.status == TaskStatus.pending.value,
-                ~exists(
-                    select(1)
-                    .select_from(dep)
-                    .join(dst_node, dst_node.id == dep.dst_node_id)
-                    .join(dst_task, dst_task.id == dst_node.task_id)
+        pending = list(
+            (
+                await session.execute(
+                    select(Task)
+                    .join(src_node, src_node.task_id == Task.id)
                     .where(
-                        dep.src_node_id == src_node.id,
-                        dep.type == TaskRelationKind.depends_on.value,
-                        dst_task.status.not_in(_TERMINAL_TASK_STATUSES),
+                        Task.env_id == env_id,
+                        Task.status == TaskStatus.pending.value,
+                        ~exists(
+                            select(1)
+                            .select_from(dep)
+                            .join(dst_node, dst_node.id == dep.dst_node_id)
+                            .join(dst_task, dst_task.id == dst_node.task_id)
+                            .where(
+                                dep.src_node_id == src_node.id,
+                                dep.type == TaskRelationKind.depends_on.value,
+                                dst_task.status.not_in(_TERMINAL_TASK_STATUSES),
+                            )
+                        ),
                     )
-                ),
+                    .order_by(Task.priority.asc(), Task.created_at.asc(), Task.id.asc())
+                    .limit(remaining)
+                )
             )
-            .order_by(Task.priority.asc(), Task.created_at.asc(), Task.id.asc())
-            .limit(remaining)
-        )).scalars().all())
+            .scalars()
+            .all()
+        )
     return [*in_progress, *pending]
 
 
@@ -401,10 +414,7 @@ async def _fetch_trigger_matches(task_desc: str, env_id: UUID, *, top_k: int) ->
     if result is None:
         return []
     items = getattr(result, "hits", result)
-    tuple_ids = [
-        item[0] for item in items
-        if isinstance(item, tuple) and item and isinstance(item[0], UUID)
-    ]
+    tuple_ids = [item[0] for item in items if isinstance(item, tuple) and item and isinstance(item[0], UUID)]
     if tuple_ids:
         return await _fetch_memories_by_ids(env_id, tuple_ids)
 
@@ -426,14 +436,20 @@ async def _fetch_memories_by_ids(env_id: UUID, memory_ids: list[UUID]) -> list[A
         return []
     ordered_ids = list(dict.fromkeys(memory_ids))
     async with session_scope() as session:
-        rows = (await session.execute(
-            select(Memory).where(
-                Memory.env_id == env_id,
-                Memory.id.in_(ordered_ids),
-                Memory.status.in_(list(_VISIBLE_STATUSES)),
-                exclude_expired_clause(),
+        rows = (
+            (
+                await session.execute(
+                    select(Memory).where(
+                        Memory.env_id == env_id,
+                        Memory.id.in_(ordered_ids),
+                        Memory.status.in_(list(_VISIBLE_STATUSES)),
+                        exclude_expired_clause(),
+                    )
+                )
             )
-        )).scalars().all()
+            .scalars()
+            .all()
+        )
     by_id = {m.id: m for m in rows}
     return [by_id[memory_id] for memory_id in ordered_ids if memory_id in by_id]
 
@@ -485,18 +501,12 @@ async def _fetch_section(
 
 def _collect_memory_ids(items: list[Any]) -> set[UUID]:
     return {
-        memory_id
-        for memory_id in (_memory_id(item) for item in items if item is not None)
-        if memory_id is not None
+        memory_id for memory_id in (_memory_id(item) for item in items if item is not None) if memory_id is not None
     }
 
 
 def _task_desc_tokens(task_desc: str) -> list[str]:
-    return [
-        token
-        for token in (_TASK_DESC_TOKEN_RE.split(task_desc.lower()))
-        if len(token) >= 2
-    ]
+    return [token for token in (_TASK_DESC_TOKEN_RE.split(task_desc.lower())) if len(token) >= 2]
 
 
 def _pack_section(

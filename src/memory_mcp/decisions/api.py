@@ -33,17 +33,18 @@ async def validate_decision_meta(
         raise InvalidInputError(f"invalid decision_meta: {exc}") from exc
 
     if meta.superseded_by is not None:
-        target = (await session.execute(
-            select(Memory).where(
-                Memory.id == meta.superseded_by,
-                Memory.env_id == env_id,
-                Memory.kind == MemoryKind.decision.value,
+        target = (
+            await session.execute(
+                select(Memory).where(
+                    Memory.id == meta.superseded_by,
+                    Memory.env_id == env_id,
+                    Memory.kind == MemoryKind.decision.value,
+                )
             )
-        )).scalar_one_or_none()
+        ).scalar_one_or_none()
         if target is None:
             raise InvalidInputError(
-                "decision_meta.superseded_by must reference an existing "
-                "kind=decision memory in the same env",
+                "decision_meta.superseded_by must reference an existing kind=decision memory in the same env",
                 superseded_by=str(meta.superseded_by),
                 env_id=str(env_id),
             )

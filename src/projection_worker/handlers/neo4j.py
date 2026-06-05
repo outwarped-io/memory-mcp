@@ -110,8 +110,7 @@ async def handle_neo4j_event(
         await _handle_task_event(event, graph_store=graph_store)
         return
     raise ValueError(
-        f"neo4j handler received aggregate_type={event.aggregate_type!r}; "
-        "expected 'entity' or 'relation' or 'task'"
+        f"neo4j handler received aggregate_type={event.aggregate_type!r}; expected 'entity' or 'relation' or 'task'"
     )
 
 
@@ -130,21 +129,21 @@ async def _handle_entity_event(
         await graph_store.delete_subgraph(env_id=event.env_id, nodes=[node])
         log.debug(
             "neo4j entity tombstone applied: event_id=%s entity_id=%s",
-            event.event_id, event.aggregate_id,
+            event.event_id,
+            event.aggregate_id,
         )
         return
 
     if event.op not in (OutboxOp.upsert.value, OutboxOp.update.value):
-        raise ValueError(
-            f"neo4j entity handler: unexpected op={event.op!r} "
-            f"for event_id={event.event_id}"
-        )
+        raise ValueError(f"neo4j entity handler: unexpected op={event.op!r} for event_id={event.event_id}")
 
     attrs = _entity_attrs_from_payload(payload)
     await graph_store.upsert_node(node, attrs=attrs)
     log.debug(
         "neo4j entity upsert applied: event_id=%s entity_id=%s op=%s",
-        event.event_id, event.aggregate_id, event.op,
+        event.event_id,
+        event.aggregate_id,
+        event.op,
     )
 
 
@@ -164,10 +163,7 @@ async def _handle_relation_event(
         )
 
     if event.op not in (OutboxOp.upsert.value, OutboxOp.update.value):
-        raise ValueError(
-            f"neo4j relation handler: unexpected op={event.op!r} "
-            f"for event_id={event.event_id}"
-        )
+        raise ValueError(f"neo4j relation handler: unexpected op={event.op!r} for event_id={event.event_id}")
 
     src = _node_ref_from_endpoint(event.env_id, payload["src"])
     dst = _node_ref_from_endpoint(event.env_id, payload["dst"])
@@ -180,10 +176,14 @@ async def _handle_relation_event(
     )
     await graph_store.upsert_edge(edge)
     log.debug(
-        "neo4j relation upsert applied: event_id=%s relation_id=%s "
-        "src=%s/%s dst=%s/%s type=%s",
-        event.event_id, event.aggregate_id,
-        src.kind, src.record_id, dst.kind, dst.record_id, edge.edge_type,
+        "neo4j relation upsert applied: event_id=%s relation_id=%s src=%s/%s dst=%s/%s type=%s",
+        event.event_id,
+        event.aggregate_id,
+        src.kind,
+        src.record_id,
+        dst.kind,
+        dst.record_id,
+        edge.edge_type,
     )
 
 
@@ -195,21 +195,21 @@ async def _handle_task_event(
     if event.op == OutboxOp.tombstone.value:
         log.warning(
             "neo4j task tombstone skipped: event_id=%s task_id=%s",
-            event.event_id, event.aggregate_id,
+            event.event_id,
+            event.aggregate_id,
         )
         return
 
     if event.op not in (OutboxOp.upsert.value, OutboxOp.update.value):
-        raise ValueError(
-            f"neo4j task handler: unexpected op={event.op!r} "
-            f"for event_id={event.event_id}"
-        )
+        raise ValueError(f"neo4j task handler: unexpected op={event.op!r} for event_id={event.event_id}")
 
     node = GraphNodeRef(env_id=event.env_id, kind="task", record_id=event.aggregate_id)
     await graph_store.upsert_node(node, attrs=_task_attrs_from_payload(event.payload))
     log.debug(
         "neo4j task upsert applied: event_id=%s task_id=%s op=%s",
-        event.event_id, event.aggregate_id, event.op,
+        event.event_id,
+        event.aggregate_id,
+        event.op,
     )
 
 

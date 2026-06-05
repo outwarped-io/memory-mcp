@@ -13,6 +13,16 @@ from pathlib import Path
 from typing import Any, TypeVar
 from uuid import UUID, uuid4
 
+from memory_mcp_schemas.entities import EntityMergeRequest
+from memory_mcp_schemas.env_ops import (
+    ArchiveVersionDecision,
+    EnvImportReport,
+    EnvImportRequest,
+    ExportManifest,
+    ImportMode,
+    MemoryVectorRecord,
+    RemapTable,
+)
 from pydantic import ValidationError
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
@@ -37,24 +47,14 @@ from memory_mcp.db.models import (
 )
 from memory_mcp.db.postgres import session_scope
 from memory_mcp.db.vector.base import VectorStore
+from memory_mcp.entities import entity_merge
 from memory_mcp.env_ops._checksums import verify_checksums_file
 from memory_mcp.env_ops._embed import maybe_re_embed
 from memory_mcp.env_ops._io import JsonlReader
-from memory_mcp.errors import MemoryMCPError, NotFoundError
 from memory_mcp.envs import get_env_by_id
-from memory_mcp.entities import entity_merge
+from memory_mcp.errors import MemoryMCPError, NotFoundError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import _projection_payload
-from memory_mcp_schemas.entities import EntityMergeRequest
-from memory_mcp_schemas.env_ops import (
-    ArchiveVersionDecision,
-    EnvImportReport,
-    EnvImportRequest,
-    ExportManifest,
-    ImportMode,
-    MemoryVectorRecord,
-    RemapTable,
-)
 
 SCHEMA_VERSION = "0.8.0"
 _REEMBED_SYNC_LIMIT = 10_000
@@ -143,7 +143,7 @@ async def import_env(request: EnvImportRequest, *, ctx: AgentContext) -> EnvImpo
                 dry_run=True,
                 mode=request.mode,
                 counts=dict(manifest.counts),
-                conflicts={table: 0 for table in manifest.counts},
+                conflicts=dict.fromkeys(manifest.counts, 0),
                 sample_conflicts={},
                 remap_table_size=_remap_size(remap),
                 archive_version_decision=decision,
@@ -250,7 +250,7 @@ async def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(await _to_thread(path.read_text, encoding="utf-8"))
 
 
-async def _to_thread(func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+async def _to_thread[T](func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     import asyncio
 
     return await asyncio.to_thread(func, *args, **kwargs)
@@ -690,9 +690,7 @@ async def _perform_entity_merges(state: _ImportState, *, ctx: AgentContext) -> N
     for keep_id, merge_id in state.pending_entity_merges:
         async with session_scope() as session:
             rows = (
-                await session.execute(
-                    select(Entity.id, Entity.version).where(Entity.id.in_({keep_id, merge_id}))
-                )
+                await session.execute(select(Entity.id, Entity.version).where(Entity.id.in_({keep_id, merge_id})))
             ).all()
             expected_versions = {entity_id: int(version) for entity_id, version in rows}
         if keep_id not in expected_versions or merge_id not in expected_versions:

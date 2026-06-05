@@ -309,7 +309,9 @@ async def run_decay(
         now=now,
         weights=weights,
         candidates=await _load_active_candidates(
-            env_id=env_id, cutoff=inactive_cutoff, cap=cap,
+            env_id=env_id,
+            cutoff=inactive_cutoff,
+            cap=cap,
         ),
         cap=cap,
         target_status=MemoryStatus.stale,
@@ -338,12 +340,8 @@ async def run_decay(
         examined_stale=result_stale["examined"],
         transitioned_to_stale=result_active["transitioned"],
         transitioned_to_archived=result_stale["transitioned"],
-        skipped_version_conflicts=(
-            result_active["version_conflicts"] + result_stale["version_conflicts"]
-        ),
-        skipped_above_threshold=(
-            result_active["above_threshold"] + result_stale["above_threshold"]
-        ),
+        skipped_version_conflicts=(result_active["version_conflicts"] + result_stale["version_conflicts"]),
+        skipped_above_threshold=(result_active["above_threshold"] + result_stale["above_threshold"]),
         skipped_reference_floor=result_active["reference_floor"],
         items_capped_active_leg=result_active["capped"],
         items_capped_stale_leg=result_stale["capped"],
@@ -408,7 +406,8 @@ async def _run_leg(  # noqa: PLR0913 — explicit args document the contract
             version_conflicts += 1
             log.debug(
                 "decay: version conflict on memory %s (env %s); skipping",
-                cand.id, env_id,
+                cand.id,
+                env_id,
             )
             continue
         transitioned += 1

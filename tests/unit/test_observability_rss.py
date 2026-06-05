@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import io
 import builtins
+import io
 
 from memory_mcp import stats
 

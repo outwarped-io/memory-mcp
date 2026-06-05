@@ -32,7 +32,7 @@ def _parse_tool_error(exc: ToolError) -> dict[str, Any]:
     assert text.startswith("["), f"unexpected error message shape: {text!r}"
     code_end = text.index("]")
     code = text[1:code_end]
-    rest = text[code_end + 1:].strip()
+    rest = text[code_end + 1 :].strip()
     if " :: " in rest:
         message, details_json = rest.split(" :: ", 1)
         details = json.loads(details_json)

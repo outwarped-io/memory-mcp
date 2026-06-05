@@ -105,27 +105,36 @@ class TestResolveEnvId:
 
 
 class TestOutboxOpRouting:
-    @pytest.mark.parametrize("status", [
-        MemoryStatus.proposed,
-        MemoryStatus.active,
-        MemoryStatus.stale,
-    ])
+    @pytest.mark.parametrize(
+        "status",
+        [
+            MemoryStatus.proposed,
+            MemoryStatus.active,
+            MemoryStatus.stale,
+        ],
+    )
     def test_visible_status_create(self, status: MemoryStatus) -> None:
         assert _outbox_op_for(status, is_create=True) == OutboxOp.upsert
 
-    @pytest.mark.parametrize("status", [
-        MemoryStatus.proposed,
-        MemoryStatus.active,
-        MemoryStatus.stale,
-    ])
+    @pytest.mark.parametrize(
+        "status",
+        [
+            MemoryStatus.proposed,
+            MemoryStatus.active,
+            MemoryStatus.stale,
+        ],
+    )
     def test_visible_status_update(self, status: MemoryStatus) -> None:
         assert _outbox_op_for(status, is_create=False) == OutboxOp.update
 
-    @pytest.mark.parametrize("status", [
-        MemoryStatus.archived,
-        MemoryStatus.superseded,
-        MemoryStatus.retired,
-    ])
+    @pytest.mark.parametrize(
+        "status",
+        [
+            MemoryStatus.archived,
+            MemoryStatus.superseded,
+            MemoryStatus.retired,
+        ],
+    )
     def test_hidden_status_always_tombstone(self, status: MemoryStatus) -> None:
         # Critical: archived must tombstone too — caught by rubber-duck gate-3 review.
         assert _outbox_op_for(status, is_create=True) == OutboxOp.tombstone
@@ -326,9 +335,7 @@ class TestLifecycleWrappers:
         memory_id = uuid4()
         with patch.object(memories, "memory_update") as mock_update:
             mock_update.return_value = "<sentinel>"
-            result = await memories.memory_archive(
-                memory_id, expected_version=3, ctx=ctx
-            )
+            result = await memories.memory_archive(memory_id, expected_version=3, ctx=ctx)
             assert result == "<sentinel>"
             args, kwargs = mock_update.call_args
             assert args[0] == memory_id
@@ -344,9 +351,7 @@ class TestLifecycleWrappers:
         memory_id = uuid4()
         with patch.object(memories, "memory_update") as mock_update:
             mock_update.return_value = "<sentinel>"
-            await memories.memory_retire(
-                memory_id, expected_version=5, reason="obsolete", ctx=ctx
-            )
+            await memories.memory_retire(memory_id, expected_version=5, reason="obsolete", ctx=ctx)
             args, kwargs = mock_update.call_args
             patch_arg: MemoryUpdatePatch = args[1]
             assert patch_arg.expected_version == 5
@@ -359,10 +364,6 @@ class TestLifecycleWrappers:
         ctx = _ctx()
         memory_id = uuid4()
         with pytest.raises(ValueError, match="reason is required"):
-            await memories.memory_retire(
-                memory_id, expected_version=1, reason="   ", ctx=ctx
-            )
+            await memories.memory_retire(memory_id, expected_version=1, reason="   ", ctx=ctx)
         with pytest.raises(ValueError, match="reason is required"):
-            await memories.memory_retire(
-                memory_id, expected_version=1, reason="", ctx=ctx
-            )
+            await memories.memory_retire(memory_id, expected_version=1, reason="", ctx=ctx)

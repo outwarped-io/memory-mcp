@@ -19,7 +19,6 @@ responsibilities:
 from __future__ import annotations
 
 import datetime as dt
-import os
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -103,8 +102,7 @@ async def _mk_task(session, env_id: UUID) -> UUID:
     task_id = uuid4()
     await session.execute(
         text(
-            "INSERT INTO tasks (id, env_id, status, title, description) "
-            "VALUES (:id, :env_id, 'pending', 't', 'task')"
+            "INSERT INTO tasks (id, env_id, status, title, description) VALUES (:id, :env_id, 'pending', 't', 'task')"
         ),
         {"id": task_id, "env_id": env_id},
     )
@@ -114,10 +112,7 @@ async def _mk_task(session, env_id: UUID) -> UUID:
 async def _mk_gn_mem(session, env_id: UUID, memory_id: UUID) -> UUID:
     gn_id = uuid4()
     await session.execute(
-        text(
-            "INSERT INTO graph_nodes (id, env_id, node_type, memory_id) "
-            "VALUES (:id, :env_id, 'memory', :memory_id)"
-        ),
+        text("INSERT INTO graph_nodes (id, env_id, node_type, memory_id) VALUES (:id, :env_id, 'memory', :memory_id)"),
         {"id": gn_id, "env_id": env_id, "memory_id": memory_id},
     )
     return gn_id
@@ -126,10 +121,7 @@ async def _mk_gn_mem(session, env_id: UUID, memory_id: UUID) -> UUID:
 async def _mk_gn_task(session, env_id: UUID, task_id: UUID) -> UUID:
     gn_id = uuid4()
     await session.execute(
-        text(
-            "INSERT INTO graph_nodes (id, env_id, node_type, task_id) "
-            "VALUES (:id, :env_id, 'task', :task_id)"
-        ),
+        text("INSERT INTO graph_nodes (id, env_id, node_type, task_id) VALUES (:id, :env_id, 'task', :task_id)"),
         {"id": gn_id, "env_id": env_id, "task_id": task_id},
     )
     return gn_id
@@ -180,9 +172,7 @@ async def _read_counts(session, mem_id: UUID) -> dict[str, int]:
     }
 
 
-async def _set_counter_raw(
-    session, mem_id: UUID, *, rl: int = 0, ln: int = 0, tk: int = 0, pb: int = 0
-) -> None:
+async def _set_counter_raw(session, mem_id: UUID, *, rl: int = 0, ln: int = 0, tk: int = 0, pb: int = 0) -> None:
     """Force counters to specific (possibly wrong) values to seed drift."""
 
     await session.execute(
@@ -223,8 +213,8 @@ async def _run(env_id: UUID, monkeypatch, factory, *, settings: Settings | None 
     the audit_log FK doesn't fire.
     """
 
-    from memory_mcp.dream.passes import recount as recount_mod
     from memory_mcp import memories as memories_mod
+    from memory_mcp.dream.passes import recount as recount_mod
 
     monkeypatch.setattr(recount_mod, "session_scope", routed_session_scope)
     monkeypatch.setattr(memories_mod, "session_scope", routed_session_scope)
@@ -234,10 +224,7 @@ async def _run(env_id: UUID, monkeypatch, factory, *, settings: Settings | None 
     # trip the FK constraint.
     async with factory() as _agent_session:
         await _agent_session.execute(
-            text(
-                "INSERT INTO agents (id, name) VALUES (:id, :name) "
-                "ON CONFLICT DO NOTHING"
-            ),
+            text("INSERT INTO agents (id, name) VALUES (:id, :name) ON CONFLICT DO NOTHING"),
             {"id": ctx.agent_id, "name": f"test-{ctx.agent_id.hex[:8]}"},
         )
         await _agent_session.commit()
@@ -510,10 +497,7 @@ async def test_supersede_chain_ancestry_excluded(
         # to simulate "trigger missed ancestry but counter is high"
         # — the case recount specifically exists to fix.
         await session.execute(
-            text(
-                "UPDATE memories SET status = 'superseded', "
-                "  superseded_by = :p WHERE id = :a"
-            ),
+            text("UPDATE memories SET status = 'superseded',   superseded_by = :p WHERE id = :a"),
             {"p": a_prime, "a": a},
         )
         await session.commit()
@@ -551,8 +535,7 @@ async def test_supersedes_lineage_excluded(
         child = await _mk_mem(session, env_id)
         await session.execute(
             text(
-                "INSERT INTO memory_lineage (parent_memory_id, child_memory_id, relation) "
-                "VALUES (:p, :c, 'supersedes')"
+                "INSERT INTO memory_lineage (parent_memory_id, child_memory_id, relation) VALUES (:p, :c, 'supersedes')"
             ),
             {"p": parent, "c": child},
         )
@@ -617,7 +600,11 @@ async def test_related_to_popular_excluded(
         gn_src = await _mk_gn_mem(session, env_id, m_src)
         gn_dst = await _mk_gn_mem(session, env_id, m_dst)
         await _mk_rel(
-            session, env_id, gn_src, gn_dst, rel_type="related_to_popular",
+            session,
+            env_id,
+            gn_src,
+            gn_dst,
+            rel_type="related_to_popular",
         )
         # Phony preset so we can see recount zeroing it.
         await _set_counter_raw(session, m_dst, rl=4)
@@ -678,11 +665,12 @@ async def test_dispatch_via_run_dream_pass(
 
     from unittest.mock import MagicMock
 
-    from dream_worker.jobs import run_dream_pass
-    from memory_mcp.dream.passes import recount as recount_mod
     from memory_mcp_schemas.dream import DreamMode
+
     import dream_worker.jobs as jobs_mod
+    from dream_worker.jobs import run_dream_pass
     from memory_mcp.db import postgres as pg_mod
+    from memory_mcp.dream.passes import recount as recount_mod
 
     # Route both the recount-pass session_scope and the jobs-module
     # session_scope (used to write dream_runs).
@@ -710,11 +698,7 @@ async def test_dispatch_via_run_dream_pass(
         agent_id = uuid4()
         async with factory() as session:
             await session.execute(
-                text(
-                    "INSERT INTO agents (id, name) "
-                    "VALUES (:id, :name) "
-                    "ON CONFLICT (id) DO NOTHING"
-                ),
+                text("INSERT INTO agents (id, name) VALUES (:id, :name) ON CONFLICT (id) DO NOTHING"),
                 {"id": agent_id, "name": f"recount-test-{agent_id}"},
             )
             await session.commit()
@@ -722,9 +706,7 @@ async def test_dispatch_via_run_dream_pass(
         report = await run_dream_pass(
             env_id=env_id,
             mode=DreamMode.recount,
-            actor_ctx=AgentContext(
-                agent_id=agent_id, attached_env_ids=[env_id]
-            ),
+            actor_ctx=AgentContext(agent_id=agent_id, attached_env_ids=[env_id]),
             summarizer=summarizer,
             settings=_settings(),
         )
@@ -736,10 +718,7 @@ async def test_dispatch_via_run_dream_pass(
     async with factory() as session:
         rows = (
             await session.execute(
-                text(
-                    "SELECT mode FROM dream_runs "
-                    "WHERE env_id = :env_id AND mode = 'recount'"
-                ),
+                text("SELECT mode FROM dream_runs WHERE env_id = :env_id AND mode = 'recount'"),
                 {"env_id": env_id},
             )
         ).all()
@@ -767,11 +746,7 @@ async def _set_salience(session, mem_id: UUID, value: float) -> None:
     """
 
     await session.execute(
-        text(
-            "UPDATE memories "
-            "SET salience = :v, salience_formula_version = 1 "
-            "WHERE id = :id"
-        ),
+        text("UPDATE memories SET salience = :v, salience_formula_version = 1 WHERE id = :id"),
         {"v": value, "id": mem_id},
     )
 
@@ -1124,10 +1099,7 @@ async def test_salience_recomputed_after_integer_counter_drift(
         # (c) outbox enqueued — at least one event for dst memory
         outbox_rows = (
             await session.execute(
-                text(
-                    "SELECT count(*) FROM outbox "
-                    "WHERE aggregate_id = :id AND aggregate_type = 'memory'"
-                ),
+                text("SELECT count(*) FROM outbox WHERE aggregate_id = :id AND aggregate_type = 'memory'"),
                 {"id": dst},
             )
         ).scalar_one()
@@ -1152,9 +1124,7 @@ async def test_salience_recomputed_after_integer_counter_drift(
     )
     # Tight tolerance — recency term has a few seconds of drift from
     # test elapsed time, but salience math is deterministic enough.
-    assert abs(float(row[0]) - expected) < 0.01, (
-        f"stored salience {row[0]} differs from canonical {expected}"
-    )
+    assert abs(float(row[0]) - expected) < 0.01, f"stored salience {row[0]} differs from canonical {expected}"
     assert outbox_rows >= 1
 
 
@@ -1193,7 +1163,7 @@ async def test_next_pass_heals_new_edge_after_recount(
 
     settings_on = _settings_authority_on()
     # Pass 1: only src_a contributes
-    first = await _run(env_id, monkeypatch, factory, settings=settings_on)
+    await _run(env_id, monkeypatch, factory, settings=settings_on)
     async with factory() as session:
         auth1 = await _read_authority(session, dst)
     assert auth1["rel_link"] == Decimal("0.500000")
@@ -1218,7 +1188,7 @@ async def test_next_pass_heals_new_edge_after_recount(
         await session.commit()
 
     # Pass 2: sums both
-    second = await _run(env_id, monkeypatch, factory, settings=settings_on)
+    await _run(env_id, monkeypatch, factory, settings=settings_on)
     async with factory() as session:
         auth2 = await _read_authority(session, dst)
     assert auth2["rel_link"] == Decimal("1.000000")
@@ -1254,10 +1224,7 @@ async def test_supersede_chain_ancestry_excluded_from_authority(
         await session.commit()
         # Now make a a member of a_prime's supersede chain.
         await session.execute(
-            text(
-                "UPDATE memories SET status = 'superseded', "
-                "  superseded_by = :p WHERE id = :a"
-            ),
+            text("UPDATE memories SET status = 'superseded',   superseded_by = :p WHERE id = :a"),
             {"p": a_prime, "a": a},
         )
         # Seed authority drift to prove recount zeroes it.
@@ -1333,7 +1300,11 @@ async def test_related_to_popular_excluded_from_authority(
         gn_src = await _mk_gn_mem(session, env_id, src)
         gn_dst = await _mk_gn_mem(session, env_id, dst)
         await _mk_rel(
-            session, env_id, gn_src, gn_dst, rel_type="related_to_popular",
+            session,
+            env_id,
+            gn_src,
+            gn_dst,
+            rel_type="related_to_popular",
         )
         # Seed authority drift to prove recount zeroes it.
         await _set_authority_raw(session, dst, rl=42.0)
@@ -1448,15 +1419,10 @@ async def test_lineage_and_playbook_authority_sum_correctly(
 # ---------------------------------------------------------------------------
 
 
-async def _read_salience_and_version(
-    session, mem_id: UUID
-) -> tuple[float, int]:
+async def _read_salience_and_version(session, mem_id: UUID) -> tuple[float, int]:
     row = (
         await session.execute(
-            text(
-                "SELECT salience, salience_formula_version "
-                "FROM memories WHERE id = :id"
-            ),
+            text("SELECT salience, salience_formula_version FROM memories WHERE id = :id"),
             {"id": mem_id},
         )
     ).one()
@@ -1518,11 +1484,7 @@ async def test_formula_version_match_skips_recompute(
         m = await _mk_mem(session, env_id, body="m")
         # Pre-stamp the row at the current formula version + seed a known salience.
         await session.execute(
-            text(
-                "UPDATE memories "
-                "SET salience = 0.456, salience_formula_version = 1 "
-                "WHERE id = :id"
-            ),
+            text("UPDATE memories SET salience = 0.456, salience_formula_version = 1 WHERE id = :id"),
             {"id": m},
         )
         await session.commit()
@@ -1581,8 +1543,7 @@ async def test_authority_value_lifts_salience_when_knob_on(
 
     assert auth["rel_link"] == Decimal("0.800000")
     assert cited_sal > iso_sal, (
-        f"cited salience ({cited_sal:.4f}) should exceed isolated "
-        f"salience ({iso_sal:.4f}) when authority knob is ON"
+        f"cited salience ({cited_sal:.4f}) should exceed isolated salience ({iso_sal:.4f}) when authority knob is ON"
     )
 
 
@@ -1606,11 +1567,7 @@ async def test_authority_value_no_effect_when_knob_off(
         with_auth = await _mk_mem(session, env_id, body="with-auth")
         no_auth = await _mk_mem(session, env_id, body="no-auth")
         await session.execute(
-            text(
-                "UPDATE memories "
-                "SET ref_authority_rel_link = 10.0 "
-                "WHERE id = :id"
-            ),
+            text("UPDATE memories SET ref_authority_rel_link = 10.0 WHERE id = :id"),
             {"id": with_auth},
         )
         await session.commit()
@@ -1623,9 +1580,7 @@ async def test_authority_value_no_effect_when_knob_off(
         sal_no, _ = await _read_salience_and_version(session, no_auth)
 
     # With knob OFF, authority residual must not move salience.
-    assert sal_with == sal_no, (
-        f"knob-OFF salience must ignore authority: with={sal_with}, no={sal_no}"
-    )
+    assert sal_with == sal_no, f"knob-OFF salience must ignore authority: with={sal_with}, no={sal_no}"
 
 
 @pytest.mark.asyncio

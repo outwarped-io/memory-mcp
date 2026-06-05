@@ -5,14 +5,13 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-
 from memory_mcp_schemas.envs import (
     AttachedEnvsResponse,
     EnvCreateRequest,
     EnvResponse,
 )
-from tests.conftest import make_env_payload
 
+from tests.conftest import make_env_payload
 
 pytestmark = pytest.mark.asyncio
 
@@ -30,9 +29,7 @@ async def test_create(client, fake_session) -> None:
 
     out = await client.envs.create(request)
 
-    assert fake_session.calls == [
-        ("env_create_", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("env_create_", {"request": request.model_dump(mode="json")})]
     assert isinstance(out, EnvResponse)
     assert out.name == "foo"
 
@@ -40,7 +37,10 @@ async def test_create(client, fake_session) -> None:
 async def test_list_returns_list(client, fake_session) -> None:
     fake_session.set_response(
         "env_list_",
-        [make_env_payload(), make_env_payload(id="00000000-0000-0000-0000-0000000000e1", name="other")],
+        [
+            make_env_payload(),
+            make_env_payload(id="00000000-0000-0000-0000-0000000000e1", name="other"),
+        ],
     )
 
     out = await client.envs.list_()
@@ -92,9 +92,7 @@ async def test_attach(client, fake_session) -> None:
 
     out = await client.envs.attach(name="foo", session_id=session_id)
 
-    assert fake_session.calls == [
-        ("env_attach_", {"name": "foo", "session_id": str(session_id)})
-    ]
+    assert fake_session.calls == [("env_attach_", {"name": "foo", "session_id": str(session_id)})]
     assert isinstance(out, AttachedEnvsResponse)
     assert str(out.session_id) == str(session_id)
     assert out.attached[0].name == "foo"
@@ -106,9 +104,7 @@ async def test_detach(client, fake_session) -> None:
 
     out = await client.envs.detach(name="foo", session_id=session_id)
 
-    assert fake_session.calls == [
-        ("env_detach_", {"name": "foo", "session_id": str(session_id)})
-    ]
+    assert fake_session.calls == [("env_detach_", {"name": "foo", "session_id": str(session_id)})]
     assert isinstance(out, AttachedEnvsResponse)
     assert str(out.session_id) == str(session_id)
     assert out.attached[0].name == "foo"

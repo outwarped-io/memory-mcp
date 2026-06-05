@@ -201,14 +201,12 @@ def decode_cursor(
 
     if expected_order_field is not None and payload["ob"] != expected_order_field:
         raise InvalidCursorError(
-            f"INVALID_CURSOR: order_field mismatch (cursor={payload['ob']!r}, "
-            f"request={expected_order_field!r})",
+            f"INVALID_CURSOR: order_field mismatch (cursor={payload['ob']!r}, request={expected_order_field!r})",
         )
 
     if expected_direction is not None and payload["d"] != expected_direction:
         raise InvalidCursorError(
-            f"INVALID_CURSOR: direction mismatch (cursor={payload['d']!r}, "
-            f"request={expected_direction!r})",
+            f"INVALID_CURSOR: direction mismatch (cursor={payload['d']!r}, request={expected_direction!r})",
         )
 
     try:

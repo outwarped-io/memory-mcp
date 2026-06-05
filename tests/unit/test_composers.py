@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from memory_mcp.composers import _compute_compose_dedupe_key
 from memory_mcp_schemas.compose import MemComposeRequest, MemComposeTarget
 from memory_mcp_schemas.enums import MemoryKind
+
+from memory_mcp.composers import _compute_compose_dedupe_key
 
 
 def _env_id() -> UUID:
@@ -74,9 +75,7 @@ def test_dedupe_key_is_deterministic_same_request_same_key() -> None:
     env = _env_id()
     r1 = _req(sources=sources, target=target)
     r2 = _req(sources=sources, target=target)
-    assert _compute_compose_dedupe_key(r1, env_id=env) == _compute_compose_dedupe_key(
-        r2, env_id=env
-    )
+    assert _compute_compose_dedupe_key(r1, env_id=env) == _compute_compose_dedupe_key(r2, env_id=env)
 
 
 def test_dedupe_key_is_32_lowercase_hex_chars() -> None:
@@ -94,60 +93,40 @@ def test_dedupe_key_changes_with_mode() -> None:
     sources = _two_sources()
     target = _target()
     env = _env_id()
-    promote = _compute_compose_dedupe_key(
-        _req(sources=sources, target=target, mode="promote"), env_id=env
-    )
-    merge = _compute_compose_dedupe_key(
-        _req(sources=sources, target=target, mode="merge"), env_id=env
-    )
+    promote = _compute_compose_dedupe_key(_req(sources=sources, target=target, mode="promote"), env_id=env)
+    merge = _compute_compose_dedupe_key(_req(sources=sources, target=target, mode="merge"), env_id=env)
     assert promote != merge
 
 
 def test_dedupe_key_changes_with_kind() -> None:
     sources = _two_sources()
     env = _env_id()
-    k1 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(kind=MemoryKind.fact)), env_id=env
-    )
-    k2 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(kind=MemoryKind.observation)), env_id=env
-    )
+    k1 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(kind=MemoryKind.fact)), env_id=env)
+    k2 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(kind=MemoryKind.observation)), env_id=env)
     assert k1 != k2
 
 
 def test_dedupe_key_changes_with_title() -> None:
     sources = _two_sources()
     env = _env_id()
-    k1 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(title=None)), env_id=env
-    )
-    k2 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(title="t")), env_id=env
-    )
+    k1 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(title=None)), env_id=env)
+    k2 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(title="t")), env_id=env)
     assert k1 != k2
 
 
 def test_dedupe_key_changes_with_body() -> None:
     sources = _two_sources()
     env = _env_id()
-    k1 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(body="a")), env_id=env
-    )
-    k2 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(body="b")), env_id=env
-    )
+    k1 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(body="a")), env_id=env)
+    k2 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(body="b")), env_id=env)
     assert k1 != k2
 
 
 def test_dedupe_key_changes_with_tags_content() -> None:
     sources = _two_sources()
     env = _env_id()
-    k1 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(tags=["a"])), env_id=env
-    )
-    k2 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(tags=["b"])), env_id=env
-    )
+    k1 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(tags=["a"])), env_id=env)
+    k2 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(tags=["b"])), env_id=env)
     assert k1 != k2
 
 
@@ -157,9 +136,7 @@ def test_dedupe_key_changes_with_env_id() -> None:
     r = _req(sources=sources, target=target)
     e1 = _env_id()
     e2 = _env_id()
-    assert _compute_compose_dedupe_key(r, env_id=e1) != _compute_compose_dedupe_key(
-        r, env_id=e2
-    )
+    assert _compute_compose_dedupe_key(r, env_id=e1) != _compute_compose_dedupe_key(r, env_id=e2)
 
 
 def test_dedupe_key_changes_with_source_ids() -> None:
@@ -175,12 +152,8 @@ def test_dedupe_key_changes_with_source_ids() -> None:
 def test_dedupe_key_changes_with_pinned_flag() -> None:
     sources = _two_sources()
     env = _env_id()
-    k1 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(pinned=False)), env_id=env
-    )
-    k2 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(pinned=True)), env_id=env
-    )
+    k1 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(pinned=False)), env_id=env)
+    k2 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(pinned=True)), env_id=env)
     assert k1 != k2
 
 
@@ -201,12 +174,8 @@ def test_dedupe_key_invariant_under_source_order() -> None:
 def test_dedupe_key_invariant_under_tag_order() -> None:
     sources = _two_sources()
     env = _env_id()
-    k1 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(tags=["a", "b"])), env_id=env
-    )
-    k2 = _compute_compose_dedupe_key(
-        _req(sources=sources, target=_target(tags=["b", "a"])), env_id=env
-    )
+    k1 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(tags=["a", "b"])), env_id=env)
+    k2 = _compute_compose_dedupe_key(_req(sources=sources, target=_target(tags=["b", "a"])), env_id=env)
     assert k1 == k2
 
 
@@ -269,9 +238,7 @@ def test_dedupe_key_unchanged_by_expected_versions() -> None:
         mode="merge",
         expected_versions={sources[0]: 1, sources[1]: 1},
     )
-    assert _compute_compose_dedupe_key(r1, env_id=env) == _compute_compose_dedupe_key(
-        r2, env_id=env
-    )
+    assert _compute_compose_dedupe_key(r1, env_id=env) == _compute_compose_dedupe_key(r2, env_id=env)
 
 
 def test_dedupe_key_unchanged_by_trigger_description() -> None:
@@ -287,9 +254,7 @@ def test_dedupe_key_unchanged_by_trigger_description() -> None:
     )
     r1 = MemComposeRequest(source_ids=sources, target=t1)
     r2 = MemComposeRequest(source_ids=sources, target=t2)
-    assert _compute_compose_dedupe_key(r1, env_id=env) == _compute_compose_dedupe_key(
-        r2, env_id=env
-    )
+    assert _compute_compose_dedupe_key(r1, env_id=env) == _compute_compose_dedupe_key(r2, env_id=env)
 
 
 def test_dedupe_key_unchanged_by_tag_policy() -> None:
@@ -299,9 +264,5 @@ def test_dedupe_key_unchanged_by_tag_policy() -> None:
     target = _target(tags=["a", "b"])
     env = _env_id()
     r1 = MemComposeRequest(source_ids=sources, target=target, mode="merge")
-    r2 = MemComposeRequest(
-        source_ids=sources, target=target, mode="merge", tag_policy="union"
-    )
-    assert _compute_compose_dedupe_key(r1, env_id=env) == _compute_compose_dedupe_key(
-        r2, env_id=env
-    )
+    r2 = MemComposeRequest(source_ids=sources, target=target, mode="merge", tag_policy="union")
+    assert _compute_compose_dedupe_key(r1, env_id=env) == _compute_compose_dedupe_key(r2, env_id=env)

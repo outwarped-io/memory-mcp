@@ -55,26 +55,41 @@ def _make_session(canonical_rows: list[tuple], alias_rows: list[tuple]):
 
 def test_empty_mentions_returns_empty():
     session = MagicMock()
-    out = asyncio.run(resolve_query_entities(
-        session, mentions=[], env_ids=[uuid4()], settings=_settings(),
-    ))
+    out = asyncio.run(
+        resolve_query_entities(
+            session,
+            mentions=[],
+            env_ids=[uuid4()],
+            settings=_settings(),
+        )
+    )
     assert out == {}
     session.execute.assert_not_called() if hasattr(session.execute, "assert_not_called") else None
 
 
 def test_empty_env_ids_returns_empty():
     session = MagicMock()
-    out = asyncio.run(resolve_query_entities(
-        session, mentions=["x"], env_ids=[], settings=_settings(),
-    ))
+    out = asyncio.run(
+        resolve_query_entities(
+            session,
+            mentions=["x"],
+            env_ids=[],
+            settings=_settings(),
+        )
+    )
     assert out == {}
 
 
 def test_only_blank_mentions_returns_empty():
     session = MagicMock()
-    out = asyncio.run(resolve_query_entities(
-        session, mentions=["", ""], env_ids=[uuid4()], settings=_settings(),
-    ))
+    out = asyncio.run(
+        resolve_query_entities(
+            session,
+            mentions=["", ""],
+            env_ids=[uuid4()],
+            settings=_settings(),
+        )
+    )
     assert out == {}
 
 
@@ -90,9 +105,14 @@ def test_canonical_match_resolves():
         canonical_rows=[(e1, env, "service a")],
         alias_rows=[],
     )
-    out = asyncio.run(resolve_query_entities(
-        session, mentions=["service a"], env_ids=[env], settings=_settings(),
-    ))
+    out = asyncio.run(
+        resolve_query_entities(
+            session,
+            mentions=["service a"],
+            env_ids=[env],
+            settings=_settings(),
+        )
+    )
     assert out == {env: [e1]}
 
 
@@ -103,9 +123,14 @@ def test_alias_match_resolves():
         canonical_rows=[],
         alias_rows=[(e1, env, "svc a")],
     )
-    out = asyncio.run(resolve_query_entities(
-        session, mentions=["svc a"], env_ids=[env], settings=_settings(),
-    ))
+    out = asyncio.run(
+        resolve_query_entities(
+            session,
+            mentions=["svc a"],
+            env_ids=[env],
+            settings=_settings(),
+        )
+    )
     assert out == {env: [e1]}
 
 
@@ -118,9 +143,14 @@ def test_canonical_and_alias_dedupe_to_single_entity():
         canonical_rows=[(e1, env, "service a")],
         alias_rows=[(e1, env, "service a")],
     )
-    out = asyncio.run(resolve_query_entities(
-        session, mentions=["service a"], env_ids=[env], settings=_settings(),
-    ))
+    out = asyncio.run(
+        resolve_query_entities(
+            session,
+            mentions=["service a"],
+            env_ids=[env],
+            settings=_settings(),
+        )
+    )
     assert out == {env: [e1]}
 
 
@@ -135,11 +165,14 @@ def test_per_env_bucketing():
         ],
         alias_rows=[],
     )
-    out = asyncio.run(resolve_query_entities(
-        session, mentions=["service a"],
-        env_ids=[env_a, env_b],
-        settings=_settings(),
-    ))
+    out = asyncio.run(
+        resolve_query_entities(
+            session,
+            mentions=["service a"],
+            env_ids=[env_a, env_b],
+            settings=_settings(),
+        )
+    )
     assert out == {env_a: [e_a], env_b: [e_b]}
 
 
@@ -153,9 +186,14 @@ def test_multiple_mentions_preserve_order_per_env():
         ],
         alias_rows=[],
     )
-    out = asyncio.run(resolve_query_entities(
-        session, mentions=["first", "second"], env_ids=[env], settings=_settings(),
-    ))
+    out = asyncio.run(
+        resolve_query_entities(
+            session,
+            mentions=["first", "second"],
+            env_ids=[env],
+            settings=_settings(),
+        )
+    )
     assert out[env] == [e1, e2]
 
 
@@ -169,12 +207,14 @@ def test_per_env_cap_truncates():
     ids = [uuid4() for _ in range(10)]
     canon = [(eid, env, f"m{i}") for i, eid in enumerate(ids)]
     session = _make_session(canonical_rows=canon, alias_rows=[])
-    out = asyncio.run(resolve_query_entities(
-        session,
-        mentions=[f"m{i}" for i in range(10)],
-        env_ids=[env],
-        settings=_settings(graph_search_max_resolved_entities_per_env=3),
-    ))
+    out = asyncio.run(
+        resolve_query_entities(
+            session,
+            mentions=[f"m{i}" for i in range(10)],
+            env_ids=[env],
+            settings=_settings(graph_search_max_resolved_entities_per_env=3),
+        )
+    )
     assert len(out[env]) == 3
 
 
@@ -182,20 +222,21 @@ def test_total_cap_truncates_across_envs():
     env_a, env_b = uuid4(), uuid4()
     ids_a = [uuid4() for _ in range(5)]
     ids_b = [uuid4() for _ in range(5)]
-    canon = (
-        [(eid, env_a, f"m{i}") for i, eid in enumerate(ids_a)]
-        + [(eid, env_b, f"m{i}") for i, eid in enumerate(ids_b)]
-    )
+    canon = [(eid, env_a, f"m{i}") for i, eid in enumerate(ids_a)] + [
+        (eid, env_b, f"m{i}") for i, eid in enumerate(ids_b)
+    ]
     session = _make_session(canonical_rows=canon, alias_rows=[])
-    out = asyncio.run(resolve_query_entities(
-        session,
-        mentions=[f"m{i}" for i in range(5)],
-        env_ids=[env_a, env_b],
-        settings=_settings(
-            graph_search_max_resolved_entities_per_env=10,
-            graph_search_max_resolved_entities_total=4,
-        ),
-    ))
+    out = asyncio.run(
+        resolve_query_entities(
+            session,
+            mentions=[f"m{i}" for i in range(5)],
+            env_ids=[env_a, env_b],
+            settings=_settings(
+                graph_search_max_resolved_entities_per_env=10,
+                graph_search_max_resolved_entities_total=4,
+            ),
+        )
+    )
     total = sum(len(v) for v in out.values())
     assert total == 4
     # env_a is processed first (input order) so its entities exhaust first.
@@ -217,7 +258,12 @@ def test_same_entity_via_two_mentions_appears_once():
         canonical_rows=[(e1, env, "foo")],
         alias_rows=[(e1, env, "bar")],
     )
-    out = asyncio.run(resolve_query_entities(
-        session, mentions=["foo", "bar"], env_ids=[env], settings=_settings(),
-    ))
+    out = asyncio.run(
+        resolve_query_entities(
+            session,
+            mentions=["foo", "bar"],
+            env_ids=[env],
+            settings=_settings(),
+        )
+    )
     assert out[env] == [e1]

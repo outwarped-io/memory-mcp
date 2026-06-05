@@ -6,9 +6,8 @@ import datetime as dt
 from uuid import uuid4
 
 import pytest
-from pydantic import ValidationError
-
 from memory_mcp_schemas.env_ops import ExportManifest, IncludeFlags, MemoryVectorRecord, RemapTable, SourceMetadata
+from pydantic import ValidationError
 
 
 def _manifest() -> ExportManifest:

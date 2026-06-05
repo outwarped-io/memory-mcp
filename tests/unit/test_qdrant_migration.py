@@ -92,7 +92,9 @@ class _FakeRetrieveClient:
 
 
 @pytest.mark.asyncio
-async def test_ensure_env_collection_rebuilds_legacy_single_vector_and_backfills(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ensure_env_collection_rebuilds_legacy_single_vector_and_backfills(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     env_id = uuid4()
     memory = Memory(
         id=uuid4(),
@@ -149,9 +151,11 @@ async def test_get_vectors_fetches_named_vectors_in_one_call_and_marks_missing()
     env_id = uuid4()
     present_id = uuid4()
     missing_id = uuid4()
-    client = _FakeRetrieveClient([
-        SimpleNamespace(id=str(present_id), vector={"body": [1.0, 2.0], "trigger": [3.0, 4.0]}),
-    ])
+    client = _FakeRetrieveClient(
+        [
+            SimpleNamespace(id=str(present_id), vector={"body": [1.0, 2.0], "trigger": [3.0, 4.0]}),
+        ]
+    )
     store = QdrantVectorStore(Settings(_env_file=None))  # type: ignore[arg-type]
     store._client = client  # noqa: SLF001
 

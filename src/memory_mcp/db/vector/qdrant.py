@@ -30,11 +30,10 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
-
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models as qm
 from qdrant_client.http.exceptions import UnexpectedResponse
+from sqlalchemy import select
 
 from memory_mcp.config import Settings
 from memory_mcp.db.models import Environment, Memory, MemoryTag, Tag
@@ -85,8 +84,7 @@ class QdrantVectorStore:
         if cached is not None:
             if cached != dimension:
                 raise RuntimeError(
-                    f"qdrant collection {name!r} cached at dim={cached}, "
-                    f"caller asked for dim={dimension}"
+                    f"qdrant collection {name!r} cached at dim={cached}, caller asked for dim={dimension}"
                 )
             return
 
@@ -154,7 +152,9 @@ class QdrantVectorStore:
             except UnexpectedResponse as exc:
                 log.warning(
                     "qdrant create_payload_index(%s, %s) failed: %s",
-                    name, field, exc,
+                    name,
+                    field,
+                    exc,
                 )
 
     async def _rebuild_legacy_single_vector_collection(
@@ -190,14 +190,13 @@ class QdrantVectorStore:
         embedder = get_embedder(self._settings)
         if embedder.dimension != dimension:
             raise RuntimeError(
-                f"qdrant rebuild for env {env_id} expected embedder dimension {dimension}, "
-                f"got {embedder.dimension}"
+                f"qdrant rebuild for env {env_id} expected embedder dimension {dimension}, got {embedder.dimension}"
             )
 
         async with session_scope() as session:
-            model_id = (await session.execute(
-                select(Environment.default_embedding_model_id).where(Environment.id == env_id)
-            )).scalar_one_or_none()
+            model_id = (
+                await session.execute(select(Environment.default_embedding_model_id).where(Environment.id == env_id))
+            ).scalar_one_or_none()
             if model_id is None:
                 return 0
             if model_id != embedder.model_id:
@@ -205,18 +204,30 @@ class QdrantVectorStore:
                     f"qdrant rebuild for env {env_id} requires model {model_id!r}, "
                     f"configured embedder is {embedder.model_id!r}"
                 )
-            rows = (await session.execute(
-                select(Memory)
-                .where(Memory.env_id == env_id, Memory.status.in_(list(_QDRANT_VISIBLE_STATUSES)))
-                .order_by(Memory.updated_at.desc(), Memory.id.desc())
-            )).scalars().all()
+            rows = (
+                (
+                    await session.execute(
+                        select(Memory)
+                        .where(Memory.env_id == env_id, Memory.status.in_(list(_QDRANT_VISIBLE_STATUSES)))
+                        .order_by(Memory.updated_at.desc(), Memory.id.desc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
             memory_ids = [m.id for m in rows]
-            tag_rows = (await session.execute(
-                select(MemoryTag.memory_id, Tag.name)
-                .join(Tag, MemoryTag.tag_id == Tag.id)
-                .where(MemoryTag.env_id == env_id, MemoryTag.memory_id.in_(memory_ids))
-                .order_by(MemoryTag.memory_id, Tag.name)
-            )).all() if memory_ids else []
+            tag_rows = (
+                (
+                    await session.execute(
+                        select(MemoryTag.memory_id, Tag.name)
+                        .join(Tag, MemoryTag.tag_id == Tag.id)
+                        .where(MemoryTag.env_id == env_id, MemoryTag.memory_id.in_(memory_ids))
+                        .order_by(MemoryTag.memory_id, Tag.name)
+                    )
+                ).all()
+                if memory_ids
+                else []
+            )
 
         tags_by_memory: dict[UUID, list[str]] = {memory_id: [] for memory_id in memory_ids}
         for memory_id, tag_name in tag_rows:
@@ -301,7 +312,9 @@ class QdrantVectorStore:
             # got an upsert before being purged). We log and swallow.
             log.warning(
                 "qdrant delete on missing collection %s for point %s: %s",
-                name, point_id, exc,
+                name,
+                point_id,
+                exc,
             )
 
     async def search(
@@ -330,11 +343,13 @@ class QdrantVectorStore:
 
         out: list[dict[str, Any]] = []
         for hit in result.points:
-            out.append({
-                "id": str(hit.id),
-                "score": float(hit.score),
-                "payload": dict(hit.payload or {}),
-            })
+            out.append(
+                {
+                    "id": str(hit.id),
+                    "score": float(hit.score),
+                    "payload": dict(hit.payload or {}),
+                }
+            )
         return out
 
     async def get_vector(self, *, env_id: UUID, id: str, vector_name: str = "body") -> list[float] | None:
@@ -367,7 +382,7 @@ class QdrantVectorStore:
 
         Missing ids map to None.
         """
-        out: dict[UUID, list[float] | None] = {memory_id: None for memory_id in ids}
+        out: dict[UUID, list[float] | None] = dict.fromkeys(ids)
         if not ids:
             return out
         try:
@@ -407,15 +422,19 @@ class QdrantVectorStore:
         must: list[qm.Condition] = []
         for field, value in filters.items():
             if isinstance(value, list):
-                must.append(qm.FieldCondition(
-                    key=field,
-                    match=qm.MatchAny(any=list(value)),
-                ))
+                must.append(
+                    qm.FieldCondition(
+                        key=field,
+                        match=qm.MatchAny(any=list(value)),
+                    )
+                )
             else:
-                must.append(qm.FieldCondition(
-                    key=field,
-                    match=qm.MatchValue(value=value),
-                ))
+                must.append(
+                    qm.FieldCondition(
+                        key=field,
+                        match=qm.MatchValue(value=value),
+                    )
+                )
         if not must:
             return None
         return qm.Filter(must=must)

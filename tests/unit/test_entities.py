@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from memory_mcp.db.models import GraphNode, Relation
 from memory_mcp.entities import (
     EntityMergeRequest,
     EntityResolveRequest,
@@ -21,7 +22,6 @@ from memory_mcp.entities import (
     _plan_relation_node_repoint,
     _resolve_env_id,
 )
-from memory_mcp.db.models import GraphNode, Relation
 from memory_mcp.errors import EnvAmbiguousError
 from memory_mcp.identity import AgentContext
 

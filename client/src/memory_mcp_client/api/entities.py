@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from memory_mcp_client._batch import BatchResult, run_bounded
-from memory_mcp_client.api._base import _BaseAPI
 from memory_mcp_schemas.entities import (
     EntityBrowseRequest,
     EntityBrowseResponse,
@@ -19,6 +17,9 @@ from memory_mcp_schemas.graph import (
     EntityNeighborsRequest,
     EntityNeighborsResponse,
 )
+
+from memory_mcp_client._batch import BatchResult, run_bounded
+from memory_mcp_client.api._base import _BaseAPI
 
 
 class EntitiesAPI(_BaseAPI):
@@ -100,9 +101,7 @@ class EntitiesAPI(_BaseAPI):
             payload["agent_id"] = str(agent_id)
         if attached_env_ids is not None:
             payload["attached_env_ids"] = [str(e) for e in attached_env_ids]
-        return await self._call(
-            "ent_neighbors", payload, model=EntityNeighborsResponse
-        )
+        return await self._call("ent_neighbors", payload, model=EntityNeighborsResponse)
 
     async def browse(
         self,

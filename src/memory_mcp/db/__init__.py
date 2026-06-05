@@ -3,4 +3,3 @@
 from memory_mcp.db.models import Base
 
 __all__ = ["Base"]
-

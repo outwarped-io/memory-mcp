@@ -35,9 +35,10 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator
+from typing import Any
 
 import pytest
 
@@ -134,9 +135,7 @@ class FakeClientSession:
         if kind == "raw":
             return value
         if kind == "iserror":
-            return FakeCallToolResult(
-                content=[FakeTextBlock(text=value)], isError=True
-            )
+            return FakeCallToolResult(content=[FakeTextBlock(text=value)], isError=True)
         # kind == "raise"
         raise RuntimeError(value)
 

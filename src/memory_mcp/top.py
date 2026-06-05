@@ -40,6 +40,11 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from memory_mcp_schemas.top import (
+    MemTopItem,
+    MemTopRequest,
+    MemTopResponse,
+)
 from sqlalchemy import (
     Select,
     func,
@@ -63,12 +68,6 @@ from memory_mcp.db.types import MemoryKind, MemoryStatus
 from memory_mcp.errors import AuthorityDisabledError, InvalidInputError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import _to_response
-
-from memory_mcp_schemas.top import (
-    MemTopItem,
-    MemTopRequest,
-    MemTopResponse,
-)
 
 log = logging.getLogger(__name__)
 
@@ -162,9 +161,7 @@ def _apply_base_filters(
     return stmt
 
 
-async def _hydrate_tags(
-    session: AsyncSession, memory_ids: list[UUID]
-) -> dict[UUID, list[str]]:
+async def _hydrate_tags(session: AsyncSession, memory_ids: list[UUID]) -> dict[UUID, list[str]]:
     if not memory_ids:
         return {}
     rows = await session.execute(
@@ -363,10 +360,7 @@ async def memory_top(
     # before env resolution / RBAC / DB, so callers get a clean "metric
     # unavailable" signal without spurious load when the authority
     # signal is dormant.
-    if (
-        req.by == "reference_authority"
-        and not settings.dream_popularity_authority_weighted
-    ):
+    if req.by == "reference_authority" and not settings.dream_popularity_authority_weighted:
         raise AuthorityDisabledError(
             "reference_authority metric requires "
             "dream_popularity_authority_weighted=True; the authority "

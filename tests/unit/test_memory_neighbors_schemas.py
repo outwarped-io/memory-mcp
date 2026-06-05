@@ -9,7 +9,6 @@ from pydantic import ValidationError
 
 from memory_mcp.graph import MemNeighborsRequest, MemNeighborsResponse
 
-
 # ---------------------------------------------------------------------------
 # MemNeighborsRequest schema
 # ---------------------------------------------------------------------------

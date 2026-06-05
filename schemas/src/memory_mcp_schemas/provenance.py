@@ -8,7 +8,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from memory_mcp_schemas._env_refs import validate_optional_env_ref_list_pair, validate_optional_env_ref_pair
+from memory_mcp_schemas._env_refs import (
+    validate_optional_env_ref_list_pair,
+    validate_optional_env_ref_pair,
+)
 
 from memory_mcp_schemas.memories import MemoryResponse
 

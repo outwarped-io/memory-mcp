@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from memory_mcp_client._batch import BatchResult, run_bounded
-from memory_mcp_client.api._base import _BaseAPI
 from memory_mcp_schemas.enums import TaskRelationKind, TaskStatus
 from memory_mcp_schemas.tasks import (
     TaskCreateRequest,
@@ -18,6 +16,9 @@ from memory_mcp_schemas.tasks import (
     TaskResponse,
     TaskTreeResponse,
 )
+
+from memory_mcp_client._batch import BatchResult, run_bounded
+from memory_mcp_client.api._base import _BaseAPI
 
 
 class TasksAPI(_BaseAPI):

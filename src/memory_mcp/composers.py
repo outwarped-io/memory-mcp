@@ -20,6 +20,14 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from memory_mcp_schemas.compose import (
+    ComposeLineageRow,
+    ComposeMode,
+    ComposeTagPolicy,
+    MemComposeRequest,
+    MemComposeResponse,
+    MemComposeTarget,
+)
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,14 +69,6 @@ from memory_mcp.memories import (
     _to_response,
     _upsert_tags,
     _validate_decision_meta_for_kind,
-)
-from memory_mcp_schemas.compose import (
-    ComposeLineageRow,
-    ComposeMode,
-    ComposeTagPolicy,
-    MemComposeRequest,
-    MemComposeResponse,
-    MemComposeTarget,
 )
 
 log = logging.getLogger(__name__)
@@ -203,7 +203,8 @@ async def memory_compose(
     if settings.autowire_enabled:
         try:
             autowire_candidates = await _autowire_stage_a(
-                request=request, settings=settings,
+                request=request,
+                settings=settings,
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("autowire: Stage A failed (%s); skipping", exc)
@@ -211,7 +212,10 @@ async def memory_compose(
 
     async with session_scope() as s:
         return await _compose_in_session(
-            s, request=request, ctx=ctx, settings=settings,
+            s,
+            request=request,
+            ctx=ctx,
+            settings=settings,
             autowire_candidates=autowire_candidates,
         )
 
@@ -230,11 +234,7 @@ async def _autowire_stage_a(
     from memory_mcp.autowire import autowire_fetch_candidates
 
     async with session_scope() as s:
-        rows = (await s.execute(
-            select(Memory.id, Memory.env_id).where(
-                Memory.id.in_(list(request.source_ids))
-            )
-        )).all()
+        rows = (await s.execute(select(Memory.id, Memory.env_id).where(Memory.id.in_(list(request.source_ids))))).all()
         if not rows:
             return []
         envs = {row[1] for row in rows}
@@ -342,8 +342,7 @@ def _validate_target_kind(target: MemComposeTarget) -> None:
     """
     if target.kind == MemoryKind.playbook:
         raise InvalidInputError(
-            "mem_compose does not support kind=playbook "
-            "(narrow MemComposeTarget has no steps/macro fields)"
+            "mem_compose does not support kind=playbook (narrow MemComposeTarget has no steps/macro fields)"
         )
 
 
@@ -378,34 +377,28 @@ async def _reconstruct_replay_from_lineage(
     caller is now asking for a semantically different operation that
     happens to share an ``idempotency_key`` value.
     """
-    rows = (await s.execute(
-        select(
-            MemoryLineage.parent_memory_id,
-            MemoryLineage.relation,
-        ).where(MemoryLineage.child_memory_id == existing.id)
-    )).all()
+    rows = (
+        await s.execute(
+            select(
+                MemoryLineage.parent_memory_id,
+                MemoryLineage.relation,
+            ).where(MemoryLineage.child_memory_id == existing.id)
+        )
+    ).all()
 
     if not rows:  # pragma: no cover — defensive; a composed memory always has lineage
-        raise InvalidTransitionError(
-            f"memory {existing.id} has compose_dedupe_key but no lineage rows"
-        )
+        raise InvalidTransitionError(f"memory {existing.id} has compose_dedupe_key but no lineage rows")
 
     parent_ids = sorted({row[0] for row in rows})
-    supersede_parents = sorted(
-        {row[0] for row in rows if row[1] == LineageRelation.supersedes.value}
-    )
-    promote_parents = sorted(
-        {row[0] for row in rows if row[1] == LineageRelation.promoted_from.value}
-    )
+    supersede_parents = sorted({row[0] for row in rows if row[1] == LineageRelation.supersedes.value})
+    promote_parents = sorted({row[0] for row in rows if row[1] == LineageRelation.promoted_from.value})
 
     if supersede_parents and not promote_parents:
         reconstructed_mode: ComposeMode = "merge"
     elif promote_parents and not supersede_parents:
         reconstructed_mode = "promote"
     else:  # pragma: no cover — mixed-relation compositions aren't possible today
-        raise InvalidTransitionError(
-            f"memory {existing.id} has mixed lineage relations; cannot infer mode"
-        )
+        raise InvalidTransitionError(f"memory {existing.id} has mixed lineage relations; cannot infer mode")
 
     if reconstructed_mode != request_mode:
         raise InvalidInputError(
@@ -414,18 +407,13 @@ async def _reconstruct_replay_from_lineage(
         )
 
     relation_for = (
-        LineageRelation.supersedes.value
-        if reconstructed_mode == "merge"
-        else LineageRelation.promoted_from.value
+        LineageRelation.supersedes.value if reconstructed_mode == "merge" else LineageRelation.promoted_from.value
     )
     lineage_rows = [
         ComposeLineageRow(
             parent_memory_id=parent_id,
             child_memory_id=existing.id,
-            relation=(
-                "supersedes" if relation_for == LineageRelation.supersedes.value
-                else "promoted_from"
-            ),
+            relation=("supersedes" if relation_for == LineageRelation.supersedes.value else "promoted_from"),
         )
         for parent_id in parent_ids
     ]
@@ -499,9 +487,7 @@ async def _compose_in_session(
     if len(locked) != len(sorted_ids):
         found = {m.id for m in locked}
         missing = [sid for sid in sorted_ids if sid not in found]
-        raise NotFoundError(
-            f"mem_compose: source memories not found: {', '.join(str(m) for m in missing)}"
-        )
+        raise NotFoundError(f"mem_compose: source memories not found: {', '.join(str(m) for m in missing)}")
     by_id = {m.id: m for m in locked}
 
     # All sources must share env_id (validated below after dedupe lookup).
@@ -511,19 +497,24 @@ async def _compose_in_session(
     dedupe_key = _compute_compose_dedupe_key(request, env_id=env_id)
 
     # Step 4 — Dedupe lookup BEFORE state validation (RD #1).
-    existing = (await s.execute(
-        select(Memory).where(
-            Memory.env_id == env_id,
-            Memory.compose_dedupe_key == dedupe_key,
-        ).limit(1)
-    )).scalar_one_or_none()
-    if existing is not None:
-        source_ids_out, retired_ids, recon_mode, lineage_rows = (
-            await _reconstruct_replay_from_lineage(
-                s, existing=existing, request_mode=request.mode,
+    existing = (
+        await s.execute(
+            select(Memory)
+            .where(
+                Memory.env_id == env_id,
+                Memory.compose_dedupe_key == dedupe_key,
             )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        source_ids_out, retired_ids, recon_mode, lineage_rows = await _reconstruct_replay_from_lineage(
+            s,
+            existing=existing,
+            request_mode=request.mode,
         )
         from memory_mcp.autowire import reconstruct_auto_wired
+
         replay_auto = await reconstruct_auto_wired(s=s, memory_id=existing.id)
         return await _build_response(
             s,
@@ -541,17 +532,12 @@ async def _compose_in_session(
     # Step 5 — Validate envelope (state + RBAC + kind invariants).
     for src in locked:
         if src.env_id != env_id:
-            raise InvalidInputError(
-                "mem_compose: all sources must belong to the same env"
-            )
+            raise InvalidInputError("mem_compose: all sources must belong to the same env")
         _ensure_env_visible(src, ctx)
 
     # Optional caller-asserted env scope.
     if request.env_id is not None and request.env_id != env_id:
-        raise InvalidInputError(
-            f"mem_compose: request.env_id={request.env_id} does not match "
-            f"source env {env_id}"
-        )
+        raise InvalidInputError(f"mem_compose: request.env_id={request.env_id} does not match source env {env_id}")
 
     rbac.require("write", env_id, ctx)
 
@@ -567,13 +553,11 @@ async def _compose_in_session(
         source_kinds = {src.kind for src in locked}
         if len(source_kinds) > 1:
             raise InvalidInputError(
-                "mem_compose mode=merge requires all sources to share kind; "
-                f"saw {sorted(source_kinds)}"
+                f"mem_compose mode=merge requires all sources to share kind; saw {sorted(source_kinds)}"
             )
         if request.target.kind.value not in source_kinds:
             raise InvalidInputError(
-                f"mem_compose mode=merge requires target.kind="
-                f"{request.target.kind.value!r} to match source kind"
+                f"mem_compose mode=merge requires target.kind={request.target.kind.value!r} to match source kind"
             )
 
     # Step 6 — Optimistic-lock check on supplied expected_versions.
@@ -645,22 +629,25 @@ async def _compose_in_session(
         if merged in s:  # pragma: no cover — defensive
             s.expunge(merged)
         async with s.no_autoflush:
-            existing = (await s.execute(
-                select(Memory).where(
-                    Memory.env_id == env_id,
-                    Memory.compose_dedupe_key == dedupe_key,
-                ).limit(1)
-            )).scalar_one_or_none()
+            existing = (
+                await s.execute(
+                    select(Memory)
+                    .where(
+                        Memory.env_id == env_id,
+                        Memory.compose_dedupe_key == dedupe_key,
+                    )
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
         if existing is None:  # pragma: no cover — race resolution must surface a row
-            raise RuntimeError(
-                "mem_compose: dedupe-key race recovery found no matching row"
-            ) from exc
-        source_ids_out, retired_ids, recon_mode, lineage_rows = (
-            await _reconstruct_replay_from_lineage(
-                s, existing=existing, request_mode=request.mode,
-            )
+            raise RuntimeError("mem_compose: dedupe-key race recovery found no matching row") from exc
+        source_ids_out, retired_ids, recon_mode, lineage_rows = await _reconstruct_replay_from_lineage(
+            s,
+            existing=existing,
+            request_mode=request.mode,
         )
         from memory_mcp.autowire import reconstruct_auto_wired
+
         race_auto = await reconstruct_auto_wired(s=s, memory_id=existing.id)
         return await _build_response(
             s,
@@ -699,9 +686,7 @@ async def _compose_in_session(
     # parent counter bumps for whitelisted relations (promoted_from); the
     # supersedes relation is intentionally not whitelisted (RD #4 in B5).
     relation_value = (
-        LineageRelation.supersedes.value
-        if request.mode == "merge"
-        else LineageRelation.promoted_from.value
+        LineageRelation.supersedes.value if request.mode == "merge" else LineageRelation.promoted_from.value
     )
     lineage_rows: list[ComposeLineageRow] = []
     for src in locked:
@@ -716,9 +701,7 @@ async def _compose_in_session(
             ComposeLineageRow(
                 parent_memory_id=src.id,
                 child_memory_id=merged.id,
-                relation=(
-                    "supersedes" if request.mode == "merge" else "promoted_from"
-                ),
+                relation=("supersedes" if request.mode == "merge" else "promoted_from"),
             )
         )
 
@@ -764,7 +747,8 @@ async def _compose_in_session(
                 env_id=env_id,
                 op=_outbox_op_for(MemoryStatus.superseded, is_create=False),
                 payload=_projection_payload(
-                    src, tag_names=old_tag_names,
+                    src,
+                    tag_names=old_tag_names,
                     embedding_model_id=embedding_model_id,
                 ),
                 settings=settings,
@@ -814,7 +798,8 @@ async def _compose_in_session(
         env_id=env_id,
         op=_outbox_op_for(MemoryStatus.active, is_create=True),
         payload=_projection_payload(
-            merged, tag_names=effective_tags,
+            merged,
+            tag_names=effective_tags,
             embedding_model_id=embedding_model_id,
         ),
         settings=settings,
@@ -829,6 +814,7 @@ async def _compose_in_session(
     auto_wired_ids: list[UUID] = []
     if settings.autowire_enabled and autowire_candidates:
         from memory_mcp.autowire import autowire_compose_target
+
         try:
             auto_wired_ids = await autowire_compose_target(
                 s=s,
@@ -844,7 +830,8 @@ async def _compose_in_session(
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "autowire: Stage B failed for memory %s (%s); compose unaffected",
-                merged.id, exc,
+                merged.id,
+                exc,
             )
             auto_wired_ids = []
 

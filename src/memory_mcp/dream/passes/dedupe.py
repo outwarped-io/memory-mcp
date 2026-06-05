@@ -267,9 +267,7 @@ def _select_primary_id(members: dict[UUID, MergeClusterMember]) -> UUID:
 
     best = next(iter(members.values()))
     for m in members.values():
-        if m.salience > best.salience or (
-            m.salience == best.salience and str(m.memory_id) < str(best.memory_id)
-        ):
+        if m.salience > best.salience or (m.salience == best.salience and str(m.memory_id) < str(best.memory_id)):
             best = m
     return best.memory_id
 
@@ -343,9 +341,7 @@ async def _insert_proposal(
     # ``primary_id``. Cluster member ids include the primary, so we filter
     # it out here. Cosine scores are kept aligned with ``sorted_member_ids``
     # (the primary's self-similarity stays in the array for debugging).
-    candidate_ids = [
-        str(mid) for mid in sorted_member_ids if mid != cluster.primary_id
-    ]
+    candidate_ids = [str(mid) for mid in sorted_member_ids if mid != cluster.primary_id]
     payload: dict[str, Any] = {
         "primary_id": str(cluster.primary_id),
         "candidate_ids": candidate_ids,
@@ -386,8 +382,9 @@ async def _insert_proposal(
 
     if inserted_id is None:
         log.debug(
-            "dedupe: open proposal already exists for cluster "
-            "(env %s, dedupe_key %s)", env_id, dedupe_key,
+            "dedupe: open proposal already exists for cluster (env %s, dedupe_key %s)",
+            env_id,
+            dedupe_key,
         )
         return False
     return True
@@ -627,8 +624,10 @@ async def _instrumented_summarize_merge(
                 dream_summarizer_calls_total,
                 dream_summarizer_latency_seconds,
             )
+
             dream_summarizer_calls_total.labels(
-                kind=kind_label, outcome=outcome,
+                kind=kind_label,
+                outcome=outcome,
             ).inc()
             dream_summarizer_latency_seconds.labels(
                 kind=kind_label,
@@ -643,6 +642,7 @@ async def _instrumented_summarize_merge(
             dream_summarizer_calls_total,
             dream_summarizer_latency_seconds,
         )
+
         dream_summarizer_latency_seconds.labels(kind=kind_label).observe(
             time.perf_counter() - started,
         )
@@ -650,7 +650,8 @@ async def _instrumented_summarize_merge(
             outcome = "fallback"
             dream_llm_fallbacks_total.labels(**{"pass": "dedupe"}).inc()
         dream_summarizer_calls_total.labels(
-            kind=kind_label, outcome=outcome,
+            kind=kind_label,
+            outcome=outcome,
         ).inc()
     except Exception:  # noqa: BLE001
         pass

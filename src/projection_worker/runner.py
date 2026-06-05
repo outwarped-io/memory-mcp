@@ -104,10 +104,12 @@ async def drain_once(
             )
         except Exception as exc:
             logger.exception(
-                "projection-worker handler failed event_id=%s sink=%s "
-                "aggregate=%s/%s/%s",
-                event.event_id, sink.value, event.aggregate_type,
-                event.aggregate_id, event.aggregate_version,
+                "projection-worker handler failed event_id=%s sink=%s aggregate=%s/%s/%s",
+                event.event_id,
+                sink.value,
+                event.aggregate_type,
+                event.aggregate_id,
+                event.aggregate_version,
             )
             async with session_scope() as s:
                 dead = await mark_fail(
@@ -148,9 +150,7 @@ async def _dispatch_event(
     """Route ``event`` to the per-sink handler with a clear arg-validation error."""
     if sink == OutboxSink.qdrant:
         if vector_store is None or embedder is None:
-            raise ValueError(
-                "drain_once(sink=qdrant) requires vector_store + embedder"
-            )
+            raise ValueError("drain_once(sink=qdrant) requires vector_store + embedder")
         await handle_qdrant_event(
             event,
             vector_store=vector_store,
@@ -183,7 +183,9 @@ async def _run(settings: Settings | None = None) -> None:
     worker_id = _default_worker_id()
     logger.info(
         "projection-worker started worker_id=%s qdrant=%s graph_backend=%s",
-        worker_id, settings.qdrant_url, settings.graph_backend,
+        worker_id,
+        settings.qdrant_url,
+        settings.graph_backend,
     )
 
     # Initialize neo4j schema on startup so the first relation event
@@ -232,8 +234,14 @@ async def _run(settings: Settings | None = None) -> None:
                     "projection-worker drained "
                     "qdrant(leased=%s succeeded=%s failed=%s dead=%s) "
                     "neo4j(leased=%s succeeded=%s failed=%s dead=%s)",
-                    qstats.leased, qstats.succeeded, qstats.failed, qstats.dead_lettered,
-                    nstats.leased, nstats.succeeded, nstats.failed, nstats.dead_lettered,
+                    qstats.leased,
+                    qstats.succeeded,
+                    qstats.failed,
+                    qstats.dead_lettered,
+                    nstats.leased,
+                    nstats.succeeded,
+                    nstats.failed,
+                    nstats.dead_lettered,
                 )
     finally:
         await vector_store.close()

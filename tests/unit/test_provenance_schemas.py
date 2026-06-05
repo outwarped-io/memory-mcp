@@ -7,7 +7,9 @@ from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import select
 
+from memory_mcp.db.models import Memory, MemorySource
 from memory_mcp.db.types import MemoryKind, MemoryStatus
 from memory_mcp.memories import MemoryResponse
 from memory_mcp.provenance import (
@@ -23,8 +25,6 @@ from memory_mcp.provenance import (
     _lineage_params,
     _lineage_sql,
 )
-from memory_mcp.db.models import Memory, MemorySource
-from sqlalchemy import select
 
 
 def _make_memory_response(env_id: UUID | None = None) -> MemoryResponse:

@@ -46,6 +46,7 @@ ComposeTagPolicy = Literal["target", "union", "target_plus_union"]
 # Target payload
 # ---------------------------------------------------------------------------
 
+
 class MemComposeTarget(BaseModel):
     """Narrow target payload accepted by ``mem_compose``.
 
@@ -90,6 +91,7 @@ class MemComposeTarget(BaseModel):
 # ---------------------------------------------------------------------------
 # Request
 # ---------------------------------------------------------------------------
+
 
 class MemComposeRequest(BaseModel):
     """Combine N source memories (≥2) into a single new memory.
@@ -184,6 +186,7 @@ class MemComposeRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Response
 # ---------------------------------------------------------------------------
+
 
 class ComposeLineageRow(BaseModel):
     """One lineage edge emitted by ``mem_compose`` (parent=source, child=new)."""

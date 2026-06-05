@@ -5,12 +5,8 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-from pydantic import ValidationError as PydanticValidationError
-
-from memory_mcp_client.errors import InvalidInputError
 from memory_mcp_schemas.env_ops import (
     ArchiveVersionDecision,
-    DiffGranularity,
     EnvCloneRequest,
     EnvCloneResponse,
     EnvDiffRequest,
@@ -29,7 +25,9 @@ from memory_mcp_schemas.env_ops import (
     MigrationMode,
     RestoreMode,
 )
+from pydantic import ValidationError as PydanticValidationError
 
+from memory_mcp_client.errors import InvalidInputError
 
 pytestmark = pytest.mark.asyncio
 
@@ -91,9 +89,7 @@ async def test_env_ops_export_calls_correct_tool(client, fake_session) -> None:
 
     out = await client.env_ops.export(request)
 
-    assert fake_session.calls == [
-        ("env_export_", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("env_export_", {"request": request.model_dump(mode="json")})]
     assert out.output_path == "exports/source.memarchive.tar.gz"
 
 
@@ -226,9 +222,7 @@ async def test_env_ops_snapshot_label_required(fake_session) -> None:
     assert fake_session.calls == []
 
 
-async def test_env_ops_restore_in_place_requires_confirm_destroy(
-    client, fake_session
-) -> None:
+async def test_env_ops_restore_in_place_requires_confirm_destroy(client, fake_session) -> None:
     request = EnvRestoreRequest(
         snapshot_id=uuid4(),
         mode=RestoreMode.replace_env_in_place,
@@ -254,9 +248,7 @@ async def test_env_ops_delete_requires_confirm_destroy(fake_session) -> None:
     assert fake_session.calls == []
 
 
-async def test_env_ops_rename_at_least_one_field_required(
-    client, fake_session
-) -> None:
+async def test_env_ops_rename_at_least_one_field_required(client, fake_session) -> None:
     request = EnvRenameRequest(env_id=uuid4())
     fake_session.set_error("env_rename_", "[INVALID_INPUT] NOTHING_TO_RENAME")
 

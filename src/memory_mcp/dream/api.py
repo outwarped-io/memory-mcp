@@ -49,10 +49,26 @@ import datetime as dt
 import json
 import logging
 from collections.abc import Iterable
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from memory_mcp_schemas.dream import (
+    DreamHeartbeatEntry,
+    DreamProposalEntry,
+    DreamProposalsListRequest,
+    DreamProposalsListResponse,
+    DreamReviewAction,
+    DreamReviewPatch,
+    DreamReviewRequest,
+    DreamReviewResponse,
+    DreamRunReport,
+    DreamRunRequest,
+    DreamRunResponse,
+    DreamRunScheduledItem,
+    DreamRunSummaryEntry,
+    DreamStatusRequest,
+    DreamStatusResponse,
+)
 from sqlalchemy import and_, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -103,23 +119,6 @@ from memory_mcp.memories import (
     _to_response,
 )
 
-from memory_mcp_schemas.dream import (
-    DreamHeartbeatEntry,
-    DreamProposalEntry,
-    DreamProposalsListRequest,
-    DreamProposalsListResponse,
-    DreamReviewPatch,
-    DreamReviewRequest,
-    DreamReviewResponse,
-    DreamRunReport,
-    DreamRunRequest,
-    DreamRunResponse,
-    DreamRunScheduledItem,
-    DreamRunSummaryEntry,
-    DreamStatusRequest,
-    DreamStatusResponse,
-)
-
 log = logging.getLogger(__name__)
 
 
@@ -151,7 +150,8 @@ def _log_failed_task(task: asyncio.Task[Any]) -> None:
     exc = task.exception()
     if exc is not None:
         log.exception(
-            "dream_run background coordinator raised", exc_info=exc,
+            "dream_run background coordinator raised",
+            exc_info=exc,
         )
 
 
@@ -195,14 +195,15 @@ async def dream_run(
 
     modes: list[DreamMode] = list(req.modes) if req.modes else list(_ALL_MODES)
 
-    pairs: list[tuple[UUID, DreamMode]] = [
-        (env_id, mode) for env_id in env_ids for mode in modes
-    ]
+    pairs: list[tuple[UUID, DreamMode]] = [(env_id, mode) for env_id in env_ids for mode in modes]
 
     if req.wait:
         reports = await _run_pairs_with_resources(
-            pairs, settings=settings, agent_id=ctx.agent_id,
-            agent_name=ctx.agent_name, triggered_by=req.triggered_by,
+            pairs,
+            settings=settings,
+            agent_id=ctx.agent_id,
+            agent_name=ctx.agent_name,
+            triggered_by=req.triggered_by,
         )
         return DreamRunResponse(
             scheduled=[],
@@ -212,17 +213,17 @@ async def dream_run(
     # wait=False — fire and forget.
     coordinator = asyncio.create_task(
         _run_pairs_with_resources(
-            pairs, settings=settings, agent_id=ctx.agent_id,
-            agent_name=ctx.agent_name, triggered_by=req.triggered_by,
+            pairs,
+            settings=settings,
+            agent_id=ctx.agent_id,
+            agent_name=ctx.agent_name,
+            triggered_by=req.triggered_by,
         ),
         name=f"dream_run-coordinator-{dt.datetime.now(dt.UTC).isoformat()}",
     )
     _track_background_task(coordinator)
     return DreamRunResponse(
-        scheduled=[
-            DreamRunScheduledItem(env_id=env_id, mode=mode)
-            for env_id, mode in pairs
-        ],
+        scheduled=[DreamRunScheduledItem(env_id=env_id, mode=mode) for env_id, mode in pairs],
         reports=[],
     )
 
@@ -271,21 +272,20 @@ async def _run_pairs_with_resources(
             )
             try:
                 report = await run_dream_pass(
-                    env_id, mode,
+                    env_id,
+                    mode,
                     actor_ctx=ctx,
                     summarizer=summarizer,
                     embedder=embedder if mode is DreamMode.dedupe else None,
-                    vector_store=(
-                        vector_store
-                        if mode in {DreamMode.dedupe, DreamMode.decision_conflicts}
-                        else None
-                    ),
+                    vector_store=(vector_store if mode in {DreamMode.dedupe, DreamMode.decision_conflicts} else None),
                     settings=settings,
                     triggered_by=triggered_by,
                 )
             except Exception as exc:  # noqa: BLE001 — per-pair isolation
                 log.exception(
-                    "dream_run: env=%s mode=%s raised", env_id, mode.value,
+                    "dream_run: env=%s mode=%s raised",
+                    env_id,
+                    mode.value,
                 )
                 report = DreamPassReport(
                     env_id=env_id,
@@ -336,7 +336,9 @@ async def dream_status(
 
     async with session_scope() as s:
         last_runs = await _load_last_runs_per_mode(
-            s, env_id=req.env_id, runs_per_mode=req.runs_per_mode,
+            s,
+            env_id=req.env_id,
+            runs_per_mode=req.runs_per_mode,
         )
         open_counts = await _load_open_proposal_counts(s, env_id=req.env_id)
         heartbeats = await _load_dream_heartbeats(s, env_id=req.env_id)
@@ -381,11 +383,7 @@ async def _load_open_proposal_counts(
     *,
     env_id: UUID | None,
 ) -> dict[str, int]:
-    stmt = (
-        select(DreamProposal.kind, func.count())
-        .where(DreamProposal.status == "open")
-        .group_by(DreamProposal.kind)
-    )
+    stmt = select(DreamProposal.kind, func.count()).where(DreamProposal.status == "open").group_by(DreamProposal.kind)
     if env_id is not None:
         stmt = stmt.where(DreamProposal.env_id == env_id)
     rows = (await s.execute(stmt)).all()
@@ -468,13 +466,9 @@ async def dream_proposals_list(
         rbac.require("read", req.env_id, ctx)
 
     cursor_state = _decode_cursor(req.cursor) if req.cursor else None
-    if (
-        cursor_state is not None
-        and cursor_state["filters_hash"] != _filters_hash(req)
-    ):
+    if cursor_state is not None and cursor_state["filters_hash"] != _filters_hash(req):
         raise InvalidInputError(
-            "cursor was issued for a different filter set; "
-            "drop the cursor and re-issue the query",
+            "cursor was issued for a different filter set; drop the cursor and re-issue the query",
         )
 
     stmt = select(DreamProposal)
@@ -490,13 +484,9 @@ async def dream_proposals_list(
     if cursor_state is not None:
         last_created_at = dt.datetime.fromisoformat(cursor_state["created_at"])
         last_id = UUID(cursor_state["id"])
-        stmt = stmt.where(
-            _keyset_lt(DreamProposal.created_at, DreamProposal.id, last_created_at, last_id)
-        )
+        stmt = stmt.where(_keyset_lt(DreamProposal.created_at, DreamProposal.id, last_created_at, last_id))
 
-    stmt = stmt.order_by(
-        DreamProposal.created_at.desc(), DreamProposal.id.desc()
-    ).limit(req.limit + 1)
+    stmt = stmt.order_by(DreamProposal.created_at.desc(), DreamProposal.id.desc()).limit(req.limit + 1)
 
     async with session_scope() as s:
         rows = (await s.execute(stmt)).scalars().all()
@@ -527,9 +517,7 @@ def _keyset_lt(created_at_col, id_col, last_created_at, last_id):  # noqa: ANN00
 
         a < c OR (a = c AND b < d)
     """
-    return (created_at_col < last_created_at) | (
-        and_(created_at_col == last_created_at, id_col < last_id)
-    )
+    return (created_at_col < last_created_at) | (and_(created_at_col == last_created_at, id_col < last_id))
 
 
 def _filters_hash(req: DreamProposalsListRequest) -> str:
@@ -598,15 +586,13 @@ async def dream_review(
 
         if req.action == "accept":
             if proposal.kind == "merge_candidate":
-                accepted_memory, accepted_tag_names, superseded_ids = (
-                    await _accept_merge(
-                        s,
-                        proposal=proposal,
-                        ctx=ctx,
-                        patch=req.patch,
-                        expected_versions=req.expected_versions or {},
-                        settings=settings,
-                    )
+                accepted_memory, accepted_tag_names, superseded_ids = await _accept_merge(
+                    s,
+                    proposal=proposal,
+                    ctx=ctx,
+                    patch=req.patch,
+                    expected_versions=req.expected_versions or {},
+                    settings=settings,
                 )
             elif proposal.kind == "promotion_candidate":
                 accepted_memory, accepted_tag_names = await _accept_promotion(
@@ -635,9 +621,7 @@ async def dream_review(
             action=req.action,
             notes=req.notes,
             agent_id=ctx.agent_id,
-            accepted_memory_id=(
-                accepted_memory.id if accepted_memory is not None else None
-            ),
+            accepted_memory_id=(accepted_memory.id if accepted_memory is not None else None),
             superseded_ids=superseded_ids,
         )
 
@@ -660,11 +644,7 @@ async def _lock_proposal(s: AsyncSession, proposal_id: UUID) -> DreamProposal:
     proposal serialize — only one runs the accept handler; the second
     observes ``status != 'open'`` and raises :class:`InvalidTransitionError`.
     """
-    stmt = (
-        select(DreamProposal)
-        .where(DreamProposal.id == proposal_id)
-        .with_for_update()
-    )
+    stmt = select(DreamProposal).where(DreamProposal.id == proposal_id).with_for_update()
     proposal = (await s.execute(stmt)).scalar_one_or_none()
     if proposal is None:
         raise NotFoundError(
@@ -799,28 +779,17 @@ async def _accept_merge(
         expected = expected_versions.get(src.id)
         if expected is not None and expected != src.version:
             raise VersionConflictError(
-                expected=expected, actual=src.version,
+                expected=expected,
+                actual=src.version,
             )
 
     # Resolve merged content.
-    title = (
-        (patch.title if patch else None)
-        or payload.get("suggested_merged_title")
-        or primary.title
-    )
-    body = (
-        (patch.body if patch else None)
-        or payload.get("suggested_merged_body")
-        or primary.body
-    )
+    title = (patch.title if patch else None) or payload.get("suggested_merged_title") or primary.title
+    body = (patch.body if patch else None) or payload.get("suggested_merged_body") or primary.body
 
     # Union of source tags.
-    tag_names_per_src = {
-        src.id: await _load_tag_names(s, src.id) for src in sources
-    }
-    merged_tag_names = sorted(
-        {n for ts in tag_names_per_src.values() for n in ts}
-    )
+    tag_names_per_src = {src.id: await _load_tag_names(s, src.id) for src in sources}
+    merged_tag_names = sorted({n for ts in tag_names_per_src.values() for n in ts})
 
     # Embedding model (per env) — every source already shares env_id.
     embedding_model_id = await _load_env_embedding_model(s, env_id)
@@ -842,6 +811,7 @@ async def _accept_merge(
 
     if merged_tag_names:
         from memory_mcp.memories import _replace_memory_tags, _upsert_tags
+
         tag_map = await _upsert_tags(s, env_id=env_id, names=merged_tag_names)
         await _replace_memory_tags(
             s,
@@ -878,7 +848,8 @@ async def _accept_merge(
         env_id=env_id,
         op=_outbox_op_for(MemoryStatus.active, is_create=True),
         payload=_projection_payload(
-            merged, tag_names=merged_tag_names,
+            merged,
+            tag_names=merged_tag_names,
             embedding_model_id=embedding_model_id,
         ),
         settings=settings,
@@ -934,7 +905,8 @@ async def _accept_merge(
             env_id=env_id,
             op=_outbox_op_for(MemoryStatus.superseded, is_create=False),
             payload=_projection_payload(
-                src, tag_names=old_tag_names,
+                src,
+                tag_names=old_tag_names,
                 embedding_model_id=embedding_model_id,
             ),
             settings=settings,
@@ -1017,23 +989,13 @@ async def _accept_promotion(
         expected = expected_versions.get(r.id)
         if expected is not None and expected != r.version:
             raise VersionConflictError(
-                expected=expected, actual=r.version,
+                expected=expected,
+                actual=r.version,
             )
 
-    title = (
-        (patch.title if patch else None)
-        or payload.get("suggested_title")
-        or "Promoted observation"
-    )
-    body = (
-        (patch.body if patch else None)
-        or payload.get("suggested_body")
-        or ""
-    )
-    confidence = (
-        (patch.confidence if patch else None)
-        or payload.get("suggested_confidence")
-    )
+    title = (patch.title if patch else None) or payload.get("suggested_title") or "Promoted observation"
+    body = (patch.body if patch else None) or payload.get("suggested_body") or ""
+    confidence = (patch.confidence if patch else None) or payload.get("suggested_confidence")
 
     embedding_model_id = await _load_env_embedding_model(s, env_id)
 
@@ -1089,7 +1051,8 @@ async def _accept_promotion(
         env_id=env_id,
         op=_outbox_op_for(MemoryStatus.active, is_create=True),
         payload=_projection_payload(
-            new_memory, tag_names=new_tag_names,
+            new_memory,
+            tag_names=new_tag_names,
             embedding_model_id=embedding_model_id,
         ),
         settings=settings,

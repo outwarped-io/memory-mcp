@@ -37,20 +37,23 @@ async def _check_env_models(
     embedder: Embedder,
 ) -> None:
     """Hard-fail if any env expects a different embedding model than ours."""
-    rows = (await session.execute(
-        select(Environment.id, Environment.default_embedding_model_id)
-        .where(Environment.id.in_(list(env_ids)))
-    )).all()
+    rows = (
+        await session.execute(
+            select(Environment.id, Environment.default_embedding_model_id).where(Environment.id.in_(list(env_ids)))
+        )
+    ).all()
     found = {row[0]: row[1] for row in rows}
     missing = [e for e in env_ids if e not in found]
     if missing:
         raise NotFoundError(
-            f"environments not found: {missing}", env_ids=[str(e) for e in missing],
+            f"environments not found: {missing}",
+            env_ids=[str(e) for e in missing],
         )
     for _env_id, model_id in found.items():
         if model_id != embedder.model_id:
             raise EmbeddingModelMismatchError(
-                expected=str(model_id), actual=embedder.model_id,
+                expected=str(model_id),
+                actual=embedder.model_id,
             )
 
 
@@ -101,7 +104,9 @@ async def sem_search(
     import asyncio
 
     vectors = await asyncio.get_running_loop().run_in_executor(
-        None, embedder.embed_texts, [query],
+        None,
+        embedder.embed_texts,
+        [query],
     )
     qvec = vectors[0]
 
@@ -142,8 +147,7 @@ async def sem_search(
     ordered = sorted(best.items(), key=lambda x: x[1], reverse=True)[:limit]
 
     return [
-        RankedHit(memory_id=mid, rank=i + 1, raw_score=score, source="sem")
-        for i, (mid, score) in enumerate(ordered)
+        RankedHit(memory_id=mid, rank=i + 1, raw_score=score, source="sem") for i, (mid, score) in enumerate(ordered)
     ]
 
 

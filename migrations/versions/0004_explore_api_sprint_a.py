@@ -70,12 +70,10 @@ def upgrade() -> None:
     # reverse-direction index scan. Including ``id`` provides the keyset
     # tiebreak without a sort.
     op.execute(
-        "CREATE INDEX IF NOT EXISTS memories_env_status_updated_at_id_idx "
-        "ON memories (env_id, status, updated_at, id)"
+        "CREATE INDEX IF NOT EXISTS memories_env_status_updated_at_id_idx ON memories (env_id, status, updated_at, id)"
     )
     op.execute(
-        "CREATE INDEX IF NOT EXISTS memories_env_status_created_at_id_idx "
-        "ON memories (env_id, status, created_at, id)"
+        "CREATE INDEX IF NOT EXISTS memories_env_status_created_at_id_idx ON memories (env_id, status, created_at, id)"
     )
     # ``entities_env_kind_canonical_name_id_idx`` supports ``ent_browse``'s
     # default ``order_by="canonical_name"`` traversal (no prefix filter).
@@ -99,13 +97,9 @@ def upgrade() -> None:
     #   - (env_id, type, created_at, id): when types[] is set
     #   - (env_id, created_at, id):       when types[] is not set
     op.execute(
-        "CREATE INDEX IF NOT EXISTS relations_env_type_created_at_id_idx "
-        "ON relations (env_id, type, created_at, id)"
+        "CREATE INDEX IF NOT EXISTS relations_env_type_created_at_id_idx ON relations (env_id, type, created_at, id)"
     )
-    op.execute(
-        "CREATE INDEX IF NOT EXISTS relations_env_created_at_id_idx "
-        "ON relations (env_id, created_at, id)"
-    )
+    op.execute("CREATE INDEX IF NOT EXISTS relations_env_created_at_id_idx ON relations (env_id, created_at, id)")
 
 
 def downgrade() -> None:

@@ -184,7 +184,7 @@ async def run_decision_conflict_pass(
     proposals_skipped_existing = 0
 
     for i, (left, left_vector) in enumerate(usable):
-        for right, right_vector in usable[i + 1:]:
+        for right, right_vector in usable[i + 1 :]:
             pairs_examined += 1
             cosine = _cosine(left_vector, right_vector)
             if cosine < threshold:

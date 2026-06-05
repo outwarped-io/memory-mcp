@@ -160,18 +160,20 @@ async def lease_batch(
     leased: list[LeasedEvent] = []
     for r in rows:
         outbox_row = by_id[r["event_id"]]
-        leased.append(LeasedEvent(
-            event_id=outbox_row["event_id"],
-            sink=OutboxSink(r["sink"]),
-            aggregate_type=outbox_row["aggregate_type"],
-            aggregate_id=outbox_row["aggregate_id"],
-            aggregate_version=outbox_row["aggregate_version"],
-            env_id=outbox_row["env_id"],
-            op=outbox_row["op"],
-            payload=dict(outbox_row["payload"] or {}),
-            attempt_count=r["attempt_count"],
-            created_at=outbox_row["created_at"],
-        ))
+        leased.append(
+            LeasedEvent(
+                event_id=outbox_row["event_id"],
+                sink=OutboxSink(r["sink"]),
+                aggregate_type=outbox_row["aggregate_type"],
+                aggregate_id=outbox_row["aggregate_id"],
+                aggregate_version=outbox_row["aggregate_version"],
+                env_id=outbox_row["env_id"],
+                op=outbox_row["op"],
+                payload=dict(outbox_row["payload"] or {}),
+                attempt_count=r["attempt_count"],
+                created_at=outbox_row["created_at"],
+            )
+        )
     return leased
 
 
@@ -250,13 +252,16 @@ async def mark_fail(
     Returns True if the row was dead-lettered.
     """
     # Read current attempt + decide.
-    row = (await session.execute(
-        text(
-            "SELECT attempt_count FROM outbox_delivery "
-            "WHERE event_id = :e AND sink = :s FOR UPDATE"
-        ),
-        {"e": event_id, "s": sink.value},
-    )).mappings().first()
+    row = (
+        (
+            await session.execute(
+                text("SELECT attempt_count FROM outbox_delivery WHERE event_id = :e AND sink = :s FOR UPDATE"),
+                {"e": event_id, "s": sink.value},
+            )
+        )
+        .mappings()
+        .first()
+    )
     attempt_count = (row["attempt_count"] if row else 0) + 1
     dead = attempt_count >= max_attempts
 
@@ -287,7 +292,9 @@ async def mark_fail(
         )
         log.warning(
             "projection-worker dead-lettered event_id=%s sink=%s after %s attempts",
-            event_id, sink.value, attempt_count,
+            event_id,
+            sink.value,
+            attempt_count,
         )
         return True
 
@@ -313,7 +320,10 @@ async def mark_fail(
     )
     log.info(
         "projection-worker requeued event_id=%s sink=%s attempt=%s backoff=%ss",
-        event_id, sink.value, attempt_count, backoff,
+        event_id,
+        sink.value,
+        attempt_count,
+        backoff,
     )
     return False
 

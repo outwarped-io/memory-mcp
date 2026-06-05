@@ -2,26 +2,25 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-
 from memory_mcp_schemas.browse import (
     MemBrowseResponse,
     MemFacetsResponse,
 )
 from memory_mcp_schemas.context_pack import ContextPackResponse
 from memory_mcp_schemas.digest import DigestResponse, ResumeResponse
-from memory_mcp_schemas.graph import MemNeighborsResponse, MemRelatedResponse
-from memory_mcp_schemas.journal import JournalRequest
 from memory_mcp_schemas.env_ops import (
     MemCopyRequest,
     MemCopyResponse,
     MemMoveRequest,
     MemMoveResponse,
 )
+from memory_mcp_schemas.graph import MemNeighborsResponse, MemRelatedResponse
+from memory_mcp_schemas.journal import JournalRequest
 from memory_mcp_schemas.memories import (
     MemoryKind,
     MemoryResponse,
@@ -38,8 +37,8 @@ from memory_mcp_schemas.search import (
     AutoContextResponse,
     MemorySearchResponse,
 )
-from tests.conftest import make_memory_payload
 
+from tests.conftest import make_memory_payload
 
 pytestmark = pytest.mark.asyncio
 
@@ -217,7 +216,6 @@ async def test_supersede(client, fake_session) -> None:
 
 async def test_hard_delete(client, fake_session) -> None:
     from memory_mcp_schemas.memories import (
-        MemoryHardDeleteRequest,
         MemoryHardDeleteResponse,
     )
 
@@ -278,7 +276,7 @@ async def test_journal(client, fake_session) -> None:
 async def test_digest(client, fake_session) -> None:
     env_id = uuid4()
     memory_id = uuid4()
-    since_ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    since_ts = datetime(2026, 1, 1, tzinfo=UTC)
     fake_session.set_response(
         "mem_digest",
         {
@@ -399,7 +397,6 @@ async def test_search_passes_fallback_and_min_score(client, fake_session) -> Non
     assert args["request"]["fallback"] is True
     assert args["request"]["min_score"] == 0.025
     assert out.fallback_used == ["mode->hybrid", "drop_filters"]
-
 
 
 async def test_auto_context(client, fake_session) -> None:
@@ -714,9 +711,7 @@ async def test_memories_copy_calls_correct_tool(client, fake_session) -> None:
 
     out = await client.memories.copy(request)
 
-    assert fake_session.calls == [
-        ("mem_copy_", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("mem_copy_", {"request": request.model_dump(mode="json")})]
     assert isinstance(out, MemCopyResponse)
     assert out.dst_memory_id == dst_memory_id
 
@@ -739,9 +734,7 @@ async def test_memories_move_calls_correct_tool(client, fake_session) -> None:
 
     out = await client.memories.move(request)
 
-    assert fake_session.calls == [
-        ("mem_move_", {"request": request.model_dump(mode="json")})
-    ]
+    assert fake_session.calls == [("mem_move_", {"request": request.model_dump(mode="json")})]
     assert isinstance(out, MemMoveResponse)
     assert out.source_memory_status == "superseded"
 

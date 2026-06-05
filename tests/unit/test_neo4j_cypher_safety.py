@@ -87,9 +87,11 @@ def _capturing_store() -> tuple[Neo4jGraphStore, list[tuple[str, dict[str, Any]]
         captured.append((cypher, params))
         # Mimic an empty result iterator so callers that consume rows are happy.
         result = MagicMock()
+
         async def _aiter() -> Any:
             return
             yield  # noqa: F812 — never reached but makes this an async generator
+
         result.__aiter__ = lambda self: _aiter()
         result.consume = AsyncMock(return_value=None)
         return result
@@ -191,9 +193,7 @@ def test_upsert_edge_payload_only_in_parameters(payload: str) -> None:
     cypher, params = captured[0]
     # Payload must NOT appear in the cypher source — it must be passed
     # through the $etype parameter.
-    assert payload not in cypher, (
-        f"INJECTION REGRESSION: payload {payload!r} leaked into Cypher source"
-    )
+    assert payload not in cypher, f"INJECTION REGRESSION: payload {payload!r} leaked into Cypher source"
     assert params["etype"] == payload
     # Sanity: cypher uses the parameter placeholder.
     assert "$etype" in cypher
@@ -221,9 +221,7 @@ def test_neighbors_payload_only_in_parameters(payload: str) -> None:
 
     assert len(captured) == 1, "neighbors should issue exactly one Cypher MATCH"
     cypher, params = captured[0]
-    assert payload not in cypher, (
-        f"INJECTION REGRESSION: payload {payload!r} leaked into Cypher source"
-    )
+    assert payload not in cypher, f"INJECTION REGRESSION: payload {payload!r} leaked into Cypher source"
     assert payload in params["etypes"]
     assert "$etypes" in cypher
 
@@ -273,8 +271,7 @@ def test_neighbors_arrow_direction_is_from_closed_set() -> None:
         )
         cypher, _ = captured[0]
         assert expected_arrow in cypher, (
-            f"direction={direction!r} should produce arrow {expected_arrow!r}; "
-            f"cypher was: {cypher}"
+            f"direction={direction!r} should produce arrow {expected_arrow!r}; cypher was: {cypher}"
         )
 
 
@@ -289,8 +286,12 @@ def test_neighbors_hops_int_bounded_in_pattern() -> None:
         store, captured = _capturing_store()
         asyncio.run(
             store.neighbors(
-                node, hops=hops, direction="out",
-                edge_types=None, kinds=None, limit=5,
+                node,
+                hops=hops,
+                direction="out",
+                edge_types=None,
+                kinds=None,
+                limit=5,
             )
         )
         cypher, _ = captured[0]

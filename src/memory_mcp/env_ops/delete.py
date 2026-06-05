@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 
+from memory_mcp_schemas.env_ops import EnvDeleteRequest, EnvDeleteResponse
 from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,8 +35,6 @@ from memory_mcp.db.postgres import session_scope
 from memory_mcp.db.types import OutboxAggregateType, OutboxOp, OutboxSink
 from memory_mcp.errors import InvalidInputError, MemoryMCPError, NotFoundError
 from memory_mcp.identity import AgentContext
-
-from memory_mcp_schemas.env_ops import EnvDeleteRequest, EnvDeleteResponse
 
 
 class RefsBlockingDeleteError(MemoryMCPError):
@@ -112,9 +111,7 @@ async def delete_env(request: EnvDeleteRequest, *, ctx: AgentContext) -> EnvDele
         counts = await _delete_env_rows(session, request.env_id)
 
         await session.execute(
-            update(Environment)
-            .where(Environment.id == request.env_id)
-            .values(status="deleted", deleted_at=func.now())
+            update(Environment).where(Environment.id == request.env_id).values(status="deleted", deleted_at=func.now())
         )
 
         await enqueue_event(
@@ -177,9 +174,7 @@ async def _scan_external_refs(session: AsyncSession, env_id: UUID) -> dict[str, 
         .where(MemoryLineage.child_memory_id.not_in(memory_ids))
         .limit(20)
     )
-    refs["external_lineage_exit"] = [
-        f"{parent}:{child}:{relation}" for parent, child, relation in exit_rows.all()
-    ]
+    refs["external_lineage_exit"] = [f"{parent}:{child}:{relation}" for parent, child, relation in exit_rows.all()]
 
     entry_rows = await session.execute(
         select(
@@ -191,19 +186,12 @@ async def _scan_external_refs(session: AsyncSession, env_id: UUID) -> dict[str, 
         .where(MemoryLineage.parent_memory_id.not_in(memory_ids))
         .limit(20)
     )
-    refs["external_lineage_entry"] = [
-        f"{parent}:{child}:{relation}" for parent, child, relation in entry_rows.all()
-    ]
+    refs["external_lineage_entry"] = [f"{parent}:{child}:{relation}" for parent, child, relation in entry_rows.all()]
 
     task_rows = await session.execute(
-        select(Task.id, Task.playbook_id)
-        .where(Task.env_id != env_id)
-        .where(Task.playbook_id.in_(memory_ids))
-        .limit(20)
+        select(Task.id, Task.playbook_id).where(Task.env_id != env_id).where(Task.playbook_id.in_(memory_ids)).limit(20)
     )
-    refs["external_task_playbook"] = [
-        f"{task_id}:{memory_id}" for task_id, memory_id in task_rows.all()
-    ]
+    refs["external_task_playbook"] = [f"{task_id}:{memory_id}" for task_id, memory_id in task_rows.all()]
 
     superseded_rows = await session.execute(
         select(Memory.id, Memory.superseded_by)
@@ -248,10 +236,7 @@ async def _drop_external_lineage(
 async def _neutralize_external_non_lineage_refs(session: AsyncSession, env_id: UUID) -> None:
     memory_ids = _memory_ids_for_env(env_id)
     await session.execute(
-        update(Task)
-        .where(Task.env_id != env_id)
-        .where(Task.playbook_id.in_(memory_ids))
-        .values(playbook_id=None)
+        update(Task).where(Task.env_id != env_id).where(Task.playbook_id.in_(memory_ids)).values(playbook_id=None)
     )
     await session.execute(
         update(Memory)

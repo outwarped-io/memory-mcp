@@ -101,10 +101,12 @@ def _patch_loaders(
     active_loader = AsyncMock(return_value=active)
     stale_loader = AsyncMock(return_value=stale)
     monkeypatch.setattr(
-        "memory_mcp.dream.passes.decay._load_active_candidates", active_loader,
+        "memory_mcp.dream.passes.decay._load_active_candidates",
+        active_loader,
     )
     monkeypatch.setattr(
-        "memory_mcp.dream.passes.decay._load_stale_candidates", stale_loader,
+        "memory_mcp.dream.passes.decay._load_stale_candidates",
+        stale_loader,
     )
     return active_loader, stale_loader
 
@@ -128,7 +130,8 @@ def _patch_memory_update(
 class TestActiveLeg:
     @pytest.mark.asyncio
     async def test_below_threshold_transitions_to_stale(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         # Cold + low-confidence + negative feedback ⇒ salience well below 0.30.
@@ -142,7 +145,10 @@ class TestActiveLeg:
         update = _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         assert isinstance(result, DecayPassResult)
@@ -160,7 +166,8 @@ class TestActiveLeg:
 
     @pytest.mark.asyncio
     async def test_above_threshold_no_op(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         # Hot + high-confidence ⇒ salience well above 0.30.
@@ -173,7 +180,10 @@ class TestActiveLeg:
         update = _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         assert result.examined_active == 1
@@ -183,7 +193,8 @@ class TestActiveLeg:
 
     @pytest.mark.asyncio
     async def test_version_conflict_silently_skipped(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         cold = _candidate(
@@ -198,7 +209,10 @@ class TestActiveLeg:
         )
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         assert result.examined_active == 1
@@ -215,7 +229,8 @@ class TestActiveLeg:
 class TestStaleLeg:
     @pytest.mark.asyncio
     async def test_below_archive_threshold_transitions(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         # Very cold + heavy negatives ⇒ salience below 0.10.
@@ -230,7 +245,10 @@ class TestStaleLeg:
         update = _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         assert result.examined_stale == 1
@@ -242,7 +260,8 @@ class TestStaleLeg:
 
     @pytest.mark.asyncio
     async def test_above_archive_threshold_no_op(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         # Stale but middling salience (0.10 < s < 0.30): stays stale.
@@ -256,7 +275,10 @@ class TestStaleLeg:
         update = _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         assert result.examined_stale == 1
@@ -273,7 +295,8 @@ class TestStaleLeg:
 class TestTwoLegInteraction:
     @pytest.mark.asyncio
     async def test_active_and_stale_in_same_run(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         cold_active = _candidate(
@@ -292,7 +315,10 @@ class TestTwoLegInteraction:
         update = _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         assert result.transitioned_to_stale == 1
@@ -304,14 +330,18 @@ class TestTwoLegInteraction:
 
     @pytest.mark.asyncio
     async def test_empty_env_clean_zeros(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         _patch_loaders(monkeypatch, active=[], stale=[])
         update = _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         assert result.examined_active == 0
@@ -333,7 +363,8 @@ class TestTwoLegInteraction:
 class TestIdempotency:
     @pytest.mark.asyncio
     async def test_rerun_after_unchanged_state(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Two consecutive runs with the same SELECT result + healthy
         ``memory_update`` should produce the same transitions on the
@@ -350,14 +381,20 @@ class TestIdempotency:
         update = _patch_memory_update(monkeypatch)
 
         first = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
         # Simulate the SQL filter (status=active) pruning the now-stale
         # row out of the next run's candidate set.
         _patch_loaders(monkeypatch, active=[], stale=[])
 
         second = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         assert first.transitioned_to_stale == 1
@@ -375,7 +412,8 @@ class TestIdempotency:
 class TestBatchCap:
     @pytest.mark.asyncio
     async def test_active_leg_cap_flag(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         # Cap=2; loader returns exactly 2 ⇒ flag flips True.
@@ -394,7 +432,10 @@ class TestBatchCap:
         _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=settings, now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=settings,
+            now=NOW,
         )
 
         assert result.items_capped_active_leg is True
@@ -403,7 +444,8 @@ class TestBatchCap:
 
     @pytest.mark.asyncio
     async def test_below_cap_flag_stays_false(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         settings = Settings(dream_decay_batch_cap=10)  # type: ignore[arg-type]
@@ -419,7 +461,10 @@ class TestBatchCap:
         _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=settings, now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=settings,
+            now=NOW,
         )
 
         assert result.items_capped_active_leg is False
@@ -433,7 +478,8 @@ class TestBatchCap:
 class TestValidation:
     @pytest.mark.asyncio
     async def test_env_not_attached_raises(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         other_env = uuid4()
@@ -441,12 +487,16 @@ class TestValidation:
         # Loaders shouldn't even be called — exception fires first.
         active_loader = AsyncMock(return_value=[])
         monkeypatch.setattr(
-            "memory_mcp.dream.passes.decay._load_active_candidates", active_loader,
+            "memory_mcp.dream.passes.decay._load_active_candidates",
+            active_loader,
         )
 
         with pytest.raises(ValueError, match="attached_env_ids"):
             await run_decay(
-                env_id, actor_ctx=ctx, settings=_settings(), now=NOW,
+                env_id,
+                actor_ctx=ctx,
+                settings=_settings(),
+                now=NOW,
             )
 
         active_loader.assert_not_called()
@@ -505,7 +555,8 @@ class TestReferenceFloorGate:
 
     @pytest.mark.asyncio
     async def test_active_at_or_above_floor_skipped(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         # Would-otherwise-decay candidate: cold + low-confidence + negative
@@ -521,7 +572,10 @@ class TestReferenceFloorGate:
         update = _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         assert result.examined_active == 1
@@ -532,7 +586,8 @@ class TestReferenceFloorGate:
 
     @pytest.mark.asyncio
     async def test_active_below_floor_still_transitions(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         cold = _candidate(
@@ -546,7 +601,10 @@ class TestReferenceFloorGate:
         update = _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         assert result.transitioned_to_stale == 1
@@ -555,7 +613,8 @@ class TestReferenceFloorGate:
 
     @pytest.mark.asyncio
     async def test_stale_leg_ignores_floor(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Stale → archived is structural decay; cited stale rows still go."""
         env_id = uuid4()
@@ -571,7 +630,10 @@ class TestReferenceFloorGate:
         update = _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         assert result.transitioned_to_archived == 1
@@ -580,7 +642,8 @@ class TestReferenceFloorGate:
 
     @pytest.mark.asyncio
     async def test_floor_zero_disables_gate(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         cold_but_cited = _candidate(
@@ -601,7 +664,10 @@ class TestReferenceFloorGate:
             dream_decay_reference_floor=0,
         )
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=settings, now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=settings,
+            now=NOW,
         )
 
         assert result.transitioned_to_stale == 1
@@ -610,7 +676,8 @@ class TestReferenceFloorGate:
 
     @pytest.mark.asyncio
     async def test_above_threshold_takes_precedence_over_floor_counter(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Floor gate fires first — above-threshold counter only counts rows
         whose salience genuinely cleared the threshold, not gate-saved ones.
@@ -627,7 +694,10 @@ class TestReferenceFloorGate:
         update = _patch_memory_update(monkeypatch)
 
         result = await run_decay(
-            env_id, actor_ctx=_ctx(env_id), settings=_settings(), now=NOW,
+            env_id,
+            actor_ctx=_ctx(env_id),
+            settings=_settings(),
+            now=NOW,
         )
 
         # The candidate is hot (would survive on salience), but the floor

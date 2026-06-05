@@ -6,13 +6,22 @@ import json
 import shutil
 import tarfile
 import tomllib
+from collections.abc import Sequence
 from contextlib import suppress
-from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from memory_mcp_schemas.env_ops import (
+    EnvExportRequest,
+    EnvExportResponse,
+    ExportFormat,
+    ExportManifest,
+    IncludeFlags,
+    MemoryVectorRecord,
+    SourceMetadata,
+)
 from sqlalchemy import exists, func, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,15 +48,6 @@ from memory_mcp.db.vector.base import VectorStore
 from memory_mcp.db.vector.qdrant import QdrantVectorStore
 from memory_mcp.errors import MemoryMCPError, NotFoundError
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.env_ops import (
-    EnvExportRequest,
-    EnvExportResponse,
-    ExportFormat,
-    ExportManifest,
-    IncludeFlags,
-    MemoryVectorRecord,
-    SourceMetadata,
-)
 
 from ._checksums import sha256_file, write_checksums_file
 from ._io import JsonlWriter
@@ -305,16 +305,16 @@ def _null_agent_fields(*field_names: str):
 
 
 def _memory_lineage_stmt(env_id: UUID) -> Any:
-    parent_in_env = exists(select(Memory.id).where(Memory.id == MemoryLineage.parent_memory_id, Memory.env_id == env_id))
+    parent_in_env = exists(
+        select(Memory.id).where(Memory.id == MemoryLineage.parent_memory_id, Memory.env_id == env_id)
+    )
     child_in_env = exists(select(Memory.id).where(Memory.id == MemoryLineage.child_memory_id, Memory.env_id == env_id))
     return select(MemoryLineage).where(parent_in_env, child_in_env)
 
 
 async def _count_memories_by_kind(session: AsyncSession, env_id: UUID) -> dict[str, int]:
     rows = (
-        await session.execute(
-            select(Memory.kind, func.count()).where(Memory.env_id == env_id).group_by(Memory.kind)
-        )
+        await session.execute(select(Memory.kind, func.count()).where(Memory.env_id == env_id).group_by(Memory.kind))
     ).all()
     return {str(kind): int(count) for kind, count in rows}
 
@@ -339,14 +339,18 @@ async def _export_memory_vectors(
         with JsonlWriter(path) as writer:
             while True:
                 memories = (
-                    await session.execute(
-                        select(Memory)
-                        .where(Memory.env_id == env_id)
-                        .order_by(Memory.id)
-                        .limit(chunk_size)
-                        .offset(offset)
+                    (
+                        await session.execute(
+                            select(Memory)
+                            .where(Memory.env_id == env_id)
+                            .order_by(Memory.id)
+                            .limit(chunk_size)
+                            .offset(offset)
+                        )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 if not memories:
                     break
 
@@ -389,7 +393,7 @@ async def _safe_get_vectors(
     try:
         return await vector_store.get_vectors(env_id=env_id, ids=ids, vector_name=vector_name)
     except Exception:
-        return {memory_id: None for memory_id in ids}
+        return dict.fromkeys(ids)
 
 
 def _vector_record(memory: Memory, model_id: str, vector_name: str, vector: Sequence[float]) -> MemoryVectorRecord:

@@ -128,9 +128,7 @@ async def clean_db(postgres_session_factories: SessionPairFactory) -> AsyncItera
 
     async def truncate() -> None:
         async with factory() as session:
-            await session.execute(
-                text("TRUNCATE tasks, memories, graph_nodes, relations, dream_proposals CASCADE")
-            )
+            await session.execute(text("TRUNCATE tasks, memories, graph_nodes, relations, dream_proposals CASCADE"))
             await session.commit()
 
     await truncate()

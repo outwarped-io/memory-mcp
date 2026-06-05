@@ -32,8 +32,8 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.types import String
 
-from memory_mcp.search.ranking import RankedHit
 from memory_mcp._filters import exclude_expired_raw_sql
+from memory_mcp.search.ranking import RankedHit
 
 
 async def lex_search(

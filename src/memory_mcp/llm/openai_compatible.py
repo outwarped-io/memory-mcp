@@ -92,12 +92,8 @@ class OpenAICompatibleLLMClient:
         payload: dict[str, Any] = {
             "model": self.model_id,
             "messages": list(messages),
-            "max_tokens": (
-                max_tokens if max_tokens is not None else self._settings.llm_max_tokens
-            ),
-            "temperature": (
-                temperature if temperature is not None else self._settings.llm_temperature
-            ),
+            "max_tokens": (max_tokens if max_tokens is not None else self._settings.llm_max_tokens),
+            "temperature": (temperature if temperature is not None else self._settings.llm_temperature),
             "stream": False,
         }
         try:

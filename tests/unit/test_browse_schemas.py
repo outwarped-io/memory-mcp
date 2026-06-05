@@ -11,7 +11,7 @@ running database.
 from __future__ import annotations
 
 import datetime as dt
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -19,22 +19,18 @@ from pydantic import ValidationError
 from memory_mcp.browse import (
     FacetBucket,
     MemBrowseRequest,
-    MemBrowseResponse,
     MemFacetsRequest,
     MemFacetsResponse,
     _browse_filter_dict,
     _resolve_statuses,
 )
 from memory_mcp.db.types import MemoryKind, MemoryStatus
-from memory_mcp.entities import EntityBrowseRequest, EntityBrowseResponse
-from memory_mcp.errors import InvalidInputError
+from memory_mcp.entities import EntityBrowseRequest
 from memory_mcp.pagination import compute_filter_fingerprint, decode_cursor, encode_cursor
 from memory_mcp.relations import (
     RelationBrowseHit,
     RelationBrowseRequest,
-    RelationBrowseResponse,
 )
-
 
 # ---------------------------------------------------------------------------
 # MemBrowseRequest schema
@@ -92,9 +88,7 @@ class TestResolveStatuses:
         assert out == ["archived", "active"]
 
     def test_dedupes_preserve_order(self) -> None:
-        out = _resolve_statuses(
-            [MemoryStatus.active, MemoryStatus.active, MemoryStatus.proposed]
-        )
+        out = _resolve_statuses([MemoryStatus.active, MemoryStatus.active, MemoryStatus.proposed])
         assert out == ["active", "proposed"]
 
 
@@ -152,7 +146,8 @@ class TestBrowseCursorRoundtrip:
             direction="desc",
         )
         decoded = decode_cursor(
-            cur, expected_fingerprint=fp,
+            cur,
+            expected_fingerprint=fp,
             expected_order_field="updated_at",
             expected_direction="desc",
         )

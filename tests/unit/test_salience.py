@@ -66,6 +66,7 @@ def _row(
 # Output range
 # ---------------------------------------------------------------------------
 
+
 def test_salience_is_always_in_unit_interval() -> None:
     # Pathological inputs: all maxima, all minima, mixed
     rows = [
@@ -88,6 +89,7 @@ def test_neutral_defaults_yield_mid_range_salience() -> None:
 # ---------------------------------------------------------------------------
 # Monotonicity
 # ---------------------------------------------------------------------------
+
 
 def test_access_count_monotonically_increases_salience() -> None:
     base = _row(last_accessed_at=NOW, confidence=0.5)
@@ -134,6 +136,7 @@ def test_recency_monotonically_decreases_salience() -> None:
 # Bonuses
 # ---------------------------------------------------------------------------
 
+
 def test_pinned_bonus_strictly_increases_salience() -> None:
     base = _row(last_accessed_at=NOW, confidence=0.3)
     s_unpinned = compute_salience(base, now=NOW)
@@ -146,9 +149,7 @@ def test_pinned_bonus_strictly_increases_salience() -> None:
 
 
 def test_verified_bonus_decays_over_time() -> None:
-    fresh = compute_salience(
-        _row(last_accessed_at=NOW, verified_at=NOW), now=NOW
-    )
+    fresh = compute_salience(_row(last_accessed_at=NOW, verified_at=NOW), now=NOW)
     old = compute_salience(
         _row(last_accessed_at=NOW, verified_at=NOW - dt.timedelta(days=90)),
         now=NOW,
@@ -163,6 +164,7 @@ def test_verified_bonus_decays_over_time() -> None:
 # Negative-feedback dominance — design plan invariant
 # ---------------------------------------------------------------------------
 
+
 def test_negative_feedback_dominates_high_access_low_confidence() -> None:
     """The canonical invariant: low confidence + rising negatives must stale
     even when access_count is at saturation and recency is maximal."""
@@ -175,9 +177,7 @@ def test_negative_feedback_dominates_high_access_low_confidence() -> None:
         ),
         now=NOW,
     )
-    assert bad < 0.10, (
-        f"5 negatives + zero confidence + max access must score very low, got {bad}"
-    )
+    assert bad < 0.10, f"5 negatives + zero confidence + max access must score very low, got {bad}"
 
 
 def test_negative_feedback_dominates_at_extreme_access_counts() -> None:
@@ -194,9 +194,7 @@ def test_negative_feedback_dominates_at_extreme_access_counts() -> None:
             ),
             now=NOW,
         )
-        assert bad < 0.10, (
-            f"access_count={access}: dominance failed, got {bad}"
-        )
+        assert bad < 0.10, f"access_count={access}: dominance failed, got {bad}"
 
 
 def test_access_term_saturates_at_access_window() -> None:
@@ -204,16 +202,21 @@ def test_access_term_saturates_at_access_window() -> None:
     access_window`` and does not grow beyond. Without this cap, a
     high-traffic memory would overpower the negative-feedback term."""
     base_inputs = dict(  # noqa: C408
-        last_accessed_at=NOW, confidence=0.0, negative_feedback_count=0,
+        last_accessed_at=NOW,
+        confidence=0.0,
+        negative_feedback_count=0,
     )
     s_at_cap = compute_salience(
-        _row(access_count=100, **base_inputs), now=NOW,
+        _row(access_count=100, **base_inputs),
+        now=NOW,
     )
     s_above_cap = compute_salience(
-        _row(access_count=10_000, **base_inputs), now=NOW,
+        _row(access_count=10_000, **base_inputs),
+        now=NOW,
     )
     s_far_above = compute_salience(
-        _row(access_count=1_000_000, **base_inputs), now=NOW,
+        _row(access_count=1_000_000, **base_inputs),
+        now=NOW,
     )
     # All three must be equal: access_count beyond access_window contributes
     # the same (capped) amount.
@@ -224,15 +227,19 @@ def test_access_term_saturates_at_access_window() -> None:
 def test_pinned_protects_against_moderate_negatives_but_not_extreme() -> None:
     moderate = compute_salience(
         _row(
-            last_accessed_at=NOW, confidence=0.5,
-            negative_feedback_count=1, pinned=True,
+            last_accessed_at=NOW,
+            confidence=0.5,
+            negative_feedback_count=1,
+            pinned=True,
         ),
         now=NOW,
     )
     extreme = compute_salience(
         _row(
-            last_accessed_at=NOW, confidence=0.0,
-            negative_feedback_count=20, pinned=True,
+            last_accessed_at=NOW,
+            confidence=0.0,
+            negative_feedback_count=20,
+            pinned=True,
         ),
         now=NOW,
     )
@@ -248,6 +255,7 @@ def test_pinned_protects_against_moderate_negatives_but_not_extreme() -> None:
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
+
 
 def test_naive_timestamps_treated_as_utc() -> None:
     naive = NOW.replace(tzinfo=None)
@@ -268,9 +276,7 @@ def test_future_last_accessed_at_does_not_grant_extra_boost() -> None:
 def test_never_accessed_falls_back_to_created_at() -> None:
     # Default weights have ``_floor_recency_from_created=True`` so a
     # brand-new never-accessed memory still gets a sliver of recency.
-    s_just_created = compute_salience(
-        _row(last_accessed_at=None, created_at=NOW), now=NOW
-    )
+    s_just_created = compute_salience(_row(last_accessed_at=None, created_at=NOW), now=NOW)
     s_old_never_accessed = compute_salience(
         _row(last_accessed_at=None, created_at=NOW - dt.timedelta(days=365)),
         now=NOW,
@@ -293,6 +299,7 @@ def test_floor_recency_from_created_can_be_disabled() -> None:
 # ---------------------------------------------------------------------------
 # Settings binding
 # ---------------------------------------------------------------------------
+
 
 def test_salience_weights_from_settings_match_defaults() -> None:
     s = Settings(_env_file=None)  # type: ignore[call-arg]
@@ -319,6 +326,7 @@ def test_settings_overrides_propagate_to_weights() -> None:
 # Phase 1 (v0.14): references term
 # ---------------------------------------------------------------------------
 
+
 def test_references_term_zero_when_no_citations() -> None:
     no_refs = compute_salience(_row(last_accessed_at=NOW), now=NOW)
     with_refs = compute_salience(
@@ -341,12 +349,8 @@ def test_each_reference_kind_independently_lifts_salience() -> None:
 
 
 def test_playbook_carries_more_weight_per_edge_than_rel_link() -> None:
-    one_playbook = compute_salience(
-        _row(last_accessed_at=NOW, reference_count_playbook=1), now=NOW
-    )
-    one_rel_link = compute_salience(
-        _row(last_accessed_at=NOW, reference_count_rel_link=1), now=NOW
-    )
+    one_playbook = compute_salience(_row(last_accessed_at=NOW, reference_count_playbook=1), now=NOW)
+    one_rel_link = compute_salience(_row(last_accessed_at=NOW, reference_count_rel_link=1), now=NOW)
     # Same edge count; per-kind sub-weight ordering (pb=2.0 vs rl=1.0) plus
     # tighter playbook window (10 vs 50) should make a single playbook edge
     # contribute more than a single rel_link edge.
@@ -470,6 +474,7 @@ def test_settings_propagate_authority_weights() -> None:
 # R-B4 — access-bump preserves citation contribution
 # ---------------------------------------------------------------------------
 
+
 def test_access_bump_preserves_citation_contribution() -> None:
     """R-B4 regression (Phase 1e plan §A10 / slice 1e-b').
 
@@ -520,14 +525,14 @@ def test_access_bump_preserves_citation_contribution() -> None:
     # w_references=0.15 envelope) to keep the test robust against
     # window/weight tweaks.
     assert cited_post_bump - uncited_post_bump >= 0.05, (
-        f"access-bump path lost citation contribution: "
-        f"cited={cited_post_bump:.4f}, uncited={uncited_post_bump:.4f}"
+        f"access-bump path lost citation contribution: cited={cited_post_bump:.4f}, uncited={uncited_post_bump:.4f}"
     )
 
 
 # ---------------------------------------------------------------------------
 # Phase 1e-d (v0.14.1) — authority term in compute_salience
 # ---------------------------------------------------------------------------
+
 
 def test_authority_term_zero_when_w_authority_zero() -> None:
     """When ``w_authority=0.0`` (knob OFF default of
@@ -614,12 +619,12 @@ def test_dominance_invariant_with_authority_at_max() -> None:
     s = Settings(_env_file=None, dream_popularity_authority_weighted=True)  # type: ignore[call-arg]
     weights = salience_weights_from_settings(s)
     row = _row(
-        access_count=100,                              # access term saturated
-        last_accessed_at=NOW,                          # recency term ≈ 1.0
-        confidence=0.0,                                # narrowed-scope constraint
-        pinned=False,                                  # narrowed-scope constraint
+        access_count=100,  # access term saturated
+        last_accessed_at=NOW,  # recency term ≈ 1.0
+        confidence=0.0,  # narrowed-scope constraint
+        pinned=False,  # narrowed-scope constraint
         negative_feedback_count=5,
-        verified_at=None,                              # narrowed-scope constraint
+        verified_at=None,  # narrowed-scope constraint
         # references term saturated across all four kinds
         reference_count_rel_link=10_000,
         reference_count_lineage=10_000,
@@ -629,6 +634,4 @@ def test_dominance_invariant_with_authority_at_max() -> None:
         reference_authority=25.0,
     )
     s_val = compute_salience(row, now=NOW, weights=weights)
-    assert s_val <= 0.001, (
-        f"dominance invariant breached with authority at max: salience={s_val:.4f}"
-    )
+    assert s_val <= 0.001, f"dominance invariant breached with authority at max: salience={s_val:.4f}"

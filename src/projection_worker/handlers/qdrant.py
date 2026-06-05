@@ -57,9 +57,7 @@ def _trigger_text(payload: dict[str, Any]) -> str:
     return str(value).strip() if value else ""
 
 
-_TOMBSTONE_STATUSES: frozenset[str] = frozenset(
-    {"archived", "superseded", "retired"}
-)
+_TOMBSTONE_STATUSES: frozenset[str] = frozenset({"archived", "superseded", "retired"})
 
 
 async def handle_qdrant_event(
@@ -74,24 +72,19 @@ async def handle_qdrant_event(
     """
     if event.aggregate_type != OutboxAggregateType.memory.value:
         # Defense in depth — Qdrant sink only handles memory aggregates.
-        raise ValueError(
-            f"qdrant handler received aggregate_type={event.aggregate_type!r}; "
-            "expected 'memory'"
-        )
+        raise ValueError(f"qdrant handler received aggregate_type={event.aggregate_type!r}; expected 'memory'")
 
     payload = event.payload
     point_id = event.aggregate_id
 
-    is_tombstone = (
-        event.op == OutboxOp.tombstone.value
-        or str(payload.get("status", "")).lower() in _TOMBSTONE_STATUSES
-    )
+    is_tombstone = event.op == OutboxOp.tombstone.value or str(payload.get("status", "")).lower() in _TOMBSTONE_STATUSES
 
     if is_tombstone:
         await vector_store.delete(env_id=event.env_id, point_id=point_id)
         log.debug(
             "qdrant tombstone applied: event_id=%s memory_id=%s",
-            event.event_id, point_id,
+            event.event_id,
+            point_id,
         )
         return
 
@@ -111,7 +104,8 @@ async def handle_qdrant_event(
         await vector_store.delete(env_id=event.env_id, point_id=point_id)
         log.warning(
             "qdrant empty-text fallback delete: event_id=%s memory_id=%s",
-            event.event_id, point_id,
+            event.event_id,
+            point_id,
         )
         return
 
@@ -157,7 +151,9 @@ async def handle_qdrant_event(
     )
     log.debug(
         "qdrant upsert applied: event_id=%s memory_id=%s op=%s",
-        event.event_id, point_id, event.op,
+        event.event_id,
+        point_id,
+        event.op,
     )
 
 

@@ -19,10 +19,9 @@ Design choices:
 
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
-
-from pydantic import BaseModel, ConfigDict, Field
+from memory_mcp_schemas.journal import (
+    JournalRequest,
+)
 
 from memory_mcp.config import Settings
 from memory_mcp.db.types import MemoryKind
@@ -31,10 +30,6 @@ from memory_mcp.memories import (
     MemoryResponse,
     MemoryWriteRequest,
     memory_write,
-)
-
-from memory_mcp_schemas.journal import (
-    JournalRequest,
 )
 
 __all__ = [

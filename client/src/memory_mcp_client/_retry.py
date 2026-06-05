@@ -39,8 +39,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Iterable
+from typing import Any
 
 import httpx
 
@@ -187,9 +188,7 @@ def _is_retryable_exception(exc: BaseException) -> bool:
         return True
     if isinstance(exc, ConnectionError):
         return True
-    if isinstance(exc, httpx.TransportError):
-        return True
-    return False
+    return bool(isinstance(exc, httpx.TransportError))
 
 
 async def run_with_retry(
@@ -219,9 +218,7 @@ async def run_with_retry(
         underlying exception is preserved on ``__cause__``.
     """
 
-    retry_eligible = policy.is_retryable_tool(
-        tool_name, has_idempotency_key=has_idempotency_key
-    )
+    retry_eligible = policy.is_retryable_tool(tool_name, has_idempotency_key=has_idempotency_key)
 
     attempts_meta: list[dict[str, Any]] = []
     last_exc: BaseException | None = None

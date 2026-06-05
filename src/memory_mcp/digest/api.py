@@ -223,12 +223,16 @@ async def _load_digest_inputs(
         if since_ts is not None:
             mem_stmt = mem_stmt.where(Memory.updated_at >= since_ts)
         memory_rows = (
-            await s.execute(
-                mem_stmt
-                .order_by(Memory.salience.desc(), Memory.updated_at.desc(), Memory.id.desc())
-                .limit(_DIGEST_CANDIDATE_LIMIT)
+            (
+                await s.execute(
+                    mem_stmt.order_by(Memory.salience.desc(), Memory.updated_at.desc(), Memory.id.desc()).limit(
+                        _DIGEST_CANDIDATE_LIMIT
+                    )
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         journal_stmt = (
             select(Memory)
@@ -240,12 +244,16 @@ async def _load_digest_inputs(
         if journal_cutoff is not None:
             journal_stmt = journal_stmt.where(Memory.created_at >= journal_cutoff)
         journal_rows = (
-            await s.execute(
-                journal_stmt
-                .order_by(Memory.salience.desc(), Memory.updated_at.desc(), Memory.id.desc())
-                .limit(_DIGEST_CANDIDATE_LIMIT)
+            (
+                await s.execute(
+                    journal_stmt.order_by(Memory.salience.desc(), Memory.updated_at.desc(), Memory.id.desc()).limit(
+                        _DIGEST_CANDIDATE_LIMIT
+                    )
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         memory_count = int(
             (
@@ -259,11 +267,7 @@ async def _load_digest_inputs(
             ).scalar_one()
         )
         entity_count = int(
-            (
-                await s.execute(
-                    select(func.count()).select_from(Entity).where(Entity.env_id == env_id)
-                )
-            ).scalar_one()
+            (await s.execute(select(func.count()).select_from(Entity).where(Entity.env_id == env_id))).scalar_one()
         )
         last_journal_ts = (
             await s.execute(
@@ -325,11 +329,7 @@ async def _load_resume_inputs(
             ).scalar_one()
         )
         entity_count = int(
-            (
-                await s.execute(
-                    select(func.count()).select_from(Entity).where(Entity.env_id == env_id)
-                )
-            ).scalar_one()
+            (await s.execute(select(func.count()).select_from(Entity).where(Entity.env_id == env_id))).scalar_one()
         )
         last_journal_ts = (
             await s.execute(

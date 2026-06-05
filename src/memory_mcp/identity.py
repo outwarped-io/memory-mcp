@@ -202,9 +202,7 @@ class IdentityResolver:
             last_attempt = attempt
             payload = self._read_default_file(path)
             if payload is not None:
-                self._default_agent_name = str(
-                    payload.get("agent_name") or self._default_agent_name
-                )
+                self._default_agent_name = str(payload.get("agent_name") or self._default_agent_name)
                 return _parse_uuid(payload["agent_id"])
 
             new_id = uuid4()
@@ -278,6 +276,7 @@ class IdentityResolver:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_uuid(value: str) -> UUID:
     try:

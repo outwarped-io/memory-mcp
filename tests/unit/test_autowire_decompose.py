@@ -9,18 +9,14 @@ Postgres + Qdrant testcontainers lands in
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
-
-import pytest
+from uuid import uuid4
 
 from memory_mcp.autowire import (
-    AUTO_WIRE_PREDICATE,
     autowire_fetch_candidates_decompose,
     reconstruct_auto_wired_by_child,
 )
 from memory_mcp.config import Settings
 from memory_mcp.db.types import MemoryKind
-
 
 # ---------------------------------------------------------------------------
 # Settings helper
@@ -118,9 +114,7 @@ async def test_decompose_batched_embed_called_once_for_n_children() -> None:
         _lineage_result([(src_id,)]),
     ]
     embedder = MagicMock()
-    embedder.embed_texts = MagicMock(
-        return_value=[[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]
-    )
+    embedder.embed_texts = MagicMock(return_value=[[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]])
     vector_store = MagicMock()
     vector_store.search = AsyncMock(return_value=[])
 
@@ -269,9 +263,7 @@ async def test_decompose_per_child_top_k_respected() -> None:
     embedder = MagicMock()
     embedder.embed_texts = MagicMock(return_value=[[0.1]])
     vector_store = MagicMock()
-    vector_store.search = AsyncMock(
-        return_value=[{"id": str(mid), "score": 0.95} for mid in ids]
-    )
+    vector_store.search = AsyncMock(return_value=[{"id": str(mid), "score": 0.95} for mid in ids])
 
     out = await autowire_fetch_candidates_decompose(
         s=s,
@@ -303,18 +295,14 @@ async def test_decompose_total_cap_downsamples_globally() -> None:
     embedder = MagicMock()
     embedder.embed_texts = MagicMock(return_value=[[0.1], [0.2], [0.3]])
     vector_store = MagicMock()
-    vector_store.search = AsyncMock(
-        return_value=[{"id": str(mid), "score": 0.95} for mid in ids]
-    )
+    vector_store.search = AsyncMock(return_value=[{"id": str(mid), "score": 0.95} for mid in ids])
 
     out = await autowire_fetch_candidates_decompose(
         s=s,
         env_id=uuid4(),
         source_id=src_id,
         children=[_child(0), _child(1), _child(2)],
-        settings=_settings(
-            per_child_k=5, total_cap=8, threshold=0.5, candidate_limit=15
-        ),
+        settings=_settings(per_child_k=5, total_cap=8, threshold=0.5, candidate_limit=15),
         embedder=embedder,
         vector_store=vector_store,
     )
@@ -340,9 +328,7 @@ async def test_decompose_skip_kind_playbook_per_child() -> None:
     # Only 1 surviving body → 1 vector returned.
     embedder.embed_texts = MagicMock(return_value=[[0.1]])
     vector_store = MagicMock()
-    vector_store.search = AsyncMock(
-        return_value=[{"id": str(cid), "score": 0.95}]
-    )
+    vector_store.search = AsyncMock(return_value=[{"id": str(cid), "score": 0.95}])
 
     out = await autowire_fetch_candidates_decompose(
         s=s,
@@ -379,9 +365,7 @@ async def test_decompose_skip_tag_directive_active_per_child() -> None:
     embedder = MagicMock()
     embedder.embed_texts = MagicMock(return_value=[[0.1]])
     vector_store = MagicMock()
-    vector_store.search = AsyncMock(
-        return_value=[{"id": str(cid), "score": 0.95}]
-    )
+    vector_store.search = AsyncMock(return_value=[{"id": str(cid), "score": 0.95}])
 
     out = await autowire_fetch_candidates_decompose(
         s=s,
@@ -415,9 +399,7 @@ async def test_decompose_skip_empty_body_per_child() -> None:
     embedder = MagicMock()
     embedder.embed_texts = MagicMock(return_value=[[0.1]])
     vector_store = MagicMock()
-    vector_store.search = AsyncMock(
-        return_value=[{"id": str(cid), "score": 0.95}]
-    )
+    vector_store.search = AsyncMock(return_value=[{"id": str(cid), "score": 0.95}])
 
     out = await autowire_fetch_candidates_decompose(
         s=s,
@@ -513,21 +495,25 @@ async def test_decompose_combined_score_ranking_deterministic() -> None:
     ids = [uuid4() for _ in range(3)]
     s = AsyncMock()
     s.execute.side_effect = [
-        _pg_result([
-            (ids[0], 0.9),
-            (ids[1], 0.5),
-            (ids[2], 0.3),
-        ]),
+        _pg_result(
+            [
+                (ids[0], 0.9),
+                (ids[1], 0.5),
+                (ids[2], 0.3),
+            ]
+        ),
         _lineage_result([(src_id,)]),
     ]
     embedder = MagicMock()
     embedder.embed_texts = MagicMock(return_value=[[0.1]])
     vector_store = MagicMock()
-    vector_store.search = AsyncMock(return_value=[
-        {"id": str(ids[0]), "score": 0.90},
-        {"id": str(ids[1]), "score": 0.80},
-        {"id": str(ids[2]), "score": 0.95},
-    ])
+    vector_store.search = AsyncMock(
+        return_value=[
+            {"id": str(ids[0]), "score": 0.90},
+            {"id": str(ids[1]), "score": 0.80},
+            {"id": str(ids[2]), "score": 0.95},
+        ]
+    )
 
     out = await autowire_fetch_candidates_decompose(
         s=s,
@@ -561,10 +547,12 @@ async def test_decompose_threshold_cutoff_per_child() -> None:
     embedder = MagicMock()
     embedder.embed_texts = MagicMock(return_value=[[0.1]])
     vector_store = MagicMock()
-    vector_store.search = AsyncMock(return_value=[
-        {"id": str(keep_id), "score": 0.90},
-        {"id": str(drop_id), "score": 0.30},
-    ])
+    vector_store.search = AsyncMock(
+        return_value=[
+            {"id": str(keep_id), "score": 0.90},
+            {"id": str(drop_id), "score": 0.30},
+        ]
+    )
 
     out = await autowire_fetch_candidates_decompose(
         s=s,

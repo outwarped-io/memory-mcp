@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.env_ops import MemCopyRequest, MemMoveRequest
+from memory_mcp_schemas.search import MemorySearchRequest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -15,10 +17,7 @@ from memory_mcp.identity import AgentContext
 from memory_mcp.memories import mem_copy, mem_move, memory_get
 from memory_mcp.search import api as search_api
 from memory_mcp.search import memory_search
-from memory_mcp_schemas.env_ops import MemCopyRequest, MemMoveRequest
-from memory_mcp_schemas.search import MemorySearchRequest
-
-from tests.env_ops.test_roundtrip import _MemoryVectorStore, _truncate, postgres_factory
+from tests.env_ops.test_roundtrip import _MemoryVectorStore, _truncate, postgres_factory  # noqa: F401
 
 
 @pytest.fixture
@@ -101,7 +100,9 @@ async def test_mem_copy_skips_tags_when_disabled(
 
     out = await mem_copy(MemCopyRequest(memory_id=source, dst_env_id=dst_env, copy_tags=False), ctx=ctx)
 
-    count = await session.scalar(select(func.count()).select_from(MemoryTag).where(MemoryTag.memory_id == out.dst_memory_id))
+    count = await session.scalar(
+        select(func.count()).select_from(MemoryTag).where(MemoryTag.memory_id == out.dst_memory_id)
+    )
     assert count == 0
 
 
@@ -243,16 +244,20 @@ async def _create_memory_pair(
 ) -> tuple[UUID, UUID, UUID]:
     src_env = uuid4()
     dst_env = uuid4()
-    session.add_all([
-        Environment(id=src_env, name=f"src-{uuid4().hex}", retention_policy={}, default_embedding_model_id=src_model),
-        Environment(
-            id=dst_env,
-            name=f"dst-{uuid4().hex}",
-            retention_policy={},
-            default_embedding_model_id=dst_model,
-            status=dst_status,
-        ),
-    ])
+    session.add_all(
+        [
+            Environment(
+                id=src_env, name=f"src-{uuid4().hex}", retention_policy={}, default_embedding_model_id=src_model
+            ),
+            Environment(
+                id=dst_env,
+                name=f"dst-{uuid4().hex}",
+                retention_policy={},
+                default_embedding_model_id=dst_model,
+                status=dst_status,
+            ),
+        ]
+    )
     memory = Memory(
         id=uuid4(),
         env_id=src_env,

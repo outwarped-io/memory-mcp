@@ -6,10 +6,10 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 
 import pytest
+from memory_mcp_schemas.envs import EnvResponse
 
 from memory_mcp.db.models import Environment
 from memory_mcp.envs import list_envs
-from memory_mcp_schemas.envs import EnvResponse
 
 
 def test_environment_has_status_and_deleted_at_columns() -> None:

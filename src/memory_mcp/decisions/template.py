@@ -29,8 +29,7 @@ def render_adr(memory: Any, meta: DecisionMeta | None) -> str:
     parts: list[str] = []
     if meta is None:
         parts.append(
-            "> **Note:** This decision has no structured metadata. "
-            "Edit via mem_update to add decision_meta.\n"
+            "> **Note:** This decision has no structured metadata. Edit via mem_update to add decision_meta.\n"
         )
     parts.append(
         f"# {title}\n\n"

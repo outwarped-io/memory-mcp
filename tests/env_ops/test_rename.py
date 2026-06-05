@@ -5,7 +5,8 @@ from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, select, update
+from memory_mcp_schemas.env_ops import EnvRenameRequest
+from sqlalchemy import func, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from memory_mcp.db.models import Agent, Environment
@@ -13,9 +14,7 @@ from memory_mcp.env_ops import rename as renamer
 from memory_mcp.env_ops.rename import rename_env
 from memory_mcp.errors import InvalidInputError, NotFoundError
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.env_ops import EnvRenameRequest
-
-from tests.env_ops.test_roundtrip import _truncate, postgres_factory
+from tests.env_ops.test_roundtrip import _truncate, postgres_factory  # noqa: F401
 
 
 @pytest.fixture

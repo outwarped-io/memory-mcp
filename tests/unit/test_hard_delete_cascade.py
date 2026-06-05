@@ -15,8 +15,7 @@ from memory_mcp.db.models import Agent, Environment, Memory, MemoryLineage, Memo
 from memory_mcp.errors import BlastRadiusExceededError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import MemoryHardDeleteRequest, memory_hard_delete
-
-from tests.env_ops.test_roundtrip import _truncate, postgres_factory
+from tests.env_ops.test_roundtrip import _truncate, postgres_factory  # noqa: F401
 
 
 @pytest.fixture
@@ -41,15 +40,17 @@ async def hard_delete_db(
     async with postgres_factory() as session:
         await _truncate_hard_delete_state(session)
         env_id = uuid4()
-        session.add_all([
-            Agent(id=ctx.agent_id, name="hard-delete-agent"),
-            Environment(
-                id=env_id,
-                name=f"hard-delete-{uuid4().hex}",
-                retention_policy={},
-                default_embedding_model_id="test-embedding",
-            ),
-        ])
+        session.add_all(
+            [
+                Agent(id=ctx.agent_id, name="hard-delete-agent"),
+                Environment(
+                    id=env_id,
+                    name=f"hard-delete-{uuid4().hex}",
+                    retention_policy={},
+                    default_embedding_model_id="test-embedding",
+                ),
+            ]
+        )
         await session.commit()
 
     async with postgres_factory() as session:
@@ -180,10 +181,12 @@ async def test_hard_delete_cascade_count_cap_enforced(
     session, ctx, env_id = hard_delete_db
     root_id = await _create_memory(session, env_id=env_id, title="root")
     children = [await _create_memory(session, env_id=env_id, title=f"child-{index}") for index in range(21)]
-    session.add_all([
-        MemoryLineage(parent_memory_id=root_id, child_memory_id=child_id, relation="copied_from")
-        for child_id in children
-    ])
+    session.add_all(
+        [
+            MemoryLineage(parent_memory_id=root_id, child_memory_id=child_id, relation="copied_from")
+            for child_id in children
+        ]
+    )
     await session.commit()
 
     with pytest.raises(BlastRadiusExceededError) as exc:
@@ -215,11 +218,13 @@ async def test_hard_delete_cascade_orders_affected_leaves_first(
     child_a = await _create_memory(session, env_id=env_id, title="child-a")
     child_b = await _create_memory(session, env_id=env_id, title="child-b")
     leaf = await _create_memory(session, env_id=env_id, title="leaf")
-    session.add_all([
-        MemoryLineage(parent_memory_id=root_id, child_memory_id=child_a, relation="copied_from"),
-        MemoryLineage(parent_memory_id=root_id, child_memory_id=child_b, relation="copied_from"),
-        MemoryLineage(parent_memory_id=child_a, child_memory_id=leaf, relation="summarized_from"),
-    ])
+    session.add_all(
+        [
+            MemoryLineage(parent_memory_id=root_id, child_memory_id=child_a, relation="copied_from"),
+            MemoryLineage(parent_memory_id=root_id, child_memory_id=child_b, relation="copied_from"),
+            MemoryLineage(parent_memory_id=child_a, child_memory_id=leaf, relation="summarized_from"),
+        ]
+    )
     await session.commit()
 
     response = await memory_hard_delete(
@@ -256,14 +261,16 @@ async def _create_chain(
     depth: int,
 ) -> tuple[UUID, ...]:
     ids = [await _create_memory(session, env_id=env_id, title=f"node-{index}") for index in range(depth + 1)]
-    session.add_all([
-        MemoryLineage(
-            parent_memory_id=ids[index],
-            child_memory_id=ids[index + 1],
-            relation="copied_from",
-        )
-        for index in range(depth)
-    ])
+    session.add_all(
+        [
+            MemoryLineage(
+                parent_memory_id=ids[index],
+                child_memory_id=ids[index + 1],
+                relation="copied_from",
+            )
+            for index in range(depth)
+        ]
+    )
     await session.commit()
     return tuple(ids)
 

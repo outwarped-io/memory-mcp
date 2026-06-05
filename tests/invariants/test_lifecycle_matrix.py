@@ -48,21 +48,17 @@ ALL_STATUSES = list(MemoryStatus)
 @pytest.mark.parametrize("src", ALL_STATUSES)
 @pytest.mark.parametrize("dst", ALL_STATUSES)
 def test_transition_matrix_matches_design(
-    src: MemoryStatus, dst: MemoryStatus,
+    src: MemoryStatus,
+    dst: MemoryStatus,
 ) -> None:
     if src == dst:
         # Self-transitions are idempotent (re-application is a no-op).
-        assert is_valid_transition(src, dst), (
-            f"self-transition {src.value} → {src.value} must be allowed"
-        )
+        assert is_valid_transition(src, dst), f"self-transition {src.value} → {src.value} must be allowed"
         return
 
     expected = dst in EXPECTED_ALLOWED[src]
     actual = is_valid_transition(src, dst)
-    assert actual == expected, (
-        f"transition {src.value} → {dst.value}: "
-        f"expected={expected!r} actual={actual!r}"
-    )
+    assert actual == expected, f"transition {src.value} → {dst.value}: expected={expected!r} actual={actual!r}"
 
 
 def test_retired_is_terminal() -> None:
@@ -75,9 +71,7 @@ def test_retired_is_terminal() -> None:
     for dst in ALL_STATUSES:
         if dst == MemoryStatus.retired:
             continue
-        assert not is_valid_transition(MemoryStatus.retired, dst), (
-            f"retired → {dst.value} must NOT be allowed"
-        )
+        assert not is_valid_transition(MemoryStatus.retired, dst), f"retired → {dst.value} must NOT be allowed"
 
 
 def test_proposed_does_not_short_circuit_to_archived() -> None:
@@ -107,7 +101,8 @@ def test_superseded_only_path_is_retire() -> None:
     """
     expected = {MemoryStatus.retired}
     actual = {
-        dst for dst in ALL_STATUSES
+        dst
+        for dst in ALL_STATUSES
         if dst != MemoryStatus.superseded and is_valid_transition(MemoryStatus.superseded, dst)
     }
     assert actual == expected

@@ -35,10 +35,7 @@ async def _mk_env(session) -> UUID:
 async def _mk_mem(session, env_id: UUID) -> UUID:
     mem_id = uuid4()
     await session.execute(
-        text(
-            "INSERT INTO memories (id, env_id, kind, status, body) "
-            "VALUES (:id, :env_id, 'fact', 'active', 'b')"
-        ),
+        text("INSERT INTO memories (id, env_id, kind, status, body) VALUES (:id, :env_id, 'fact', 'active', 'b')"),
         {"id": mem_id, "env_id": env_id},
     )
     return mem_id
@@ -158,10 +155,7 @@ async def test_0019_salience_formula_version_column(
         # 1. Column exists, default applied, integer-typed.
         row = (
             await session.execute(
-                text(
-                    "SELECT salience_formula_version "
-                    "FROM memories WHERE id = :id"
-                ),
+                text("SELECT salience_formula_version FROM memories WHERE id = :id"),
                 {"id": mem_id},
             )
         ).one()
@@ -186,19 +180,13 @@ async def test_0019_salience_formula_version_column(
 
         # 3. Bump-then-read sanity: column accepts arbitrary positive ints.
         await session.execute(
-            text(
-                "UPDATE memories SET salience_formula_version = 42 "
-                "WHERE id = :id"
-            ),
+            text("UPDATE memories SET salience_formula_version = 42 WHERE id = :id"),
             {"id": mem_id},
         )
         await session.commit()
         bumped = (
             await session.execute(
-                text(
-                    "SELECT salience_formula_version "
-                    "FROM memories WHERE id = :id"
-                ),
+                text("SELECT salience_formula_version FROM memories WHERE id = :id"),
                 {"id": mem_id},
             )
         ).scalar_one()
@@ -262,20 +250,14 @@ async def test_0020_compose_dedupe_key_column_and_partial_unique_index(
 
         # 4. Same dedupe-key + same env_id is rejected by the partial index.
         await session.execute(
-            text(
-                "UPDATE memories SET compose_dedupe_key = 'duplicate-key' "
-                "WHERE id = :id"
-            ),
+            text("UPDATE memories SET compose_dedupe_key = 'duplicate-key' WHERE id = :id"),
             {"id": mem_a},
         )
         await session.commit()
 
         with pytest.raises(Exception):
             await session.execute(
-                text(
-                    "UPDATE memories SET compose_dedupe_key = 'duplicate-key' "
-                    "WHERE id = :id"
-                ),
+                text("UPDATE memories SET compose_dedupe_key = 'duplicate-key' WHERE id = :id"),
                 {"id": mem_b},
             )
             await session.commit()
@@ -285,10 +267,7 @@ async def test_0020_compose_dedupe_key_column_and_partial_unique_index(
         other_env = await _mk_env(session)
         mem_c = await _mk_mem(session, other_env)
         await session.execute(
-            text(
-                "UPDATE memories SET compose_dedupe_key = 'duplicate-key' "
-                "WHERE id = :id"
-            ),
+            text("UPDATE memories SET compose_dedupe_key = 'duplicate-key' WHERE id = :id"),
             {"id": mem_c},
         )
         await session.commit()

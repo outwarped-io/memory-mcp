@@ -17,7 +17,6 @@ from memory_mcp.pagination import (
     encode_cursor,
 )
 
-
 # ---------------------------------------------------------------------------
 # compute_filter_fingerprint
 # ---------------------------------------------------------------------------
@@ -100,9 +99,9 @@ class TestCursorRoundTrip:
             tiebreak_id=oid,
             direction="desc",
         )
-        decoded = decode_cursor(cur, expected_fingerprint=fp,
-                                expected_order_field="updated_at",
-                                expected_direction="desc")
+        decoded = decode_cursor(
+            cur, expected_fingerprint=fp, expected_order_field="updated_at", expected_direction="desc"
+        )
         assert decoded.filter_fingerprint == fp
         assert decoded.order_field == "updated_at"
         assert decoded.tiebreak_id == oid
@@ -254,12 +253,18 @@ class TestTiebreakStability:
         at = dt.datetime(2026, 5, 10, 12, 0, 0, tzinfo=dt.UTC)
         # Two different cursors with same order_value differ by tiebreak_id
         a = encode_cursor(
-            filter_fingerprint=fp, order_field="updated_at",
-            order_value=at, tiebreak_id=UUID(int=1), direction="desc",
+            filter_fingerprint=fp,
+            order_field="updated_at",
+            order_value=at,
+            tiebreak_id=UUID(int=1),
+            direction="desc",
         )
         b = encode_cursor(
-            filter_fingerprint=fp, order_field="updated_at",
-            order_value=at, tiebreak_id=UUID(int=2), direction="desc",
+            filter_fingerprint=fp,
+            order_field="updated_at",
+            order_value=at,
+            tiebreak_id=UUID(int=2),
+            direction="desc",
         )
         assert a != b
         da = decode_cursor(a, expected_fingerprint=fp)
@@ -278,8 +283,11 @@ class TestDatetimeNormalisation:
         fp = "0123456789abcdef"
         naive = dt.datetime(2026, 5, 10, 12, 0, 0)
         cur = encode_cursor(
-            filter_fingerprint=fp, order_field="updated_at",
-            order_value=naive, tiebreak_id=uuid4(), direction="desc",
+            filter_fingerprint=fp,
+            order_field="updated_at",
+            order_value=naive,
+            tiebreak_id=uuid4(),
+            direction="desc",
         )
         decoded = decode_cursor(cur, expected_fingerprint=fp)
         # Order value should carry +00:00 tz on the wire

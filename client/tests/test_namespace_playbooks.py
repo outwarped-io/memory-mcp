@@ -5,9 +5,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 import pytest
-
 from memory_mcp_schemas.playbooks import PlaybookInvokeResponse
-
 
 pytestmark = pytest.mark.asyncio
 

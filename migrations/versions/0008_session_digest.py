@@ -17,27 +17,18 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 _KINDS_WITH_DIGEST = (
-    "('fact','procedure','event','decision','preference','observation',"
-    "'journal_entry','session_digest','snippet')"
+    "('fact','procedure','event','decision','preference','observation','journal_entry','session_digest','snippet')"
 )
-_KINDS_WITHOUT_DIGEST = (
-    "('fact','procedure','event','decision','preference','observation','snippet')"
-)
+_KINDS_WITHOUT_DIGEST = "('fact','procedure','event','decision','preference','observation','snippet')"
 _SOURCE_TYPES_WITH_DIGEST = (
-    "('session','file','import','url','llm','dream','digest',"
-    "'digest-template','user','agent','other')"
+    "('session','file','import','url','llm','dream','digest','digest-template','user','agent','other')"
 )
-_SOURCE_TYPES_WITHOUT_DIGEST = (
-    "('session','file','import','url','llm','dream','user','agent','other')"
-)
+_SOURCE_TYPES_WITHOUT_DIGEST = "('session','file','import','url','llm','dream','user','agent','other')"
 
 
 def upgrade() -> None:
     op.execute("ALTER TABLE memories DROP CONSTRAINT IF EXISTS memories_kind_check")
-    op.execute(
-        "ALTER TABLE memories ADD CONSTRAINT memories_kind_check "
-        f"CHECK (kind IN {_KINDS_WITH_DIGEST})"
-    )
+    op.execute(f"ALTER TABLE memories ADD CONSTRAINT memories_kind_check CHECK (kind IN {_KINDS_WITH_DIGEST})")
     op.execute("ALTER TABLE memory_sources DROP CONSTRAINT IF EXISTS memory_sources_source_type_check")
     op.execute(
         "ALTER TABLE memory_sources ADD CONSTRAINT memory_sources_source_type_check "
@@ -53,10 +44,7 @@ def downgrade() -> None:
     )
     op.execute("UPDATE memories SET kind = 'observation' WHERE kind = 'session_digest'")
     op.execute("ALTER TABLE memories DROP CONSTRAINT IF EXISTS memories_kind_check")
-    op.execute(
-        "ALTER TABLE memories ADD CONSTRAINT memories_kind_check "
-        f"CHECK (kind IN {_KINDS_WITHOUT_DIGEST})"
-    )
+    op.execute(f"ALTER TABLE memories ADD CONSTRAINT memories_kind_check CHECK (kind IN {_KINDS_WITHOUT_DIGEST})")
     op.execute("UPDATE memory_sources SET source_type = 'other' WHERE source_type IN ('digest','digest-template')")
     op.execute("ALTER TABLE memory_sources DROP CONSTRAINT IF EXISTS memory_sources_source_type_check")
     op.execute(

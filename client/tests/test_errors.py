@@ -31,7 +31,6 @@ from memory_mcp_client.errors import (
 )
 from tests.conftest import FakeCallToolResult, FakeTextBlock, make_memory_payload
 
-
 SERVER_ERROR_CASES = [
     ("VERSION_CONFLICT", VersionConflictError),
     ("INVALID_TRANSITION", InvalidTransitionError),

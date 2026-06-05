@@ -7,4 +7,4 @@ from memory_mcp_schemas.playbooks import (
     PlaybookInvokeResponse,
 )
 
-__all__ = ['PlaybookInvokeResponse']
+__all__ = ["PlaybookInvokeResponse"]

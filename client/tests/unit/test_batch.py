@@ -6,12 +6,12 @@ import asyncio
 from uuid import uuid4
 
 import pytest
-
-from memory_mcp_client import BatchFailure, BatchResult
-from memory_mcp_client._batch import run_bounded
 from memory_mcp_schemas.entities import EntityUpsertRequest
 from memory_mcp_schemas.memories import MemoryWriteRequest
 from memory_mcp_schemas.tasks import TaskCreateRequest
+
+from memory_mcp_client import BatchFailure, BatchResult
+from memory_mcp_client._batch import run_bounded
 from tests.conftest import make_memory_payload, make_task_payload
 
 pytestmark = pytest.mark.asyncio
@@ -159,9 +159,13 @@ async def test_tasks_create_many_invokes_single_create(client, fake_session) -> 
         TaskCreateRequest(env_id=env_id, title="task-two"),
         TaskCreateRequest(env_id=env_id, title="task-three"),
     ]
-    fake_session.set_response("task_create", make_task_payload(title="task-one", env_id=str(env_id)))
+    fake_session.set_response(
+        "task_create", make_task_payload(title="task-one", env_id=str(env_id))
+    )
     fake_session.set_error("task_create", "rate_limited: slow down")
-    fake_session.set_response("task_create", make_task_payload(title="task-three", env_id=str(env_id)))
+    fake_session.set_response(
+        "task_create", make_task_payload(title="task-three", env_id=str(env_id))
+    )
 
     out = await client.tasks.create_many(items, max_concurrency=1)
 

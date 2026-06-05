@@ -8,8 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
-from memory_mcp import config
-from memory_mcp import server
+from memory_mcp import config, server
 from memory_mcp.config import Settings
 
 
@@ -48,9 +47,7 @@ def test_main_uses_stdio_when_configured(monkeypatch: pytest.MonkeyPatch) -> Non
     config.get_settings.cache_clear()
     monkeypatch.setattr(
         "uvicorn.run",
-        lambda *args, **kwargs: uvicorn_calls.append(
-            {"args": args, "kwargs": kwargs}
-        ),
+        lambda *args, **kwargs: uvicorn_calls.append({"args": args, "kwargs": kwargs}),
     )
     monkeypatch.setattr(server, "run_stdio", lambda settings: stdio_calls.append(settings))
 

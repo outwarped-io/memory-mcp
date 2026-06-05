@@ -95,26 +95,35 @@ def test_whitespace_query_returns_empty():
 def test_regex_extracts_mixed_case_identifier(monkeypatch):
     """``ServiceA`` must match without spaCy."""
     monkeypatch.setattr(ner_mod, "_NLP_CACHE", {"en_core_web_sm": None})
-    out = asyncio.run(extract_query_mentions(
-        "deploy the ServiceA pipeline", settings=_settings(),
-    ))
+    out = asyncio.run(
+        extract_query_mentions(
+            "deploy the ServiceA pipeline",
+            settings=_settings(),
+        )
+    )
     assert "servicea" in out
 
 
 def test_regex_extracts_acronym(monkeypatch):
     monkeypatch.setattr(ner_mod, "_NLP_CACHE", {"en_core_web_sm": None})
-    out = asyncio.run(extract_query_mentions(
-        "the API team owns SRE escalation", settings=_settings(),
-    ))
+    out = asyncio.run(
+        extract_query_mentions(
+            "the API team owns SRE escalation",
+            settings=_settings(),
+        )
+    )
     assert "api" in out
     assert "sre" in out
 
 
 def test_regex_extracts_separated_identifier(monkeypatch):
     monkeypatch.setattr(ner_mod, "_NLP_CACHE", {"en_core_web_sm": None})
-    out = asyncio.run(extract_query_mentions(
-        "look at foo.bar and service-a routes", settings=_settings(),
-    ))
+    out = asyncio.run(
+        extract_query_mentions(
+            "look at foo.bar and service-a routes",
+            settings=_settings(),
+        )
+    )
     assert "foo bar" in out
     assert "service a" in out
 
@@ -123,10 +132,12 @@ def test_regex_does_not_match_plain_capitalized_words(monkeypatch):
     """Plain capitalized words like ``Deploy``, ``The`` must NOT match —
     they would generate noise across natural-language queries."""
     monkeypatch.setattr(ner_mod, "_NLP_CACHE", {"en_core_web_sm": None})
-    out = asyncio.run(extract_query_mentions(
-        "Deploy the service via The pipeline tomorrow",
-        settings=_settings(graph_search_raw_query_max_tokens=0),
-    ))
+    out = asyncio.run(
+        extract_query_mentions(
+            "Deploy the service via The pipeline tomorrow",
+            settings=_settings(graph_search_raw_query_max_tokens=0),
+        )
+    )
     # No mixed-case identifier, no acronym (>=2 chars all-caps), no
     # separator, no raw fallback (max_tokens=0). Result: empty.
     assert out == []
@@ -148,9 +159,12 @@ def test_regex_identifier_smoke():
 def test_raw_query_fallback_for_short_query(monkeypatch):
     """A bare single-word query becomes a synthetic mention."""
     monkeypatch.setattr(ner_mod, "_NLP_CACHE", {"en_core_web_sm": None})
-    out = asyncio.run(extract_query_mentions(
-        "transport", settings=_settings(),
-    ))
+    out = asyncio.run(
+        extract_query_mentions(
+            "transport",
+            settings=_settings(),
+        )
+    )
     assert "transport" in out
 
 
@@ -158,10 +172,12 @@ def test_raw_query_fallback_skipped_for_long_query(monkeypatch):
     """A natural-language sentence must NOT pollute resolution with the
     whole-sentence normalized form."""
     monkeypatch.setattr(ner_mod, "_NLP_CACHE", {"en_core_web_sm": None})
-    out = asyncio.run(extract_query_mentions(
-        "how do I deploy and configure the service",
-        settings=_settings(graph_search_raw_query_max_tokens=3),
-    ))
+    out = asyncio.run(
+        extract_query_mentions(
+            "how do I deploy and configure the service",
+            settings=_settings(graph_search_raw_query_max_tokens=3),
+        )
+    )
     # No identifier matches, no NER (model unavailable), >3 tokens → empty.
     assert out == []
 
@@ -177,27 +193,35 @@ def _install_fake_nlp(monkeypatch, ents: list[tuple[str, str]]):
 
 
 def test_ner_extracts_useful_labels(monkeypatch):
-    _install_fake_nlp(monkeypatch, [
-        ("Microsoft", "ORG"),
-        ("Seattle", "GPE"),
-        ("2026-05-07", "DATE"),       # excluded
-        ("$5", "MONEY"),              # excluded
-    ])
-    out = asyncio.run(extract_query_mentions(
-        "ignored content (NLP is mocked)", settings=_settings(),
-    ))
+    _install_fake_nlp(
+        monkeypatch,
+        [
+            ("Microsoft", "ORG"),
+            ("Seattle", "GPE"),
+            ("2026-05-07", "DATE"),  # excluded
+            ("$5", "MONEY"),  # excluded
+        ],
+    )
+    out = asyncio.run(
+        extract_query_mentions(
+            "ignored content (NLP is mocked)",
+            settings=_settings(),
+        )
+    )
     assert "microsoft" in out
     assert "seattle" in out
-    assert all(lbl in _USEFUL_ENT_LABELS or lbl not in _USEFUL_ENT_LABELS
-               for lbl in {"ORG", "GPE"})
+    assert all(lbl in _USEFUL_ENT_LABELS or lbl not in _USEFUL_ENT_LABELS for lbl in {"ORG", "GPE"})
 
 
 def test_ner_dedupes_against_regex(monkeypatch):
     """An entity mentioned by both NER and the regex should appear once."""
     _install_fake_nlp(monkeypatch, [("ServiceA", "PRODUCT")])
-    out = asyncio.run(extract_query_mentions(
-        "ServiceA is broken", settings=_settings(),
-    ))
+    out = asyncio.run(
+        extract_query_mentions(
+            "ServiceA is broken",
+            settings=_settings(),
+        )
+    )
     assert out.count("servicea") == 1
 
 
@@ -209,11 +233,16 @@ def test_ner_failure_falls_back_to_regex(monkeypatch):
             raise RuntimeError("boom")
 
     monkeypatch.setattr(
-        ner_mod, "_NLP_CACHE", {"en_core_web_sm": _ExplodingNlp()},
+        ner_mod,
+        "_NLP_CACHE",
+        {"en_core_web_sm": _ExplodingNlp()},
     )
-    out = asyncio.run(extract_query_mentions(
-        "test ServiceA failure", settings=_settings(),
-    ))
+    out = asyncio.run(
+        extract_query_mentions(
+            "test ServiceA failure",
+            settings=_settings(),
+        )
+    )
     assert "servicea" in out
 
 
@@ -226,22 +255,26 @@ def test_max_mentions_cap_truncates(monkeypatch):
     """``graph_search_max_mentions`` caps the output deterministically."""
     monkeypatch.setattr(ner_mod, "_NLP_CACHE", {"en_core_web_sm": None})
     # Construct a query with 5 distinct identifiers but cap at 3.
-    out = asyncio.run(extract_query_mentions(
-        "ServiceA ServiceB ServiceC ServiceD ServiceE",
-        settings=_settings(
-            graph_search_max_mentions=3,
-            graph_search_raw_query_max_tokens=0,
-        ),
-    ))
+    out = asyncio.run(
+        extract_query_mentions(
+            "ServiceA ServiceB ServiceC ServiceD ServiceE",
+            settings=_settings(
+                graph_search_max_mentions=3,
+                graph_search_raw_query_max_tokens=0,
+            ),
+        )
+    )
     assert out == ["servicea", "serviceb", "servicec"]
 
 
 def test_dedupe_preserves_first_seen_order(monkeypatch):
     monkeypatch.setattr(ner_mod, "_NLP_CACHE", {"en_core_web_sm": None})
-    out = asyncio.run(extract_query_mentions(
-        "ServiceA and ServiceA again, plus API and API",
-        settings=_settings(graph_search_raw_query_max_tokens=0),
-    ))
+    out = asyncio.run(
+        extract_query_mentions(
+            "ServiceA and ServiceA again, plus API and API",
+            settings=_settings(graph_search_raw_query_max_tokens=0),
+        )
+    )
     assert out == ["servicea", "api"]
 
 
@@ -261,11 +294,17 @@ def test_cache_keys_by_model_name(monkeypatch):
         {"model_a": nlp_a, "model_b": nlp_b},
     )
 
-    out_a = asyncio.run(extract_query_mentions(
-        "x", settings=_settings(ner_model="model_a"),
-    ))
-    out_b = asyncio.run(extract_query_mentions(
-        "x", settings=_settings(ner_model="model_b"),
-    ))
+    out_a = asyncio.run(
+        extract_query_mentions(
+            "x",
+            settings=_settings(ner_model="model_a"),
+        )
+    )
+    out_b = asyncio.run(
+        extract_query_mentions(
+            "x",
+            settings=_settings(ner_model="model_b"),
+        )
+    )
     assert "alpha" in out_a
     assert "beta" in out_b

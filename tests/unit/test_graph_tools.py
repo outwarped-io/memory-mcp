@@ -61,9 +61,7 @@ class TestEntityNeighborsRequestSchema:
 
     def test_types_alias_accepted(self) -> None:
         eid = uuid4()
-        req = EntityNeighborsRequest.model_validate(
-            {"entity_id": str(eid), "types": ["mentions", "describes"]}
-        )
+        req = EntityNeighborsRequest.model_validate({"entity_id": str(eid), "types": ["mentions", "describes"]})
         assert req.edge_types == ["mentions", "describes"]
 
     def test_extra_field_rejected(self) -> None:
@@ -88,20 +86,14 @@ class TestEntityNeighborsRequestSchema:
 
     def test_edge_types_too_long_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            EntityNeighborsRequest(
-                entity_id=uuid4(), edge_types=["x" * 201]
-            )
+            EntityNeighborsRequest(entity_id=uuid4(), edge_types=["x" * 201])
 
     def test_edge_types_max_count_enforced(self) -> None:
         with pytest.raises(ValidationError):
-            EntityNeighborsRequest(
-                entity_id=uuid4(), edge_types=["t"] * 21
-            )
+            EntityNeighborsRequest(entity_id=uuid4(), edge_types=["t"] * 21)
 
     def test_edge_types_strips_whitespace(self) -> None:
-        req = EntityNeighborsRequest(
-            entity_id=uuid4(), edge_types=["  mentions  "]
-        )
+        req = EntityNeighborsRequest(entity_id=uuid4(), edge_types=["  mentions  "])
         assert req.edge_types == ["mentions"]
 
     def test_kind_must_be_known(self) -> None:
@@ -161,9 +153,7 @@ def test_collect_record_ids_handles_empty() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _one_hop_entity_hit(
-    env_id: UUID, src: UUID, dst: UUID, edge_type: str = "rel"
-) -> NeighborHit:
+def _one_hop_entity_hit(env_id: UUID, src: UUID, dst: UUID, edge_type: str = "rel") -> NeighborHit:
     return NeighborHit(
         node=_node(env_id, "entity", dst),
         path_length=1,

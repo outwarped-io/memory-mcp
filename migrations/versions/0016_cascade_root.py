@@ -18,9 +18,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.execute("ALTER TABLE memory_tombstones ADD COLUMN cascade_root UUID NULL")
-    op.execute(
-        "CREATE INDEX ix_memory_tombstones_cascade_root ON memory_tombstones (cascade_root)"
-    )
+    op.execute("CREATE INDEX ix_memory_tombstones_cascade_root ON memory_tombstones (cascade_root)")
 
 
 def downgrade() -> None:

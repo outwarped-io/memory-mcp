@@ -26,6 +26,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.compose import MemComposeRequest, MemComposeTarget
 from sqlalchemy import func, select
 
 from memory_mcp import autowire as autowire_mod
@@ -41,7 +42,6 @@ from memory_mcp.db.models import (
     Agent,
     AuditLog,
     Environment,
-    GraphNode,
     Memory,
     Outbox,
     Relation,
@@ -49,7 +49,6 @@ from memory_mcp.db.models import (
 from memory_mcp.db.types import MemoryKind
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import MemoryWriteRequest, memory_write
-from memory_mcp_schemas.compose import MemComposeRequest, MemComposeTarget
 
 from .conftest import (
     SessionPairFactory,
@@ -138,9 +137,7 @@ async def test_compose_off_does_not_emit_auto_wire_rows(
         resp = await composers_mod.memory_compose(
             MemComposeRequest(
                 source_ids=[src1, src2],
-                target=MemComposeTarget(
-                    kind=MemoryKind.fact, title="m", body="merged"
-                ),
+                target=MemComposeTarget(kind=MemoryKind.fact, title="m", body="merged"),
                 mode="promote",
             ),
             ctx=ctx,
@@ -151,11 +148,11 @@ async def test_compose_off_does_not_emit_auto_wire_rows(
 
     assert resp.auto_wired == []
     async with factory() as s:
-        n_rel = int((await s.execute(
-            select(func.count()).select_from(Relation).where(
-                Relation.type == AUTO_WIRE_PREDICATE
-            )
-        )).scalar_one())
+        n_rel = int(
+            (
+                await s.execute(select(func.count()).select_from(Relation).where(Relation.type == AUTO_WIRE_PREDICATE))
+            ).scalar_one()
+        )
     assert n_rel == 0
 
 
@@ -201,39 +198,33 @@ async def test_stage_b_inserts_relations_audit_outbox(
 
     async with factory() as s:
         # Two relations rows with the auto-wire predicate.
-        rel_rows = (await s.execute(
-            select(Relation).where(Relation.type == AUTO_WIRE_PREDICATE)
-        )).scalars().all()
+        rel_rows = (await s.execute(select(Relation).where(Relation.type == AUTO_WIRE_PREDICATE))).scalars().all()
         assert len(rel_rows) == 2
         for r in rel_rows:
             assert r.properties.get("predicate") == AUTO_WIRE_PREDICATE
             assert "combined_score" in r.properties
 
         # Audit rows: one per inserted edge.
-        audit_count = int((await s.execute(
-            select(func.count()).select_from(AuditLog).where(
-                AuditLog.op == f"auto_wire:{AUTO_WIRE_PREDICATE}"
-            )
-        )).scalar_one())
+        audit_count = int(
+            (
+                await s.execute(
+                    select(func.count()).select_from(AuditLog).where(AuditLog.op == f"auto_wire:{AUTO_WIRE_PREDICATE}")
+                )
+            ).scalar_one()
+        )
         assert audit_count == 2
 
         # Outbox: relation aggregate events landed (sinks resolved
         # downstream by the projection worker). Exact count depends
         # on sink configuration; assert "at least zero" — the main
         # signal is "no exception during enqueue".
-        await s.execute(
-            select(func.count()).select_from(Outbox).where(
-                Outbox.aggregate_type == "relation"
-            )
-        )
+        await s.execute(select(func.count()).select_from(Outbox).where(Outbox.aggregate_type == "relation"))
 
         # Popularity trigger guard: dst memories' relation counter
         # stays at 0 because related_to_popular is excluded from the
         # whitelist (migration 0017 + 0021 regression).
         for dst_id in [pop1, pop2]:
-            dst = (await s.execute(
-                select(Memory).where(Memory.id == dst_id)
-            )).scalar_one()
+            dst = (await s.execute(select(Memory).where(Memory.id == dst_id))).scalar_one()
             assert dst.reference_count_rel_link == 0
 
 
@@ -256,18 +247,30 @@ async def test_stage_b_on_conflict_do_nothing(
 
     async with factory() as s:
         await autowire_compose_target(
-            s=s, new_memory_id=new_id, new_memory_kind=MemoryKind.fact,
-            new_memory_tags=None, new_memory_body="b", new_memory_env_id=env_id,
-            candidates=[(pop_id, 0.8)], ctx=ctx, settings=settings,
+            s=s,
+            new_memory_id=new_id,
+            new_memory_kind=MemoryKind.fact,
+            new_memory_tags=None,
+            new_memory_body="b",
+            new_memory_env_id=env_id,
+            candidates=[(pop_id, 0.8)],
+            ctx=ctx,
+            settings=settings,
         )
         await s.commit()
 
     # Second identical call.
     async with factory() as s:
         inserted = await autowire_compose_target(
-            s=s, new_memory_id=new_id, new_memory_kind=MemoryKind.fact,
-            new_memory_tags=None, new_memory_body="b", new_memory_env_id=env_id,
-            candidates=[(pop_id, 0.8)], ctx=ctx, settings=settings,
+            s=s,
+            new_memory_id=new_id,
+            new_memory_kind=MemoryKind.fact,
+            new_memory_tags=None,
+            new_memory_body="b",
+            new_memory_env_id=env_id,
+            candidates=[(pop_id, 0.8)],
+            ctx=ctx,
+            settings=settings,
         )
         await s.commit()
 
@@ -275,11 +278,11 @@ async def test_stage_b_on_conflict_do_nothing(
     assert inserted == []
 
     async with factory() as s:
-        n_rel = int((await s.execute(
-            select(func.count()).select_from(Relation).where(
-                Relation.type == AUTO_WIRE_PREDICATE
-            )
-        )).scalar_one())
+        n_rel = int(
+            (
+                await s.execute(select(func.count()).select_from(Relation).where(Relation.type == AUTO_WIRE_PREDICATE))
+            ).scalar_one()
+        )
     assert n_rel == 1
 
 
@@ -307,9 +310,15 @@ async def test_reconstruct_auto_wired_returns_current_state(
     settings = _settings(autowire_enabled=True, top_k=3)
     async with factory() as s:
         await autowire_compose_target(
-            s=s, new_memory_id=new_id, new_memory_kind=MemoryKind.fact,
-            new_memory_tags=None, new_memory_body="body", new_memory_env_id=env_id,
-            candidates=[(p1, 0.8), (p2, 0.7)], ctx=ctx, settings=settings,
+            s=s,
+            new_memory_id=new_id,
+            new_memory_kind=MemoryKind.fact,
+            new_memory_tags=None,
+            new_memory_body="body",
+            new_memory_env_id=env_id,
+            candidates=[(p1, 0.8), (p2, 0.7)],
+            ctx=ctx,
+            settings=settings,
         )
         await s.commit()
 
@@ -341,8 +350,12 @@ async def test_compose_on_emits_edge_and_populates_response(
     src1 = await _write_memory(factory, env_id=env_id, agent_id=agent_id, title="s1", body="first")
     src2 = await _write_memory(factory, env_id=env_id, agent_id=agent_id, title="s2", body="second")
     pop_id = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="popular", body="popular content", salience=0.95,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="popular",
+        body="popular content",
+        salience=0.95,
     )
 
     # Patch the embedder + vector store at the autowire module surface.
@@ -354,9 +367,11 @@ async def test_compose_on_emits_edge_and_populates_response(
     monkeypatch.setattr(autowire_mod, "get_embedder", lambda settings: fake_embedder)
 
     fake_store = MagicMock()
-    fake_store.search = AsyncMock(return_value=[
-        {"id": str(pop_id), "score": 0.95},
-    ])
+    fake_store.search = AsyncMock(
+        return_value=[
+            {"id": str(pop_id), "score": 0.95},
+        ]
+    )
     monkeypatch.setattr(autowire_mod, "_default_vector_store", lambda: fake_store)
 
     settings = _settings(autowire_enabled=True, top_k=3)
@@ -366,9 +381,7 @@ async def test_compose_on_emits_edge_and_populates_response(
         resp = await composers_mod.memory_compose(
             MemComposeRequest(
                 source_ids=[src1, src2],
-                target=MemComposeTarget(
-                    kind=MemoryKind.fact, title="m", body="merged body content"
-                ),
+                target=MemComposeTarget(kind=MemoryKind.fact, title="m", body="merged body content"),
                 mode="promote",
             ),
             ctx=ctx,
@@ -380,9 +393,7 @@ async def test_compose_on_emits_edge_and_populates_response(
     assert resp.auto_wired == [pop_id]
 
     async with factory() as s:
-        rels = (await s.execute(
-            select(Relation).where(Relation.type == AUTO_WIRE_PREDICATE)
-        )).scalars().all()
+        rels = (await s.execute(select(Relation).where(Relation.type == AUTO_WIRE_PREDICATE))).scalars().all()
     assert len(rels) == 1
 
 
@@ -403,8 +414,12 @@ async def test_compose_replay_returns_state_current_auto_wired(
     src1 = await _write_memory(factory, env_id=env_id, agent_id=agent_id, title="s1", body="first")
     src2 = await _write_memory(factory, env_id=env_id, agent_id=agent_id, title="s2", body="second")
     pop_id = await _write_memory(
-        factory, env_id=env_id, agent_id=agent_id,
-        title="popular", body="popular content", salience=0.95,
+        factory,
+        env_id=env_id,
+        agent_id=agent_id,
+        title="popular",
+        body="popular content",
+        salience=0.95,
     )
 
     fake_embedder = MagicMock()
@@ -412,17 +427,17 @@ async def test_compose_replay_returns_state_current_auto_wired(
     monkeypatch.setattr(autowire_mod, "get_embedder", lambda settings: fake_embedder)
 
     fake_store = MagicMock()
-    fake_store.search = AsyncMock(return_value=[
-        {"id": str(pop_id), "score": 0.95},
-    ])
+    fake_store.search = AsyncMock(
+        return_value=[
+            {"id": str(pop_id), "score": 0.95},
+        ]
+    )
     monkeypatch.setattr(autowire_mod, "_default_vector_store", lambda: fake_store)
 
     settings = _settings(autowire_enabled=True, top_k=3)
     request = MemComposeRequest(
         source_ids=[src1, src2],
-        target=MemComposeTarget(
-            kind=MemoryKind.fact, title="m", body="merged body content"
-        ),
+        target=MemComposeTarget(kind=MemoryKind.fact, title="m", body="merged body content"),
         mode="promote",
     )
 

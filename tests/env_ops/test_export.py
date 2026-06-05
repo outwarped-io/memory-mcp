@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from memory_mcp_schemas.env_ops import EnvExportRequest, ExportFormat, ExportManifest
 
 from memory_mcp.db.models import (
     DreamProposal,
@@ -22,7 +23,6 @@ from memory_mcp.db.models import (
 from memory_mcp.env_ops.export import export_env
 from memory_mcp.errors import NotFoundError
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.env_ops import EnvExportRequest, ExportFormat, ExportManifest
 
 
 class _ScalarResult:
@@ -48,7 +48,7 @@ class _ExecuteResult:
 
 
 class _Session:
-    def __init__(self, fixture: "_Fixture") -> None:
+    def __init__(self, fixture: _Fixture) -> None:
         self._fixture = fixture
 
     async def connection(self, **_kwargs: object) -> None:
@@ -61,7 +61,7 @@ class _Session:
             by_kind: dict[str, int] = {}
             for memory in self._fixture.memories:
                 by_kind[memory.kind] = by_kind.get(memory.kind, 0) + 1
-            rows = [(kind, count) for kind, count in by_kind.items()]
+            rows = list(by_kind.items())
         elif "FROM environments" in sql:
             rows = [self._fixture.env] if self._fixture.env is not None else []
         elif "FROM memory_tags" in sql:
@@ -104,7 +104,9 @@ class _VectorStore:
     def __init__(self, vectors: dict[tuple[object, str], list[float]]) -> None:
         self._vectors = vectors
 
-    async def get_vectors(self, *, env_id: object, ids: list[object], vector_name: str) -> dict[object, list[float] | None]:
+    async def get_vectors(
+        self, *, env_id: object, ids: list[object], vector_name: str
+    ) -> dict[object, list[float] | None]:
         return {memory_id: self._vectors.get((memory_id, vector_name)) for memory_id in ids}
 
     async def close(self) -> None:

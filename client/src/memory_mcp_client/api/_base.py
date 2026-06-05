@@ -17,7 +17,7 @@ class _BaseAPI:
 
     __slots__ = ("_client",)
 
-    def __init__(self, client: "MemoryClient") -> None:
+    def __init__(self, client: MemoryClient) -> None:
         self._client = client
 
     async def _call(

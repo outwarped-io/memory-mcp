@@ -9,9 +9,7 @@ exercise the early-skip logic + Stage-A ranking by mocking the session
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
-
-import pytest
+from uuid import uuid4
 
 from memory_mcp.autowire import (
     AUTO_WIRE_PREDICATE,
@@ -20,7 +18,6 @@ from memory_mcp.autowire import (
 )
 from memory_mcp.config import Settings
 from memory_mcp.db.types import MemoryKind
-
 
 # ---------------------------------------------------------------------------
 # Predicate constant
@@ -48,58 +45,57 @@ def test_skip_whitespace_body():
 
 
 def test_skip_kind_playbook():
-    assert _should_skip_target(
-        kind=MemoryKind.playbook, tags=None, body="hello world"
-    ) is True
+    assert _should_skip_target(kind=MemoryKind.playbook, tags=None, body="hello world") is True
 
 
 def test_skip_kind_playbook_via_string_value():
-    assert _should_skip_target(
-        kind="playbook", tags=None, body="hello world"
-    ) is True
+    assert _should_skip_target(kind="playbook", tags=None, body="hello world") is True
 
 
 def test_skip_tag_directive_active():
-    assert _should_skip_target(
-        kind=MemoryKind.fact,
-        tags=["topic:foo", "directive:active"],
-        body="hello world",
-    ) is True
+    assert (
+        _should_skip_target(
+            kind=MemoryKind.fact,
+            tags=["topic:foo", "directive:active"],
+            body="hello world",
+        )
+        is True
+    )
 
 
 def test_skip_tag_directive_active_prefix_match():
     """``directive:active:some-slug`` also triggers skip."""
-    assert _should_skip_target(
-        kind=MemoryKind.fact,
-        tags=["directive:active:cosmos"],
-        body="hello world",
-    ) is True
+    assert (
+        _should_skip_target(
+            kind=MemoryKind.fact,
+            tags=["directive:active:cosmos"],
+            body="hello world",
+        )
+        is True
+    )
 
 
 def test_no_skip_normal_fact():
-    assert _should_skip_target(
-        kind=MemoryKind.fact, tags=["topic:foo"], body="hello world"
-    ) is False
+    assert _should_skip_target(kind=MemoryKind.fact, tags=["topic:foo"], body="hello world") is False
 
 
 def test_no_skip_directive_retired_unrelated_prefix():
-    assert _should_skip_target(
-        kind=MemoryKind.fact,
-        tags=["directive:retired"],
-        body="hello world",
-    ) is False
+    assert (
+        _should_skip_target(
+            kind=MemoryKind.fact,
+            tags=["directive:retired"],
+            body="hello world",
+        )
+        is False
+    )
 
 
 def test_no_skip_empty_tags():
-    assert _should_skip_target(
-        kind=MemoryKind.fact, tags=[], body="hello world"
-    ) is False
+    assert _should_skip_target(kind=MemoryKind.fact, tags=[], body="hello world") is False
 
 
 def test_no_skip_none_tags():
-    assert _should_skip_target(
-        kind=MemoryKind.fact, tags=None, body="hello world"
-    ) is False
+    assert _should_skip_target(kind=MemoryKind.fact, tags=None, body="hello world") is False
 
 
 # ---------------------------------------------------------------------------
@@ -227,9 +223,7 @@ async def test_stage_a_threshold_cutoff_drops_low_similarity():
     embedder.embed_texts = MagicMock(return_value=[[0.1, 0.2, 0.3]])
 
     vector_store = MagicMock()
-    vector_store.search = AsyncMock(
-        return_value=[{"id": str(candidate_id), "score": 0.30}]
-    )
+    vector_store.search = AsyncMock(return_value=[{"id": str(candidate_id), "score": 0.30}])
 
     out = await autowire_fetch_candidates(
         s=s,
@@ -276,10 +270,7 @@ async def test_stage_a_combined_ranking_picks_top_k():
     }
     vector_store = MagicMock()
     vector_store.search = AsyncMock(
-        return_value=[
-            {"id": str(mid), "score": score}
-            for mid, score in sem_scores.items()
-        ]
+        return_value=[{"id": str(mid), "score": score} for mid, score in sem_scores.items()]
     )
 
     out = await autowire_fetch_candidates(

@@ -209,11 +209,7 @@ class DreamScheduler:
             actor_ctx=ctx,
             summarizer=self._summarizer,
             embedder=self._embedder if mode is DreamMode.dedupe else None,
-            vector_store=(
-                self._vector_store
-                if mode in {DreamMode.dedupe, DreamMode.decision_conflicts}
-                else None
-            ),
+            vector_store=(self._vector_store if mode in {DreamMode.dedupe, DreamMode.decision_conflicts} else None),
             settings=self._settings,
             triggered_by=triggered_by,
         )
@@ -293,6 +289,7 @@ class DreamScheduler:
         all three modes; tests can introspect by mode without registering
         the scheduler.
         """
+
         async def _tick() -> None:
             await self._run_mode_tick(mode)
 
@@ -320,8 +317,7 @@ class DreamScheduler:
             env_ids = await list_active_envs()
         except Exception:  # noqa: BLE001 — log + bail; next tick will retry
             log.exception(
-                "dream_worker tick mode=%s: list_active_envs() failed; "
-                "skipping this tick",
+                "dream_worker tick mode=%s: list_active_envs() failed; skipping this tick",
                 mode.value,
             )
             return
@@ -331,14 +327,15 @@ class DreamScheduler:
             return
 
         log.debug(
-            "dream_worker tick mode=%s envs=%d", mode.value, len(env_ids),
+            "dream_worker tick mode=%s envs=%d",
+            mode.value,
+            len(env_ids),
         )
 
         for env_id in env_ids:
             if self._stopping:
                 log.info(
-                    "dream_worker tick mode=%s halted by shutdown "
-                    "(remaining envs skipped)",
+                    "dream_worker tick mode=%s halted by shutdown (remaining envs skipped)",
                     mode.value,
                 )
                 return
@@ -358,11 +355,7 @@ class DreamScheduler:
                 actor_ctx=self._build_actor_ctx(env_id),
                 summarizer=self._summarizer,
                 embedder=self._embedder if mode is DreamMode.dedupe else None,
-                vector_store=(
-                    self._vector_store
-                    if mode in {DreamMode.dedupe, DreamMode.decision_conflicts}
-                    else None
-                ),
+                vector_store=(self._vector_store if mode in {DreamMode.dedupe, DreamMode.decision_conflicts} else None),
                 settings=self._settings,
                 triggered_by="scheduler",
             )
@@ -374,9 +367,9 @@ class DreamScheduler:
             raise
         except Exception:  # noqa: BLE001 — per-env isolation
             log.exception(
-                "dream_worker tick mode=%s env=%s: unexpected error escaped "
-                "run_dream_pass; continuing with next env",
-                mode.value, env_id,
+                "dream_worker tick mode=%s env=%s: unexpected error escaped run_dream_pass; continuing with next env",
+                mode.value,
+                env_id,
             )
 
     def _build_actor_ctx(self, env_id: UUID) -> AgentContext:

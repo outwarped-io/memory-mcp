@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import math
 import datetime as dt
+import math
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
@@ -12,8 +12,8 @@ import pytest
 from memory_mcp.db.models import Memory
 from memory_mcp.errors import InvalidInputError
 from memory_mcp.memories import MemoryUpdatePatch, MemoryWriteRequest, _to_response
-from memory_mcp.search import auto_context as auto_mod
 from memory_mcp.search import api as search_api
+from memory_mcp.search import auto_context as auto_mod
 from memory_mcp.search.auto_context import memory_auto_context
 
 
@@ -133,10 +133,9 @@ class _FakeSession:
             return _Result(scalar=_FakeEmbedder.model_id)
         ids = set(self.store.last_hit_ids)
         rows = [
-            m for m in self.memories
-            if m.env_id == self.env_id
-            and (not ids or m.id in ids)
-            and m.trigger_description is not None
+            m
+            for m in self.memories
+            if m.env_id == self.env_id and (not ids or m.id in ids) and m.trigger_description is not None
         ]
         return _Result(rows=rows)
 

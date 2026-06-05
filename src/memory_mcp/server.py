@@ -22,9 +22,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
-from importlib.metadata import PackageNotFoundError, version as _pkg_version
+from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from typing import Any
 
 from fastapi import FastAPI
@@ -81,9 +82,11 @@ async def _probe_postgres() -> dict[str, Any]:
     import asyncio
 
     try:
+
         async def _do() -> None:
             async with session_scope() as s:
                 from sqlalchemy import text
+
                 await s.execute(text("SELECT 1"))
 
         await asyncio.wait_for(_do(), timeout=2.0)
@@ -101,6 +104,7 @@ async def _probe_qdrant(settings: Settings) -> dict[str, Any]:
         return {"status": "skipped", "reason": f"vector_backend={settings.vector_backend!r}"}
     try:
         from memory_mcp.db.vector.qdrant import QdrantVectorStore
+
         store = QdrantVectorStore(settings)
         try:
             await asyncio.wait_for(store.client.get_collections(), timeout=2.0)
@@ -147,8 +151,7 @@ async def _service_lifespan(
     async def _ready() -> None:
         if not _is_loopback(settings.mcp_http_host):
             logger.warning(
-                "memory-mcp: binding to non-loopback host %r — v1 has NO "
-                "AUTH; do not expose to untrusted networks",
+                "memory-mcp: binding to non-loopback host %r — v1 has NO AUTH; do not expose to untrusted networks",
                 settings.mcp_http_host,
             )
         logger.info(
@@ -216,9 +219,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
             "neo4j": await _probe_neo4j(cur_settings),
             "llm": await _probe_llm(cur_settings),
         }
-        all_ok = all(
-            d.get("status") in ("ok", "skipped") for d in deps.values()
-        )
+        all_ok = all(d.get("status") in ("ok", "skipped") for d in deps.values())
         payload["status"] = "ok" if all_ok else "degraded"
         payload["dependencies"] = deps
         return payload
@@ -275,8 +276,7 @@ def main() -> None:
 
     if not _is_loopback(settings.mcp_http_host):
         logger.warning(
-            "memory-mcp: binding to non-loopback host %r — v1 has NO AUTH; "
-            "do not expose to untrusted networks",
+            "memory-mcp: binding to non-loopback host %r — v1 has NO AUTH; do not expose to untrusted networks",
             settings.mcp_http_host,
         )
 

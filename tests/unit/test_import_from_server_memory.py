@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from uuid import UUID, uuid5, NAMESPACE_DNS
+from uuid import NAMESPACE_DNS, UUID, uuid5
 
 import pytest
 
@@ -22,7 +22,9 @@ class MockMcpClient:
     async def call_tool(self, name: str, request: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
         self.calls.append((name, request))
         if name == "ent_upsert":
-            ent_id = self.entities.setdefault(request["canonical_name"], str(uuid5(NAMESPACE_DNS, request["canonical_name"])))
+            ent_id = self.entities.setdefault(
+                request["canonical_name"], str(uuid5(NAMESPACE_DNS, request["canonical_name"]))
+            )
             return self._payload(ent_id, version=1)
         if name == "mem_search":
             hits = []
@@ -30,7 +32,13 @@ class MockMcpClient:
             for memory in self.memories:
                 if memory["body"] == query:
                     hits.append({"memory": memory, "score": 1.0, "sources": ["lex"], "raw_scores": {"lex": 1.0}})
-            return {"hits": hits, "mode": "lex", "effective_mode": "lex", "consistency_used": "canonical", "projection_status": []}
+            return {
+                "hits": hits,
+                "mode": "lex",
+                "effective_mode": "lex",
+                "consistency_used": "canonical",
+                "projection_status": [],
+            }
         if name == "mem_write":
             mem_id = str(uuid5(NAMESPACE_DNS, f"memory:{len(self.memories)}:{request['body']}"))
             memory = {
@@ -79,10 +87,16 @@ async def test_happy_path_imports_entities_observations_and_relations_in_order()
 
     calls = mutating_calls(client)
     assert [name for name, _ in calls] == [
-        "ent_upsert", "mem_write", "mem_write",
-        "ent_upsert", "mem_write", "mem_write",
-        "ent_upsert", "mem_write",
-        "rel_link", "rel_link",
+        "ent_upsert",
+        "mem_write",
+        "mem_write",
+        "ent_upsert",
+        "mem_write",
+        "mem_write",
+        "ent_upsert",
+        "mem_write",
+        "rel_link",
+        "rel_link",
     ]
     assert calls[0][1] == {"kind": "person", "canonical_name": "John_Smith", "env_id": ENV_ID}
     assert calls[3][1] == {"kind": "organization", "canonical_name": "Anthropic", "env_id": ENV_ID}

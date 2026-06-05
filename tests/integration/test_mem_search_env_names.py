@@ -10,6 +10,7 @@ import httpx
 import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from memory_mcp_schemas.search import MemorySearchRequest, MemorySearchResponse
 
 from memory_mcp.errors import (
     EnvNotAttachedError,
@@ -17,7 +18,6 @@ from memory_mcp.errors import (
     EnvRefAmbiguousError,
 )
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.search import MemorySearchRequest, MemorySearchResponse
 
 
 async def _call_mem_search(
@@ -88,17 +88,19 @@ async def _call_mem_search(
             auth=auth,
         )
 
-    async with app.router.lifespan_context(app):
-        async with streamablehttp_client(
+    async with (
+        app.router.lifespan_context(app),
+        streamablehttp_client(
             "http://127.0.0.1:8080/mcp/",
             httpx_client_factory=httpx_client_factory,
-        ) as (read_stream, write_stream, _get_session_id):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                result = await session.call_tool(
-                    "mem_search",
-                    {"request": request, "agent_id": str(uuid4())},
-                )
+        ) as (read_stream, write_stream, _get_session_id),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+        result = await session.call_tool(
+            "mem_search",
+            {"request": request, "agent_id": str(uuid4())},
+        )
     return result, seen
 
 

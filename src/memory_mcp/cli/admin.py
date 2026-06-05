@@ -16,8 +16,6 @@ from typing import Any
 import typer
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
-from pydantic import BaseModel
-
 from memory_mcp_schemas.env_ops import (
     EnvCloneRequest,
     EnvDeleteRequest,
@@ -32,6 +30,7 @@ from memory_mcp_schemas.env_ops import (
     MemCopyRequest,
     MemMoveRequest,
 )
+from pydantic import BaseModel
 
 DEFAULT_ENDPOINT = "http://localhost:8000/mcp"
 

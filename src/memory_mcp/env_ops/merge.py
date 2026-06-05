@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 from uuid import UUID, uuid4
 
+from memory_mcp_schemas.entities import EntityMergeRequest
+from memory_mcp_schemas.env_ops import (
+    EntityMergeStrategy,
+    EnvMergeRequest,
+    EnvMergeResponse,
+    RemapTable,
+    TagMergeStrategy,
+)
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,15 +44,6 @@ from memory_mcp.env_ops.clone import _default_vector_store
 from memory_mcp.errors import InvalidInputError, MemoryMCPError, NotFoundError
 from memory_mcp.identity import AgentContext
 from memory_mcp.memories import _projection_payload
-
-from memory_mcp_schemas.entities import EntityMergeRequest
-from memory_mcp_schemas.env_ops import (
-    EntityMergeStrategy,
-    EnvMergeRequest,
-    EnvMergeResponse,
-    RemapTable,
-    TagMergeStrategy,
-)
 
 log = logging.getLogger(__name__)
 
@@ -89,10 +87,7 @@ async def merge_envs(request: EnvMergeRequest, *, ctx: AgentContext) -> EnvMerge
     rbac.require("read", request.src_env_id, ctx)
     rbac.require("write", request.src_env_id, ctx)
 
-    if (
-        src.default_embedding_model_id != dst.default_embedding_model_id
-        and not request.allow_embedding_mismatch
-    ):
+    if src.default_embedding_model_id != dst.default_embedding_model_id and not request.allow_embedding_mismatch:
         exc = InvalidInputError(
             "source and destination default embedding models differ",
             src_env_id=str(request.src_env_id),
@@ -203,9 +198,11 @@ async def merge_envs(request: EnvMergeRequest, *, ctx: AgentContext) -> EnvMerge
 
 async def _load_env_pair(src_env_id: UUID, dst_env_id: UUID) -> tuple[Environment, Environment]:
     async with session_scope() as session:
-        rows = (await session.execute(
-            select(Environment).where(Environment.id.in_([src_env_id, dst_env_id]))
-        )).scalars().all()
+        rows = (
+            (await session.execute(select(Environment).where(Environment.id.in_([src_env_id, dst_env_id]))))
+            .scalars()
+            .all()
+        )
     by_id = {row.id: row for row in rows}
     for env_id in (src_env_id, dst_env_id):
         env = by_id.get(env_id)
@@ -234,18 +231,20 @@ async def _scan_external_lineage(*, src_env_id: UUID, dst_env_id: UUID) -> list[
 async def _lineage_touching_src(session: AsyncSession, *, src_env_id: UUID) -> list[_LineageRef]:
     parent = aliased(Memory)
     child = aliased(Memory)
-    rows = (await session.execute(
-        select(
-            MemoryLineage.parent_memory_id,
-            MemoryLineage.child_memory_id,
-            MemoryLineage.relation,
-            parent.env_id,
-            child.env_id,
+    rows = (
+        await session.execute(
+            select(
+                MemoryLineage.parent_memory_id,
+                MemoryLineage.child_memory_id,
+                MemoryLineage.relation,
+                parent.env_id,
+                child.env_id,
+            )
+            .join(parent, parent.id == MemoryLineage.parent_memory_id)
+            .join(child, child.id == MemoryLineage.child_memory_id)
+            .where(or_(parent.env_id == src_env_id, child.env_id == src_env_id))
         )
-        .join(parent, parent.id == MemoryLineage.parent_memory_id)
-        .join(child, child.id == MemoryLineage.child_memory_id)
-        .where(or_(parent.env_id == src_env_id, child.env_id == src_env_id))
-    )).all()
+    ).all()
     return [
         _LineageRef(
             parent_memory_id=parent_memory_id,
@@ -269,17 +268,30 @@ async def _source_counts(session: AsyncSession, src_env_id: UUID) -> dict[str, i
         ("tasks", Task),
         ("relations", Relation),
     ):
-        counts[name] = int(await session.scalar(select(func.count()).select_from(model).where(model.env_id == src_env_id)) or 0)
+        counts[name] = int(
+            await session.scalar(select(func.count()).select_from(model).where(model.env_id == src_env_id)) or 0
+        )
     entity_ids = select(Entity.id).where(Entity.env_id == src_env_id)
     memory_ids = select(Memory.id).where(Memory.env_id == src_env_id)
-    counts["entity_aliases"] = int(await session.scalar(select(func.count()).select_from(EntityAlias).where(EntityAlias.entity_id.in_(entity_ids))) or 0)
-    counts["memory_sources"] = int(await session.scalar(select(func.count()).select_from(MemorySource).where(MemorySource.memory_id.in_(memory_ids))) or 0)
-    counts["memory_lineage"] = int(await session.scalar(
-        select(func.count())
-        .select_from(MemoryLineage)
-        .where(MemoryLineage.parent_memory_id.in_(memory_ids))
-        .where(MemoryLineage.child_memory_id.in_(memory_ids))
-    ) or 0)
+    counts["entity_aliases"] = int(
+        await session.scalar(select(func.count()).select_from(EntityAlias).where(EntityAlias.entity_id.in_(entity_ids)))
+        or 0
+    )
+    counts["memory_sources"] = int(
+        await session.scalar(
+            select(func.count()).select_from(MemorySource).where(MemorySource.memory_id.in_(memory_ids))
+        )
+        or 0
+    )
+    counts["memory_lineage"] = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(MemoryLineage)
+            .where(MemoryLineage.parent_memory_id.in_(memory_ids))
+            .where(MemoryLineage.child_memory_id.in_(memory_ids))
+        )
+        or 0
+    )
     return counts
 
 
@@ -329,10 +341,14 @@ async def _copy_tags(
     counts: dict[str, int],
     remap: RemapTable,
 ) -> None:
-    src_tags = (await session.execute(select(Tag).where(Tag.env_id == request.src_env_id).order_by(Tag.name))).scalars().all()
+    src_tags = (
+        (await session.execute(select(Tag).where(Tag.env_id == request.src_env_id).order_by(Tag.name))).scalars().all()
+    )
     dst_by_name = {
         name: tag_id
-        for tag_id, name in (await session.execute(select(Tag.id, Tag.name).where(Tag.env_id == request.dst_env_id))).all()
+        for tag_id, name in (
+            await session.execute(select(Tag.id, Tag.name).where(Tag.env_id == request.dst_env_id))
+        ).all()
     }
     for row in src_tags:
         if request.tag_strategy == TagMergeStrategy.union and row.name in dst_by_name:
@@ -355,13 +371,19 @@ async def _copy_entities(
     collisions: list[tuple[UUID, UUID]] = []
     dst_by_normalized = {
         normalized_name: entity_id
-        for entity_id, normalized_name in (await session.execute(
-            select(Entity.id, Entity.normalized_name).where(Entity.env_id == request.dst_env_id)
-        )).all()
+        for entity_id, normalized_name in (
+            await session.execute(select(Entity.id, Entity.normalized_name).where(Entity.env_id == request.dst_env_id))
+        ).all()
     }
-    src_entities = (await session.execute(
-        select(Entity).where(Entity.env_id == request.src_env_id).order_by(Entity.created_at, Entity.id)
-    )).scalars().all()
+    src_entities = (
+        (
+            await session.execute(
+                select(Entity).where(Entity.env_id == request.src_env_id).order_by(Entity.created_at, Entity.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     for row in src_entities:
         new_id = uuid4()
         remap.entities[row.id] = new_id
@@ -370,17 +392,19 @@ async def _copy_entities(
             if request.entity_strategy == EntityMergeStrategy.by_canonical_key:
                 collisions.append((dst_by_normalized[normalized_name], new_id))
             normalized_name = f"{normalized_name} merge {new_id.hex}"
-        session.add(Entity(
-            id=new_id,
-            env_id=request.dst_env_id,
-            kind=row.kind,
-            canonical_name=row.canonical_name,
-            normalized_name=normalized_name,
-            metadata_=dict(row.metadata_ or {}),
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            version=row.version,
-        ))
+        session.add(
+            Entity(
+                id=new_id,
+                env_id=request.dst_env_id,
+                kind=row.kind,
+                canonical_name=row.canonical_name,
+                normalized_name=normalized_name,
+                metadata_=dict(row.metadata_ or {}),
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                version=row.version,
+            )
+        )
         counts["entities"] += 1
     await session.flush()
     return collisions
@@ -395,28 +419,40 @@ async def _copy_entity_aliases(
 ) -> None:
     if not remap.entities:
         return
-    dst_aliases = set((await session.execute(
-        select(EntityAlias.normalized_alias).where(EntityAlias.env_id == request.dst_env_id)
-    )).scalars().all())
-    dst_canonicals = set((await session.execute(
-        select(Entity.normalized_name).where(Entity.env_id == request.dst_env_id)
-    )).scalars().all())
-    rows = (await session.execute(
-        select(EntityAlias)
-        .where(EntityAlias.env_id == request.src_env_id)
-        .where(EntityAlias.entity_id.in_(remap.entities.keys()))
-        .order_by(EntityAlias.created_at)
-    )).scalars().all()
+    dst_aliases = set(
+        (await session.execute(select(EntityAlias.normalized_alias).where(EntityAlias.env_id == request.dst_env_id)))
+        .scalars()
+        .all()
+    )
+    dst_canonicals = set(
+        (await session.execute(select(Entity.normalized_name).where(Entity.env_id == request.dst_env_id)))
+        .scalars()
+        .all()
+    )
+    rows = (
+        (
+            await session.execute(
+                select(EntityAlias)
+                .where(EntityAlias.env_id == request.src_env_id)
+                .where(EntityAlias.entity_id.in_(remap.entities.keys()))
+                .order_by(EntityAlias.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
     for row in rows:
         if row.normalized_alias in dst_aliases or row.normalized_alias in dst_canonicals:
             continue
-        session.add(EntityAlias(
-            entity_id=remap.entities[row.entity_id],
-            env_id=request.dst_env_id,
-            alias=row.alias,
-            normalized_alias=row.normalized_alias,
-            created_at=row.created_at,
-        ))
+        session.add(
+            EntityAlias(
+                entity_id=remap.entities[row.entity_id],
+                env_id=request.dst_env_id,
+                alias=row.alias,
+                normalized_alias=row.normalized_alias,
+                created_at=row.created_at,
+            )
+        )
         dst_aliases.add(row.normalized_alias)
         counts["entity_aliases"] += 1
     await session.flush()
@@ -430,9 +466,15 @@ async def _copy_memories(
     remap: RemapTable,
     dst_memories: dict[UUID, Memory],
 ) -> None:
-    rows = (await session.execute(
-        select(Memory).where(Memory.env_id == request.src_env_id).order_by(Memory.created_at, Memory.id)
-    )).scalars().all()
+    rows = (
+        (
+            await session.execute(
+                select(Memory).where(Memory.env_id == request.src_env_id).order_by(Memory.created_at, Memory.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     for row in rows:
         new_id = uuid4()
         remap.memories[row.id] = new_id
@@ -478,16 +520,19 @@ async def _copy_memory_tags(
 ) -> None:
     if not remap.memories or not remap.tags:
         return
-    tag_name_by_old = {
-        tag_id: name
-        for tag_id, name in (await session.execute(select(Tag.id, Tag.name).where(Tag.id.in_(remap.tags.keys())))).all()
-    }
-    rows = (await session.execute(
-        select(MemoryTag)
-        .where(MemoryTag.env_id == request.src_env_id)
-        .where(MemoryTag.memory_id.in_(remap.memories.keys()))
-        .where(MemoryTag.tag_id.in_(remap.tags.keys()))
-    )).scalars().all()
+    tag_name_by_old = dict((await session.execute(select(Tag.id, Tag.name).where(Tag.id.in_(remap.tags.keys())))).all())
+    rows = (
+        (
+            await session.execute(
+                select(MemoryTag)
+                .where(MemoryTag.env_id == request.src_env_id)
+                .where(MemoryTag.memory_id.in_(remap.memories.keys()))
+                .where(MemoryTag.tag_id.in_(remap.tags.keys()))
+            )
+        )
+        .scalars()
+        .all()
+    )
     for row in rows:
         new_memory_id = remap.memories[row.memory_id]
         new_tag_id = remap.tags[row.tag_id]
@@ -510,18 +555,26 @@ async def _copy_memory_sources(
 ) -> None:
     if not remap.memories:
         return
-    rows = (await session.execute(
-        select(MemorySource).where(MemorySource.memory_id.in_(remap.memories.keys())).order_by(MemorySource.id)
-    )).scalars().all()
+    rows = (
+        (
+            await session.execute(
+                select(MemorySource).where(MemorySource.memory_id.in_(remap.memories.keys())).order_by(MemorySource.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     for row in rows:
-        session.add(MemorySource(
-            memory_id=remap.memories[row.memory_id],
-            source_type=row.source_type,
-            source_ref=row.source_ref,
-            agent_id=None,
-            created_at=row.created_at,
-            evidence_span=row.evidence_span,
-        ))
+        session.add(
+            MemorySource(
+                memory_id=remap.memories[row.memory_id],
+                source_type=row.source_type,
+                source_ref=row.source_ref,
+                agent_id=None,
+                created_at=row.created_at,
+                evidence_span=row.evidence_span,
+            )
+        )
         counts["memory_sources"] += 1
     await session.flush()
 
@@ -533,25 +586,33 @@ async def _copy_tasks(
     counts: dict[str, int],
     remap: RemapTable,
 ) -> None:
-    rows = (await session.execute(
-        select(Task).where(Task.env_id == request.src_env_id).order_by(Task.created_at, Task.id)
-    )).scalars().all()
+    rows = (
+        (
+            await session.execute(
+                select(Task).where(Task.env_id == request.src_env_id).order_by(Task.created_at, Task.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     for row in rows:
         new_id = uuid4()
         remap.tasks[row.id] = new_id
-        session.add(Task(
-            id=new_id,
-            env_id=request.dst_env_id,
-            title=row.title,
-            description=row.description,
-            status=row.status,
-            priority=row.priority,
-            playbook_id=remap.memories.get(row.playbook_id) if row.playbook_id is not None else None,
-            version=row.version,
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            created_by_agent_id=None,
-        ))
+        session.add(
+            Task(
+                id=new_id,
+                env_id=request.dst_env_id,
+                title=row.title,
+                description=row.description,
+                status=row.status,
+                priority=row.priority,
+                playbook_id=remap.memories.get(row.playbook_id) if row.playbook_id is not None else None,
+                version=row.version,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                created_by_agent_id=None,
+            )
+        )
         counts["tasks"] += 1
     await session.flush()
 
@@ -563,9 +624,17 @@ async def _copy_graph_nodes(
     counts: dict[str, int],
     remap: RemapTable,
 ) -> None:
-    rows = (await session.execute(
-        select(GraphNode).where(GraphNode.env_id == request.src_env_id).order_by(GraphNode.created_at, GraphNode.id)
-    )).scalars().all()
+    rows = (
+        (
+            await session.execute(
+                select(GraphNode)
+                .where(GraphNode.env_id == request.src_env_id)
+                .order_by(GraphNode.created_at, GraphNode.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     for row in rows:
         memory_id = remap.memories.get(row.memory_id) if row.memory_id is not None else None
         entity_id = remap.entities.get(row.entity_id) if row.entity_id is not None else None
@@ -578,15 +647,17 @@ async def _copy_graph_nodes(
             continue
         new_id = uuid4()
         remap.graph_nodes[row.id] = new_id
-        session.add(GraphNode(
-            id=new_id,
-            env_id=request.dst_env_id,
-            node_type=row.node_type,
-            memory_id=memory_id,
-            entity_id=entity_id,
-            task_id=task_id,
-            created_at=row.created_at,
-        ))
+        session.add(
+            GraphNode(
+                id=new_id,
+                env_id=request.dst_env_id,
+                node_type=row.node_type,
+                memory_id=memory_id,
+                entity_id=entity_id,
+                task_id=task_id,
+                created_at=row.created_at,
+            )
+        )
         counts["graph_nodes"] += 1
     await session.flush()
 
@@ -600,27 +671,35 @@ async def _copy_relations(
 ) -> None:
     if not remap.graph_nodes:
         return
-    rows = (await session.execute(
-        select(Relation)
-        .where(Relation.env_id == request.src_env_id)
-        .where(Relation.src_node_id.in_(remap.graph_nodes.keys()))
-        .where(Relation.dst_node_id.in_(remap.graph_nodes.keys()))
-        .order_by(Relation.created_at, Relation.id)
-    )).scalars().all()
+    rows = (
+        (
+            await session.execute(
+                select(Relation)
+                .where(Relation.env_id == request.src_env_id)
+                .where(Relation.src_node_id.in_(remap.graph_nodes.keys()))
+                .where(Relation.dst_node_id.in_(remap.graph_nodes.keys()))
+                .order_by(Relation.created_at, Relation.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     for row in rows:
         new_id = uuid4()
         remap.relations[row.id] = new_id
-        session.add(Relation(
-            id=new_id,
-            env_id=request.dst_env_id,
-            src_node_id=remap.graph_nodes[row.src_node_id],
-            dst_node_id=remap.graph_nodes[row.dst_node_id],
-            type=row.type,
-            properties=dict(row.properties or {}),
-            created_at=row.created_at,
-            updated_at=row.updated_at,
-            version=row.version,
-        ))
+        session.add(
+            Relation(
+                id=new_id,
+                env_id=request.dst_env_id,
+                src_node_id=remap.graph_nodes[row.src_node_id],
+                dst_node_id=remap.graph_nodes[row.dst_node_id],
+                type=row.type,
+                properties=dict(row.properties or {}),
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                version=row.version,
+            )
+        )
         counts["relations"] += 1
     await session.flush()
 
@@ -634,12 +713,18 @@ async def _copy_intra_src_lineage(
 ) -> None:
     if not remap.memories:
         return
-    rows = (await session.execute(
-        select(MemoryLineage)
-        .where(MemoryLineage.parent_memory_id.in_(remap.memories.keys()))
-        .where(MemoryLineage.child_memory_id.in_(remap.memories.keys()))
-        .order_by(MemoryLineage.created_at)
-    )).scalars().all()
+    rows = (
+        (
+            await session.execute(
+                select(MemoryLineage)
+                .where(MemoryLineage.parent_memory_id.in_(remap.memories.keys()))
+                .where(MemoryLineage.child_memory_id.in_(remap.memories.keys()))
+                .order_by(MemoryLineage.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
     for row in rows:
         await session.execute(
             pg_insert(MemoryLineage)
@@ -658,9 +743,11 @@ async def _copy_intra_src_lineage(
 async def _update_superseded_by(session: AsyncSession, *, remap: RemapTable) -> None:
     if not remap.memories:
         return
-    rows = (await session.execute(
-        select(Memory.id, Memory.status, Memory.superseded_by).where(Memory.id.in_(remap.memories.keys()))
-    )).all()
+    rows = (
+        await session.execute(
+            select(Memory.id, Memory.status, Memory.superseded_by).where(Memory.id.in_(remap.memories.keys()))
+        )
+    ).all()
     for old_id, old_status, old_target in rows:
         if old_target is None or old_target not in remap.memories:
             continue
@@ -709,10 +796,8 @@ async def _rewrite_cross_env_lineage(
 
 async def _entity_versions(entity_ids: list[UUID]) -> dict[UUID, int]:
     async with session_scope() as session:
-        rows = (await session.execute(
-            select(Entity.id, Entity.version).where(Entity.id.in_(entity_ids))
-        )).all()
-    return {entity_id: version for entity_id, version in rows}
+        rows = (await session.execute(select(Entity.id, Entity.version).where(Entity.id.in_(entity_ids)))).all()
+    return dict(rows)
 
 
 def _remap_size(remap: RemapTable) -> int:

@@ -5,6 +5,9 @@ from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
 import pytest
+from memory_mcp_schemas.browse import MemBrowseRequest
+from memory_mcp_schemas.enums import MemoryStatus
+from memory_mcp_schemas.env_ops import EnvCloneRequest
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -25,11 +28,7 @@ from memory_mcp.env_ops import clone as cloner
 from memory_mcp.env_ops.clone import clone_env
 from memory_mcp.errors import NotFoundError
 from memory_mcp.identity import AgentContext
-from memory_mcp_schemas.browse import MemBrowseRequest
-from memory_mcp_schemas.env_ops import EnvCloneRequest
-from memory_mcp_schemas.enums import MemoryStatus
-
-from tests.env_ops.test_roundtrip import _MemoryVectorStore, _truncate, postgres_factory
+from tests.env_ops.test_roundtrip import _MemoryVectorStore, _truncate, postgres_factory  # noqa: F401
 
 
 @pytest.fixture
@@ -166,7 +165,9 @@ async def test_clone_name_collision_raises(
     session, _store, ctx = clone_db
     src_env_id = await _create_full_env(session)
     existing = f"taken-{uuid4().hex}"
-    session.add(Environment(id=uuid4(), name=existing.upper(), retention_policy={}, default_embedding_model_id="test-model"))
+    session.add(
+        Environment(id=uuid4(), name=existing.upper(), retention_policy={}, default_embedding_model_id="test-model")
+    )
     await session.commit()
 
     with pytest.raises(cloner.ConflictError) as exc:
@@ -206,7 +207,9 @@ async def test_clone_excludes_grants(clone_db: tuple[AsyncSession, _MemoryVector
         ctx=ctx,
     )
 
-    grants = await session.scalar(select(func.count()).select_from(EnvGrant).where(EnvGrant.env_id == report.dst_env_id))
+    grants = await session.scalar(
+        select(func.count()).select_from(EnvGrant).where(EnvGrant.env_id == report.dst_env_id)
+    )
     assert grants == 0
 
 
@@ -226,7 +229,9 @@ async def test_clone_dst_uuids_fresh(clone_db: tuple[AsyncSession, _MemoryVector
 
 async def _create_full_env(session: AsyncSession) -> UUID:
     env_id = uuid4()
-    session.add(Environment(id=env_id, name=f"src-{uuid4().hex}", retention_policy={}, default_embedding_model_id="test-model"))
+    session.add(
+        Environment(id=env_id, name=f"src-{uuid4().hex}", retention_policy={}, default_embedding_model_id="test-model")
+    )
     await session.flush()
     memories = [
         Memory(id=uuid4(), env_id=env_id, kind="fact", status="active", body=f"memory-{idx}", version=1)
@@ -239,24 +244,32 @@ async def _create_full_env(session: AsyncSession) -> UUID:
     ]
     session.add_all([*memories, *tags, *entities])
     await session.flush()
-    session.add_all([
-        MemoryTag(memory_id=memories[0].id, tag_id=tags[0].id, env_id=env_id),
-        MemoryTag(memory_id=memories[1].id, tag_id=tags[1].id, env_id=env_id),
-    ])
+    session.add_all(
+        [
+            MemoryTag(memory_id=memories[0].id, tag_id=tags[0].id, env_id=env_id),
+            MemoryTag(memory_id=memories[1].id, tag_id=tags[1].id, env_id=env_id),
+        ]
+    )
     nodes = [
         GraphNode(id=uuid4(), env_id=env_id, node_type="entity", entity_id=entities[0].id),
         GraphNode(id=uuid4(), env_id=env_id, node_type="entity", entity_id=entities[1].id),
     ]
     session.add_all(nodes)
     await session.flush()
-    session.add(Relation(id=uuid4(), env_id=env_id, src_node_id=nodes[0].id, dst_node_id=nodes[1].id, type="related_to"))
+    session.add(
+        Relation(id=uuid4(), env_id=env_id, src_node_id=nodes[0].id, dst_node_id=nodes[1].id, type="related_to")
+    )
     await session.commit()
     return env_id
 
 
 async def _create_chain_env(session: AsyncSession) -> UUID:
     env_id = uuid4()
-    session.add(Environment(id=env_id, name=f"chain-{uuid4().hex}", retention_policy={}, default_embedding_model_id="test-model"))
+    session.add(
+        Environment(
+            id=env_id, name=f"chain-{uuid4().hex}", retention_policy={}, default_embedding_model_id="test-model"
+        )
+    )
     await session.flush()
     a = Memory(id=uuid4(), env_id=env_id, kind="fact", status="active", body="A", version=1)
     b = Memory(id=uuid4(), env_id=env_id, kind="fact", status="active", body="B", version=1)
@@ -273,7 +286,11 @@ async def _create_chain_env(session: AsyncSession) -> UUID:
 
 async def _create_filtered_env(session: AsyncSession) -> UUID:
     env_id = uuid4()
-    session.add(Environment(id=env_id, name=f"filtered-{uuid4().hex}", retention_policy={}, default_embedding_model_id="test-model"))
+    session.add(
+        Environment(
+            id=env_id, name=f"filtered-{uuid4().hex}", retention_policy={}, default_embedding_model_id="test-model"
+        )
+    )
     await session.flush()
     memories = {
         "seed-1": Memory(id=uuid4(), env_id=env_id, kind="fact", status="active", body="seed-1", version=1),
@@ -281,7 +298,9 @@ async def _create_filtered_env(session: AsyncSession) -> UUID:
         "supersession-target": Memory(
             id=uuid4(), env_id=env_id, kind="fact", status="active", body="supersession-target", version=1
         ),
-        "lineage-parent": Memory(id=uuid4(), env_id=env_id, kind="fact", status="active", body="lineage-parent", version=1),
+        "lineage-parent": Memory(
+            id=uuid4(), env_id=env_id, kind="fact", status="active", body="lineage-parent", version=1
+        ),
         "unrelated": Memory(id=uuid4(), env_id=env_id, kind="fact", status="active", body="unrelated", version=1),
     }
     tag = Tag(id=uuid4(), env_id=env_id, name="seed")
@@ -289,15 +308,17 @@ async def _create_filtered_env(session: AsyncSession) -> UUID:
     await session.flush()
     memories["seed-2"].status = "superseded"
     memories["seed-2"].superseded_by = memories["supersession-target"].id
-    session.add_all([
-        MemoryTag(memory_id=memories["seed-1"].id, tag_id=tag.id, env_id=env_id),
-        MemoryTag(memory_id=memories["seed-2"].id, tag_id=tag.id, env_id=env_id),
-        MemoryLineage(
-            parent_memory_id=memories["lineage-parent"].id,
-            child_memory_id=memories["seed-1"].id,
-            relation="copied_from",
-        ),
-    ])
+    session.add_all(
+        [
+            MemoryTag(memory_id=memories["seed-1"].id, tag_id=tag.id, env_id=env_id),
+            MemoryTag(memory_id=memories["seed-2"].id, tag_id=tag.id, env_id=env_id),
+            MemoryLineage(
+                parent_memory_id=memories["lineage-parent"].id,
+                child_memory_id=memories["seed-1"].id,
+                relation="copied_from",
+            ),
+        ]
+    )
     await session.commit()
     return env_id
 

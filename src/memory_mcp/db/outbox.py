@@ -200,10 +200,7 @@ async def enqueue_event(
 
     await session.execute(
         insert(OutboxDelivery),
-        [
-            {"event_id": event_id, "sink": sink.value}
-            for sink in resolved_sinks
-        ],
+        [{"event_id": event_id, "sink": sink.value} for sink in resolved_sinks],
     )
 
     # Ensure a projection_state row exists for each (sink, env_id) pair.
@@ -211,12 +208,7 @@ async def enqueue_event(
     # those columns from the writer side.
     upsert_state = (
         pg_insert(ProjectionState)
-        .values(
-            [
-                {"sink": sink.value, "env_id": env_id}
-                for sink in resolved_sinks
-            ]
-        )
+        .values([{"sink": sink.value, "env_id": env_id} for sink in resolved_sinks])
         .on_conflict_do_nothing(index_elements=["sink", "env_id"])
     )
     await session.execute(upsert_state)

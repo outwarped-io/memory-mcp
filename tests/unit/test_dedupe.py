@@ -127,7 +127,8 @@ def _patch_loaders(
 ) -> AsyncMock:
     loader = AsyncMock(return_value=[s.row() if hasattr(s, "row") else s for s in seeds])
     monkeypatch.setattr(
-        "memory_mcp.dream.passes.dedupe._load_seed_rows", loader,
+        "memory_mcp.dream.passes.dedupe._load_seed_rows",
+        loader,
     )
     return loader
 
@@ -143,12 +144,10 @@ def _patch_insert(
     want to exercise the pre-summarize skip path should pass
     ``exists=True``.
     """
-    insert_mock = (
-        AsyncMock(return_value=True) if side_effect is None
-        else AsyncMock(side_effect=side_effect)
-    )
+    insert_mock = AsyncMock(return_value=True) if side_effect is None else AsyncMock(side_effect=side_effect)
     monkeypatch.setattr(
-        "memory_mcp.dream.passes.dedupe._insert_proposal", insert_mock,
+        "memory_mcp.dream.passes.dedupe._insert_proposal",
+        insert_mock,
     )
     monkeypatch.setattr(
         "memory_mcp.dream.passes.dedupe._open_proposal_exists",
@@ -177,10 +176,18 @@ class TestPureHelpers:
         b = uuid4()
         members = {
             a: MergeClusterMember(
-                memory_id=a, title=None, body="x", salience=0.3, created_at=NOW,
+                memory_id=a,
+                title=None,
+                body="x",
+                salience=0.3,
+                created_at=NOW,
             ),
             b: MergeClusterMember(
-                memory_id=b, title=None, body="y", salience=0.7, created_at=NOW,
+                memory_id=b,
+                title=None,
+                body="y",
+                salience=0.7,
+                created_at=NOW,
             ),
         }
         assert _select_primary_id(members) == b
@@ -191,10 +198,18 @@ class TestPureHelpers:
         high = UUID("ff000000-0000-0000-0000-000000000000")
         members = {
             low: MergeClusterMember(
-                memory_id=low, title=None, body="x", salience=0.5, created_at=NOW,
+                memory_id=low,
+                title=None,
+                body="x",
+                salience=0.5,
+                created_at=NOW,
             ),
             high: MergeClusterMember(
-                memory_id=high, title=None, body="y", salience=0.5, created_at=NOW,
+                memory_id=high,
+                title=None,
+                body="y",
+                salience=0.5,
+                created_at=NOW,
             ),
         }
         assert _select_primary_id(members) == low
@@ -208,7 +223,8 @@ class TestPureHelpers:
 class TestClusterFormation:
     @pytest.mark.asyncio
     async def test_single_seed_one_neighbor_emits_proposal(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         seed = _FakeSeed()
@@ -217,9 +233,11 @@ class TestClusterFormation:
         insert_mock = _patch_insert(monkeypatch)
 
         qdrant = MagicMock()
-        qdrant.search = AsyncMock(return_value=[
-            _make_qdrant_hit(memory_id=neighbor_id, score=0.95),
-        ])
+        qdrant.search = AsyncMock(
+            return_value=[
+                _make_qdrant_hit(memory_id=neighbor_id, score=0.95),
+            ]
+        )
 
         result = await run_dedupe(
             env_id,
@@ -244,27 +262,32 @@ class TestClusterFormation:
         assert seed.row().id in member_ids
         assert neighbor_id in member_ids
         # Cosine for the seed itself is 1.0; for the neighbor matches Qdrant.
-        scores = dict(zip(
-            [m.memory_id for m in cluster.members],
-            cluster.cosine_scores,
-            strict=True,
-        ))
+        scores = dict(
+            zip(
+                [m.memory_id for m in cluster.members],
+                cluster.cosine_scores,
+                strict=True,
+            )
+        )
         assert scores[seed.row().id] == pytest.approx(1.0)
         assert scores[neighbor_id] == pytest.approx(0.95)
 
     @pytest.mark.asyncio
     async def test_no_above_threshold_neighbors_skipped(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         _patch_loaders(monkeypatch, seeds=[_FakeSeed()])
         insert_mock = _patch_insert(monkeypatch)
 
         qdrant = MagicMock()
-        qdrant.search = AsyncMock(return_value=[
-            _make_qdrant_hit(memory_id=uuid4(), score=0.85),
-            _make_qdrant_hit(memory_id=uuid4(), score=0.50),
-        ])
+        qdrant.search = AsyncMock(
+            return_value=[
+                _make_qdrant_hit(memory_id=uuid4(), score=0.85),
+                _make_qdrant_hit(memory_id=uuid4(), score=0.50),
+            ]
+        )
 
         result = await run_dedupe(
             env_id,
@@ -283,7 +306,8 @@ class TestClusterFormation:
 
     @pytest.mark.asyncio
     async def test_two_seeds_same_cluster_emits_once(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """If two seeds happen to be in the same cluster, only one
         proposal is emitted (the second seed's cluster has the same
@@ -305,6 +329,7 @@ class TestClusterFormation:
                 _make_qdrant_hit(memory_id=seed_a_id, score=0.96),
                 _make_qdrant_hit(memory_id=seed_b_id, score=0.96),
             ]
+
         qdrant.search = AsyncMock(side_effect=search_side_effect)
 
         result = await run_dedupe(
@@ -332,16 +357,19 @@ class TestClusterFormation:
 class TestIdempotency:
     @pytest.mark.asyncio
     async def test_existing_proposal_skipped_and_counted(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         _patch_loaders(monkeypatch, seeds=[_FakeSeed()])
         insert_mock = _patch_insert(monkeypatch, side_effect=[False])
 
         qdrant = MagicMock()
-        qdrant.search = AsyncMock(return_value=[
-            _make_qdrant_hit(memory_id=uuid4(), score=0.95),
-        ])
+        qdrant.search = AsyncMock(
+            return_value=[
+                _make_qdrant_hit(memory_id=uuid4(), score=0.95),
+            ]
+        )
 
         result = await run_dedupe(
             env_id,
@@ -358,7 +386,8 @@ class TestIdempotency:
 
     @pytest.mark.asyncio
     async def test_pre_summarize_skip_avoids_summarizer_call(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """If an open proposal already covers this cluster, the
         summarizer is NOT called and the insert is NOT attempted —
@@ -369,9 +398,11 @@ class TestIdempotency:
         insert_mock = _patch_insert(monkeypatch, exists=True)
 
         qdrant = MagicMock()
-        qdrant.search = AsyncMock(return_value=[
-            _make_qdrant_hit(memory_id=uuid4(), score=0.95),
-        ])
+        qdrant.search = AsyncMock(
+            return_value=[
+                _make_qdrant_hit(memory_id=uuid4(), score=0.95),
+            ]
+        )
 
         # Wrap a real TemplateSummarizer so we can spy on calls.
         summarizer = TemplateSummarizer()
@@ -417,10 +448,18 @@ class TestIdempotency:
             primary_id=a,
             members=[
                 MergeClusterMember(
-                    memory_id=a, title=None, body="x", salience=0.5, created_at=NOW,
+                    memory_id=a,
+                    title=None,
+                    body="x",
+                    salience=0.5,
+                    created_at=NOW,
                 ),
                 MergeClusterMember(
-                    memory_id=b, title=None, body="y", salience=0.5, created_at=NOW,
+                    memory_id=b,
+                    title=None,
+                    body="y",
+                    salience=0.5,
+                    created_at=NOW,
                 ),
             ],
             cosine_scores=[1.0, 0.95],
@@ -481,10 +520,18 @@ class TestIdempotency:
             primary_id=a,
             members=[
                 MergeClusterMember(
-                    memory_id=a, title=None, body="x", salience=0.5, created_at=NOW,
+                    memory_id=a,
+                    title=None,
+                    body="x",
+                    salience=0.5,
+                    created_at=NOW,
                 ),
                 MergeClusterMember(
-                    memory_id=b, title=None, body="y", salience=0.5, created_at=NOW,
+                    memory_id=b,
+                    title=None,
+                    body="y",
+                    salience=0.5,
+                    created_at=NOW,
                 ),
             ],
             cosine_scores=[1.0, 0.95],
@@ -535,7 +582,8 @@ class TestIdempotency:
 class TestBatchCap:
     @pytest.mark.asyncio
     async def test_cap_stops_emission_and_flags_items_capped(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         # 5 distinct seeds, each with its own near-duplicate neighbor.
@@ -547,6 +595,7 @@ class TestBatchCap:
 
         async def search_side_effect(**kwargs: Any) -> list[dict[str, Any]]:
             return [_make_qdrant_hit(memory_id=uuid4(), score=0.95)]
+
         qdrant.search = AsyncMock(side_effect=search_side_effect)
 
         # Cap=2 ⇒ stop after 2 proposals.
@@ -582,7 +631,8 @@ class TestBridgeAndOverlap:
 
     @pytest.mark.asyncio
     async def test_bridge_does_not_transitively_merge(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         a = UUID("aaaaaaaa-0000-0000-0000-000000000001")
@@ -596,6 +646,7 @@ class TestBridgeAndOverlap:
         insert_mock = _patch_insert(monkeypatch)
 
         qdrant = MagicMock()
+
         # Per-seed neighbor lists model the bridge:
         # A sees only B above threshold (C is below).
         # B sees both A and C above threshold.
@@ -610,6 +661,7 @@ class TestBridgeAndOverlap:
                 _make_qdrant_hit(memory_id=a, score=0.95),
                 _make_qdrant_hit(memory_id=c, score=0.94),
             ]
+
         search_side_effect.calls = []  # type: ignore[attr-defined]
         qdrant.search = AsyncMock(side_effect=search_side_effect)
 
@@ -627,10 +679,7 @@ class TestBridgeAndOverlap:
         assert result.proposals_emitted == 2
         assert insert_mock.await_count == 2
         # Verify the two distinct member sets.
-        cluster_sizes = sorted(
-            len(call.kwargs["sorted_member_ids"])
-            for call in insert_mock.await_args_list
-        )
+        cluster_sizes = sorted(len(call.kwargs["sorted_member_ids"]) for call in insert_mock.await_args_list)
         assert cluster_sizes == [2, 3]
 
 
@@ -642,7 +691,8 @@ class TestBridgeAndOverlap:
 class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_empty_env_clean_result(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         env_id = uuid4()
         _patch_loaders(monkeypatch, seeds=[])
@@ -670,7 +720,8 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_empty_seed_text_skipped(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A memory whose embed input would be empty should be skipped
         (no search, no cluster, no proposal)."""

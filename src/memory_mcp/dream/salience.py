@@ -222,10 +222,7 @@ def salience_weights_from_settings(settings: Settings) -> SalienceWeights:
     # :func:`compute_salience` zeroes out regardless of the
     # ``reference_authority`` value on the row. Keeps ``compute_salience``
     # pure (no Settings dependency) while still honoring the knob.
-    if settings.dream_popularity_authority_weighted:
-        w_authority = settings.dream_salience_w_authority
-    else:
-        w_authority = 0.0
+    w_authority = settings.dream_salience_w_authority if settings.dream_popularity_authority_weighted else 0.0
 
     return SalienceWeights(
         w_access=settings.dream_salience_w_access,
@@ -286,6 +283,7 @@ def _references_term(row: SalienceInputs, w: SalienceWeights) -> float:
     caller multiplies by ``w.w_references`` to obtain the salience-space
     contribution.
     """
+
     def _per_kind(n: int, window: int) -> float:
         if window <= 0:
             return 0.0
@@ -344,11 +342,7 @@ def compute_salience(
     delta_access = _seconds_since(row.last_accessed_at, now)
     if row.last_accessed_at is None and w._floor_recency_from_created:
         delta_access = _seconds_since(row.created_at, now)
-    recency_factor = (
-        0.0
-        if math.isinf(delta_access)
-        else math.exp(-delta_access / max(1, w.recency_tau_seconds))
-    )
+    recency_factor = 0.0 if math.isinf(delta_access) else math.exp(-delta_access / max(1, w.recency_tau_seconds))
     recency_term = w.w_recency * recency_factor
 
     # --- Confidence term ----------------------------------------------------
@@ -373,9 +367,7 @@ def compute_salience(
     # ``log1p(0) == 0`` if the operator sets the window to a degenerate
     # value.
     authority_norm_denom = math.log1p(max(1.0, w.authority_window))
-    authority_norm = _clamp01(
-        math.log1p(max(0.0, row.reference_authority)) / authority_norm_denom
-    )
+    authority_norm = _clamp01(math.log1p(max(0.0, row.reference_authority)) / authority_norm_denom)
     authority_term = w.w_authority * authority_norm
 
     # --- Pinned bonus -------------------------------------------------------

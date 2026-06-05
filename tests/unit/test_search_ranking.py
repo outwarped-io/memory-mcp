@@ -88,11 +88,15 @@ def test_sort_hits_pinned_wins_over_higher_score() -> None:
 
 def test_sort_hits_score_then_recency_breaks_ties() -> None:
     older = FusedHit(
-        memory_id=uuid4(), score=0.5, pinned=False,
+        memory_id=uuid4(),
+        score=0.5,
+        pinned=False,
         updated_at=dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
     )
     newer = FusedHit(
-        memory_id=uuid4(), score=0.5, pinned=False,
+        memory_id=uuid4(),
+        score=0.5,
+        pinned=False,
         updated_at=dt.datetime(2026, 5, 1, tzinfo=dt.UTC),
     )
     sorted_ = sort_hits([older, newer])

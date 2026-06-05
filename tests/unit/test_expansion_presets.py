@@ -17,7 +17,6 @@ from memory_mcp.search import ExpansionPreset, MemorySearchRequest, memory_searc
 from memory_mcp.search import api as search_api
 from memory_mcp.search.ranking import RankedHit
 
-
 NARROW_RESOLVED = {
     "min_score": 0.035,
     "fallback": False,
@@ -133,14 +132,16 @@ def test_expansion_resolved_snapshots(
 
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
     req = MemorySearchRequest(query="q", mode="hybrid", expansion=preset)
-    resp = asyncio.run(memory_search(
-        req,
-        ctx=ctx,
-        settings=_settings(),
-        vector_store=MagicMock(),
-        embedder=MagicMock(),
-        graph_store=MagicMock(),
-    ))
+    resp = asyncio.run(
+        memory_search(
+            req,
+            ctx=ctx,
+            settings=_settings(),
+            vector_store=MagicMock(),
+            embedder=MagicMock(),
+            graph_store=MagicMock(),
+        )
+    )
 
     assert resp.expansion_resolved == expected
 
@@ -153,14 +154,16 @@ def test_expansion_none_leaves_expansion_resolved_unset(monkeypatch: pytest.Monk
     _patch_search(monkeypatch, lex_lists=ranked, sem_lists=ranked, memories=memories)
 
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
-    resp = asyncio.run(memory_search(
-        MemorySearchRequest(query="q", mode="hybrid"),
-        ctx=ctx,
-        settings=_settings(),
-        vector_store=MagicMock(),
-        embedder=MagicMock(),
-        graph_store=MagicMock(),
-    ))
+    resp = asyncio.run(
+        memory_search(
+            MemorySearchRequest(query="q", mode="hybrid"),
+            ctx=ctx,
+            settings=_settings(),
+            vector_store=MagicMock(),
+            embedder=MagicMock(),
+            graph_store=MagicMock(),
+        )
+    )
 
     assert resp.expansion_resolved is None
 
@@ -173,22 +176,26 @@ def test_expansion_default_matches_omitted_expansion(monkeypatch: pytest.MonkeyP
     _patch_search(monkeypatch, lex_lists=ranked * 2, sem_lists=ranked * 2, memories=memories)
 
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
-    default_resp = asyncio.run(memory_search(
-        MemorySearchRequest(query="q", mode="hybrid", expansion=ExpansionPreset.default),
-        ctx=ctx,
-        settings=_settings(),
-        vector_store=MagicMock(),
-        embedder=MagicMock(),
-        graph_store=MagicMock(),
-    ))
-    omitted_resp = asyncio.run(memory_search(
-        MemorySearchRequest(query="q", mode="hybrid"),
-        ctx=ctx,
-        settings=_settings(),
-        vector_store=MagicMock(),
-        embedder=MagicMock(),
-        graph_store=MagicMock(),
-    ))
+    default_resp = asyncio.run(
+        memory_search(
+            MemorySearchRequest(query="q", mode="hybrid", expansion=ExpansionPreset.default),
+            ctx=ctx,
+            settings=_settings(),
+            vector_store=MagicMock(),
+            embedder=MagicMock(),
+            graph_store=MagicMock(),
+        )
+    )
+    omitted_resp = asyncio.run(
+        memory_search(
+            MemorySearchRequest(query="q", mode="hybrid"),
+            ctx=ctx,
+            settings=_settings(),
+            vector_store=MagicMock(),
+            embedder=MagicMock(),
+            graph_store=MagicMock(),
+        )
+    )
 
     assert default_resp.model_dump(exclude={"expansion_resolved"}) == omitted_resp.model_dump(
         exclude={"expansion_resolved"},
@@ -205,11 +212,13 @@ def test_narrow_rejects_results_below_p90_threshold(monkeypatch: pytest.MonkeyPa
     _patch_search(monkeypatch, lex_lists=ranked, memories=memories)
 
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
-    resp = asyncio.run(memory_search(
-        MemorySearchRequest(query="q", mode="lex", expansion=ExpansionPreset.narrow),
-        ctx=ctx,
-        settings=_settings(),
-    ))
+    resp = asyncio.run(
+        memory_search(
+            MemorySearchRequest(query="q", mode="lex", expansion=ExpansionPreset.narrow),
+            ctx=ctx,
+            settings=_settings(),
+        )
+    )
 
     assert resp.hits == []
     assert resp.expansion_resolved == NARROW_RESOLVED
@@ -227,14 +236,16 @@ def test_broad_does_not_include_retired_rows_by_default(monkeypatch: pytest.Monk
     )
 
     ctx = AgentContext(agent_id=uuid4(), attached_env_ids=[env_id])
-    resp = asyncio.run(memory_search(
-        MemorySearchRequest(query="gibberish-zqxjkv", mode="lex", expansion=ExpansionPreset.broad),
-        ctx=ctx,
-        settings=_settings(),
-        vector_store=MagicMock(),
-        embedder=MagicMock(),
-        graph_store=MagicMock(),
-    ))
+    resp = asyncio.run(
+        memory_search(
+            MemorySearchRequest(query="gibberish-zqxjkv", mode="lex", expansion=ExpansionPreset.broad),
+            ctx=ctx,
+            settings=_settings(),
+            vector_store=MagicMock(),
+            embedder=MagicMock(),
+            graph_store=MagicMock(),
+        )
+    )
 
     assert resp.hits == []
     assert resp.expansion_resolved == BROAD_RESOLVED

@@ -12,7 +12,10 @@ from memory_mcp_schemas.memories import MemoryResponse
 
 
 MemTopBy = Literal[
-    "salience", "access_count", "reference_count", "reference_velocity",
+    "salience",
+    "access_count",
+    "reference_count",
+    "reference_velocity",
     "reference_authority",
 ]
 MemTopTagMatch = Literal["any", "all"]
@@ -56,7 +59,9 @@ class MemTopRequest(BaseModel):
     )
 
     velocity_window_days: int = Field(
-        default=30, ge=1, le=365,
+        default=30,
+        ge=1,
+        le=365,
         description="Only used when ``by='reference_velocity'``.",
     )
 

@@ -30,7 +30,6 @@ import pytest
 from memory_mcp_client import MemoryClient
 from memory_mcp_client.errors import MemoryMCPError
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -125,12 +124,8 @@ async def test_entities_upsert_resolve(live_client: MemoryClient, scratch_env):
 
 
 async def test_relations_link_browse(live_client: MemoryClient, scratch_env):
-    src = await live_client.entities.upsert(
-        env_id=scratch_env.id, kind="repo", name="sdk-it-src"
-    )
-    dst = await live_client.entities.upsert(
-        env_id=scratch_env.id, kind="repo", name="sdk-it-dst"
-    )
+    src = await live_client.entities.upsert(env_id=scratch_env.id, kind="repo", name="sdk-it-src")
+    dst = await live_client.entities.upsert(env_id=scratch_env.id, kind="repo", name="sdk-it-dst")
 
     link = await live_client.relations.link(
         env_id=scratch_env.id,
@@ -170,9 +165,7 @@ async def test_dream_status(live_client: MemoryClient):
 # --- env_ops ---------------------------------------------------------------
 
 
-async def test_env_ops_export_snapshot_restore(
-    live_client: MemoryClient, scratch_env
-):
+async def test_env_ops_export_snapshot_restore(live_client: MemoryClient, scratch_env):
     # Seed at least one memory so the export has something to ship.
     await live_client.memories.write(
         env_id=scratch_env.id,
@@ -205,9 +198,7 @@ async def test_env_ops_export_snapshot_restore(
 # --- playbooks --------------------------------------------------------------
 
 
-async def test_playbooks_invoke_missing_clean_error(
-    live_client: MemoryClient, scratch_env
-):
+async def test_playbooks_invoke_missing_clean_error(live_client: MemoryClient, scratch_env):
     """No playbooks exist in a scratch env — invoke must surface a typed error."""
     with pytest.raises(MemoryMCPError):
         await live_client.playbooks.invoke(

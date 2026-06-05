@@ -51,6 +51,7 @@ DecomposeMode = Literal["split", "derive"]
 # Child payload
 # ---------------------------------------------------------------------------
 
+
 class MemDecomposeChild(BaseModel):
     """Narrow child payload accepted by ``mem_decompose``.
 
@@ -108,6 +109,7 @@ class MemDecomposeChild(BaseModel):
 # ---------------------------------------------------------------------------
 # Request
 # ---------------------------------------------------------------------------
+
 
 class MemDecomposeRequest(BaseModel):
     """Decompose one source memory into N children (2 ≤ N ≤ 20).
@@ -168,6 +170,7 @@ class MemDecomposeRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Response
 # ---------------------------------------------------------------------------
+
 
 class DecomposeLineageRow(BaseModel):
     """One lineage edge emitted by ``mem_decompose`` (parent=source, child=new)."""
