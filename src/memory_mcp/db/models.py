@@ -87,6 +87,17 @@ class Environment(Base):
 
 class Agent(Base):
     __tablename__ = "agents"
+    __table_args__ = (
+        # Migration 0023 — Phase 2a auth: partial unique index lets agent rows
+        # without an OIDC principal coexist while ensuring no two rows claim
+        # the same subject. See ADR 0001 §4.
+        Index(
+            "agents_principal_id_uniq",
+            "principal_id",
+            unique=True,
+            postgresql_where=text("principal_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
@@ -94,6 +105,7 @@ class Agent(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_seen_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    principal_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Session(Base):
@@ -146,6 +158,39 @@ class EnvGrant(Base):
     )
     role: Mapped[str] = mapped_column(Text, nullable=False)
     granted_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class EnvAcl(Base):
+    """Phase 2a auth: per-env principal ACL — peer of ``env_grants`` keyed by
+    OIDC subject/Entra oid (text) instead of synthetic agent uuid.
+
+    Bootstrap rule (subtask 04): the first authenticated ``env_create_`` call
+    inserts ``(env_id, caller.principal_id, 'admin', now(), 'bootstrap')``.
+    Subsequent admin assignments go through ``env_grant_`` / ``env_revoke_``
+    / ``env_acls_browse_`` tools. See ADR 0001 §3.
+
+    Role hierarchy (``admin`` > ``writer`` > ``reader``) is enforced at the
+    dispatcher, not in the table.
+    """
+
+    __tablename__ = "env_acls"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('admin','writer','reader')",
+            name="env_acls_role_check",
+        ),
+        Index("env_acls_principal_idx", "principal_id"),
+    )
+
+    env_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("environments.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    principal_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+    granted_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    granted_by: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class Snapshot(Base):
@@ -208,6 +253,10 @@ class MemoryTombstone(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     original_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
     original_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Migration 0023 — Phase 2a auth: principal that performed the hard delete.
+    # NULL for tombstones written before the auth substrate landed (audit
+    # honesty over back-fill — ADR 0001 §4).
+    created_by_principal_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +422,10 @@ class Memory(Base):
     # ``mem_compose``; uniqueness is enforced per env via the partial index
     # ``ix_memories_compose_dedupe`` in ``__table_args__``.
     compose_dedupe_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Migration 0023 — Phase 2a auth: OIDC subject of the writer. NULL on
+    # rows created before the auth substrate landed (audit honesty over
+    # back-fill — ADR 0001 §4).
+    created_by_principal_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 # ---------------------------------------------------------------------------
@@ -555,6 +608,8 @@ class Relation(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1, server_default=text("1"))
+    # Migration 0023 — Phase 2a auth: OIDC subject of the writer (nullable).
+    created_by_principal_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 # ---------------------------------------------------------------------------
