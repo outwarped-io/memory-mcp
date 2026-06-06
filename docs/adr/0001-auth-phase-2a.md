@@ -31,7 +31,7 @@ Phase 2 introduces optional authentication. Phase 2a is the **single-tenant** sl
 Phase 2a ships **five coordinated artifacts**:
 
 1. **A new server release** with three `AUTH_MODE` values and an OIDC bearer-token validator on `/mcp/` only.
-2. **An additive schema migration** (`0022_auth_phase2a`) introducing per-env ACLs and a nullable audit column.
+2. **An additive schema migration** (`0023_auth_phase2a`) introducing per-env ACLs and a nullable audit column.
 3. **An updated stdio bridge** that mints / caches tokens via device-code flow.
 4. **A Helm chart** that packages memory-mcp + the three backing stores + NetworkPolicy + Secret templates as a single `helm install`.
 5. **Operator documentation** + an end-to-end smoke test that proves the whole stack works against a real IdP.
@@ -77,7 +77,7 @@ A new table:
 
 ```
 env_acls (
-  env_id        UUID NOT NULL REFERENCES envs(id) ON DELETE CASCADE,
+  env_id        UUID NOT NULL REFERENCES environments(id) ON DELETE CASCADE,
   principal_id  TEXT NOT NULL,
   role          TEXT NOT NULL,
   granted_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -96,7 +96,7 @@ env_acls (
 
 ### 4. Identity binding — additive principal column
 
-`agent_accounts` gains a nullable `principal_id TEXT` column with a partial unique index `WHERE principal_id IS NOT NULL`. The constraint prevents two agent rows from claiming the same OIDC subject; the partial-index form preserves room for synthetic / pre-auth rows that don't carry a principal.
+`agents` gains a nullable `principal_id TEXT` column with a partial unique index `WHERE principal_id IS NOT NULL`. The constraint prevents two agent rows from claiming the same OIDC subject; the partial-index form preserves room for synthetic / pre-auth rows that don't carry a principal.
 
 memories / relations / tombstones each gain a nullable `created_by_principal_id TEXT` audit column. We do **not** back-fill `created_by_agent_id` UUIDs into `created_by_principal_id` for legacy rows — that would invent identity that wasn't asserted at write time. Audit queries union both columns; older rows show as agent-only, newer rows show as principal-attested.
 
@@ -127,15 +127,17 @@ The E2E smoke test (Subtask 10) includes a denial case: a sidecar pod tries to r
 
 ### 7. Schema migration shape
 
-Single migration `0022_auth_phase2a`:
+Single migration `0023_auth_phase2a`:
 
-- `CREATE TABLE env_acls (...)` per §3.
-- `ALTER TABLE agent_accounts ADD COLUMN principal_id TEXT;` + partial unique index.
+- `CREATE TABLE env_acls (...)` per §3 (FK to `environments(id)`).
+- `ALTER TABLE agents ADD COLUMN principal_id TEXT;` + partial unique index `WHERE principal_id IS NOT NULL`.
 - `ALTER TABLE memories ADD COLUMN created_by_principal_id TEXT;`
 - `ALTER TABLE relations ADD COLUMN created_by_principal_id TEXT;`
 - `ALTER TABLE memory_tombstones ADD COLUMN created_by_principal_id TEXT;`
 
 All additions are nullable; existing inserts continue working unchanged. Down-migration drops the column / table; we document that the down path loses all auth state, which is acceptable for a v0.x service.
+
+> **Note on numbering and table names.** The ADR originally reserved `0022_auth_phase2a` and referenced tables `agent_accounts` and `envs(id)`. The migration shipped as `0023_auth_phase2a` because v0.17.2 had already landed `0022_message_kind` on `main` while this ADR was in review. The actual schema (since migration 0001) uses `agents` and `environments` as table names — `agent_accounts` and `envs` were working names that never landed. Both corrections applied here; see migration `0023_auth_phase2a.py` for the implemented shape.
 
 ## Consequences
 
@@ -207,7 +209,7 @@ The smoke test runs in CI on every PR against `feat/auth-phase-2a-*` branches.
 | # | Slug | Output |
 |---|---|---|
 | 01 | `auth-2a-01-adr` | This file + a `decision` memory in env `workspace` |
-| 02 | `auth-2a-02-schema` | Alembic migration `0022_auth_phase2a` + tests |
+| 02 | `auth-2a-02-schema` | Alembic migration `0023_auth_phase2a` + tests |
 | 03 | `auth-2a-03-jwt-dep` | `auth/oidc.py` + FastAPI dep + unit/integration tests |
 | 04 | `auth-2a-04-acl` | `env_acls` enforcement + `env_grant_` / `env_revoke_` / `env_acls_browse_` tools |
 | 05 | `auth-2a-05-config-secrets` | `config.py` audit + `docs/deployment.md` Secret-key reference |
