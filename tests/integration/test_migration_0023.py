@@ -60,19 +60,14 @@ async def _mk_agent(session, *, principal_id: str | None = None) -> UUID:
 
 
 @pytest.mark.asyncio
-async def test_env_acls_pk_and_fk_cascade(
-    postgres_session_factories: SessionPairFactory, clean_db: None
-) -> None:
+async def test_env_acls_pk_and_fk_cascade(postgres_session_factories: SessionPairFactory, clean_db: None) -> None:
     """PK is (env_id, principal_id); deleting the env cascades the ACL rows."""
 
     factory, _ = postgres_session_factories()
     async with factory() as session:
         env_id = await _mk_env(session)
         await session.execute(
-            text(
-                "INSERT INTO env_acls (env_id, principal_id, role, granted_by) "
-                "VALUES (:e, :p, 'admin', 'bootstrap')"
-            ),
+            text("INSERT INTO env_acls (env_id, principal_id, role, granted_by) VALUES (:e, :p, 'admin', 'bootstrap')"),
             {"e": env_id, "p": "user-alice@example.com"},
         )
         await session.commit()
@@ -208,8 +203,7 @@ async def test_memories_created_by_principal_id_writable(
         attested_mem_id = uuid4()
         await session.execute(
             text(
-                "INSERT INTO memories (id, env_id, kind, status, body) "
-                "VALUES (:id, :env, 'fact', 'active', 'legacy')"
+                "INSERT INTO memories (id, env_id, kind, status, body) VALUES (:id, :env, 'fact', 'active', 'legacy')"
             ),
             {"id": legacy_mem_id, "env": env_id},
         )
@@ -260,10 +254,7 @@ async def test_relations_created_by_principal_id_writable(
                 {"id": mem_id, "env": env_id},
             )
             await session.execute(
-                text(
-                    "INSERT INTO graph_nodes (id, env_id, node_type, memory_id) "
-                    "VALUES (:id, :env, 'memory', :mid)"
-                ),
+                text("INSERT INTO graph_nodes (id, env_id, node_type, memory_id) VALUES (:id, :env, 'memory', :mid)"),
                 {"id": node_id, "env": env_id, "mid": mem_id},
             )
         rel_id = uuid4()

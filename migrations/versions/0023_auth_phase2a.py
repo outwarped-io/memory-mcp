@@ -65,11 +65,7 @@ def upgrade() -> None:
 
     # 2. agents.principal_id -----------------------------------------------
     op.execute("ALTER TABLE agents ADD COLUMN principal_id text")
-    op.execute(
-        "CREATE UNIQUE INDEX agents_principal_id_uniq "
-        "ON agents (principal_id) "
-        "WHERE principal_id IS NOT NULL"
-    )
+    op.execute("CREATE UNIQUE INDEX agents_principal_id_uniq ON agents (principal_id) WHERE principal_id IS NOT NULL")
 
     # 3. created_by_principal_id audit columns -----------------------------
     op.execute("ALTER TABLE memories           ADD COLUMN created_by_principal_id text")
